@@ -96,7 +96,7 @@ func (l *Log) Append(actor, action string, detail map[string]string) (Entry, err
 	if len(line) >= MaxLineBytes {
 		return Entry{}, errors.New("audit entry too large")
 	}
-	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := openAppendOnly(l.path)
 	if err != nil {
 		return Entry{}, fmt.Errorf("opening audit log: %w", err)
 	}

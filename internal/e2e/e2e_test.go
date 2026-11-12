@@ -324,7 +324,8 @@ func randHex() string {
 func TestSecondUserLockedOut(t *testing.T) {
 	waitAllRunning(t)
 	name := "shtest" + randHex()[:6]
-	pass := "Aa1!" + randHex() + randHex()
+	// 14 characters: longer makes "net user" stop to ask a yes/no question
+	pass := "Aa1!" + randHex()[:10]
 	if out, err := exec.CommandContext(t.Context(), "net", "user", name, pass, "/add").CombinedOutput(); err != nil { // #nosec G204 -- test user on a throwaway runner
 		t.Fatalf("creating test user: %v %s", err, out)
 	}
@@ -576,28 +577,11 @@ func enablePrivilege(t *testing.T, name string) {
 	}
 }
 
-// setDACL rewrites a folder's DACL with SeRestorePrivilege, which an elevated
-// administrator holds, without taking ownership.
+// setDACL rewrites a folder's DACL as an elevated administrator would, with
+// SeRestorePrivilege, on the folder only (as setup does).
 func setDACL(t *testing.T, path, sddl string) {
 	t.Helper()
-	sd, err := windows.SecurityDescriptorFromString(sddl)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dacl, _, err := sd.DACL()
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, _ := windows.UTF16PtrFromString(path)
-	// FILE_FLAG_BACKUP_SEMANTICS with WRITE_DAC uses SeRestorePrivilege
-	h, err := windows.CreateFile(p, windows.WRITE_DAC, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-		nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
-	if err != nil {
-		t.Fatalf("opening %s for WRITE_DAC: %v", path, err)
-	}
-	defer func() { _ = windows.CloseHandle(h) }()
-	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION)
-	if err := windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT, info, nil, nil, dacl, nil); err != nil {
+	if err := winsec.ForceSDDL(path, sddl); err != nil {
 		t.Fatalf("setting DACL of %s: %v", path, err)
 	}
 }

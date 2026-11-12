@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
 func newLog(t *testing.T) (*Log, string) {
@@ -142,5 +144,38 @@ func TestOversizedEntryRefused(t *testing.T) {
 	l, _ := newLog(t)
 	if _, err := l.Append("a", "b", map[string]string{"x": strings.Repeat("y", MaxLineBytes)}); err == nil {
 		t.Fatal("oversized entry written")
+	}
+}
+
+// CI regression: appending works more than once under the installed audit
+// folder's append-only permissions (winsec.AuditFolderSDDL), and the
+// supervisor still cannot rewrite the file.
+func TestAppendUnderAppendOnlyFolder(t *testing.T) {
+	c, err := winsec.CurrentCaller()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "audit")
+	// The extra folder-only entry lets the test's cleanup delete the file (the
+	// real folder grants no one that); it does not reach the file itself.
+	if err := winsec.SetFolderSDDL(dir, "O:"+c.SID+winsec.AuditFolderSDDL(c.SID)+"(A;;FA;;;"+c.SID+")"); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "audit.log")
+	l, _, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 3 {
+		if _, err := l.Append("S-1-5-18", "x", nil); err != nil {
+			t.Fatalf("append %d: %v", i+1, err)
+		}
+	}
+	if rep, err := Verify(p); err != nil || !rep.OK() || rep.Entries != 3 {
+		t.Fatalf("report %+v %v", rep, err)
+	}
+	if f, err := os.OpenFile(p, os.O_WRONLY, 0); err == nil { //nolint:gosec // G304: the test's own file
+		_ = f.Close()
+		t.Fatal("the audit file can be opened for overwriting")
 	}
 }
