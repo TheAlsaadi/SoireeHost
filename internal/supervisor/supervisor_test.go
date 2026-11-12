@@ -569,10 +569,12 @@ func TestRefusesWritableFolders(t *testing.T) {
 	// OWNER RIGHTS in these descriptors stops even the folder's creator from
 	// changing its permissions again, so the locked case uses fresh folders
 	ok := Paths{Root: filepath.Join(dataRoot, "acl-"+randHex())}
-	if err := winsec.SetFolderSDDL(ok.Config(), winsec.ConfigFolderSDDL(me.SID)); err != nil {
+	if err := winsec.SetFolderSDDL(ok.Config(), "O:"+me.SID+winsec.ConfigFolderSDDL(me.SID)); err != nil {
 		t.Fatal(err)
 	}
-	if err := winsec.SetFolderSDDL(ok.Secrets(), winsec.SecretsFolderSDDL(me.SID)); err != nil {
+	// an elevated test run (CI) would otherwise leave Administrators as the
+	// owner, which the secrets check rightly refuses
+	if err := winsec.SetFolderSDDL(ok.Secrets(), "O:"+me.SID+winsec.SecretsFolderSDDL(me.SID)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := New(Options{Paths: ok, Identity: id, CheckACLs: true}); err != nil {
