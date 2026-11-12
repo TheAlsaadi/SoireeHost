@@ -33,3 +33,6 @@ desktop.ini
 *.pfx
 .env
 .env.*
+
+# Test fixtures created by testutil.SiteDir (removed after each test)
+testsite-*/

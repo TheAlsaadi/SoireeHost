@@ -81,7 +81,7 @@ Plant canary tokens as the tunnel token and in site config, run the app through 
 
 72 hours serving a static site and a proxied app under steady load, with tunnel drops and service restarts injected every few hours. Pass: no crash, memory and handle counts flat after warm-up, every request served or cleanly failed.
 
-## Current coverage (end of Phase 0)
+## Current coverage (end of Phase 1)
 
 | Area | Tests |
 | --- | --- |
@@ -91,5 +91,16 @@ Plant canary tokens as the tunnel token and in site config, run the app through 
 | Version label in UI | `frontend/src/lib/version.test.ts`, including HTML payloads |
 | S-34 lint rules | `frontend/src/lint-rules.test.ts` |
 | S-24 binary flags (ASLR, DEP, high-entropy VA) | `build/pecheck` in CI; unit tests in `build/pecheck/main_test.go` |
+| Config schema and validation (S-01, S-03, S-06, S-10) | `internal/config`: table tests with hostile values, strict decoding, fuzz targets `FuzzDecode`, `FuzzHostname`, `FuzzTarget`, `FuzzRootSyntax`. Coverage 94.8% |
+| Path rules and static roots (S-11, S-12, S-13) | `internal/sitecheck`: path tables, `FuzzCheckStatic`, `FuzzCheckProxy`, root checks against fake and real system folders, junctions. Coverage 85.2% |
+| Web worker (S-01, S-04, S-05, S-06, S-12, S-15, S-16, S-18) | `internal/worker`: in-process worker on a random loopback port with a static site, a proxy site and a listing site, driven by raw TCP requests (path traversal suite, headers, limits, forwarding, host check, log redaction, listener self-check); unit tests for the limiter, filters, file system and config builder. Coverage 86.0% |
+| Worker role CLI | `cmd/soireehost/main_test.go`: `worker` needs `-config` in development builds; release builds refuse the role until Phase 2 |
 
 Gap: the GUI window itself is checked by hand (it opens, shows the version, owns no TCP or UDP endpoint). Automating that waits for Phase 5.
+
+Two kinds of test run only on CI runners, which have admin rights and no desktop:
+
+- `TestSelfCheckStopsPublicListener` binds `0.0.0.0`, which on a desktop makes Windows Firewall ask to allow the test binary (machine rule). It skips unless `CI` is set.
+- The symbolic-link cases in `TestPathTraversalSuite` (`/link.txt`, `/rellink.txt`) need Developer Mode or admin to create the links. Without them the test logs that the links were not created; the junction cases run everywhere.
+
+Test fixtures that must be publishable live in `testsite-*` folders created in the package directory (`testutil.SiteDir`), because `t.TempDir()` is under `AppData`, which S-11 refuses.

@@ -4,32 +4,32 @@ Every S-ID from docs/PLAN.md with the test that proves it and its latest result.
 
 Status values: **Not started**, **Partial** (some of it tested), **Pass**, **Fail**, **Manual** (recorded manual check, with date).
 
-Last updated: 12 Nov 2026, end of Phase 0 (first green CI run on GitHub: 43191377974).
+Last updated: 12 Nov 2026, end of Phase 1 (local runs; Phase 0's first green CI run on GitHub: 43191377974). Test names refer to `internal/config`, `internal/sitecheck` and `internal/worker` unless a path is given. Fuzz targets `FuzzDecode`, `FuzzHostname`, `FuzzTarget`, `FuzzRootSyntax`, `FuzzCheckStatic` and `FuzzCheckProxy` each ran 10 minutes locally on 12 Nov 2026 without a crash. The end-of-phase security review found one gap (Windows name aliases of never-serve files on proxy sites), now fixed and tested.
 
 ## 5.1 Network exposure
 
 | ID | Requirement (short) | Phase | Test | Status |
 | --- | --- | --- | --- | --- |
-| S-01 | No non-loopback listener; config rejects it; worker self-check exits | 1 | Config validation table test; worker start test with forced bad listener | Not started |
+| S-01 | No non-loopback listener; config rejects it; worker self-check exits | 1 | `TestParseListen`, `TestSiteValidation`, `FuzzDecode`; worker: `TestCheckEndpoints`, `TestOwnEndpointsSeesLoopbackListener`, `TestNoAdminAndOnlyLoopback`, `TestBuildCaddyJSON`. `TestSelfCheckStopsPublicListener` (worker loads a 0.0.0.0 config and must stop) runs in CI only, because binding a public address makes Windows Firewall prompt on a desktop | Pass locally 12 Nov 2026 (CI after push); CI-only test not yet run |
 | S-02 | No inbound allow rule; block rules for both executables | 3 | Setup test on CI admin runner reads firewall rules | Not started |
-| S-03 | Tunnel-only, no port-forward setting | 3 | Config schema test: no such field; exposure check | Not started |
-| S-04 | Caddy admin API off; no debug/metrics endpoints; cloudflared metrics loopback or off | 1 | Generated Caddy JSON has `admin.disabled`; listener enumeration | Not started |
-| S-05 | Trust only `CF-Connecting-IP`; drop other forwarded headers | 1 | Integration: spoofed `X-Forwarded-For` ignored | Not started |
-| S-06 | Unknown Host gets 404 (including quick share) | 1, 3 | Integration: unknown host; quick share assigned-host test | Not started |
+| S-03 | Tunnel-only, no port-forward setting | 3 | `TestSchemaHasNoExposureSetting`, `TestDecodeStrict` (unknown fields refused); exposure check in Phase 3 | Partial: schema tests Pass locally 12 Nov 2026 (CI after push) |
+| S-04 | Caddy admin API off; no debug/metrics endpoints; cloudflared metrics loopback or off | 1 | `TestBuildCaddyJSON` (admin disabled, no autosave, no metrics, HTTP/1 only); `TestNoAdminAndOnlyLoopback` (only the configured socket is open, nothing on 2019, no autosave or data-folder writes). cloudflared part in Phase 3 | Partial: Caddy part Pass locally 12 Nov 2026 (CI after push); cloudflared in Phase 3 |
+| S-05 | Trust only `CF-Connecting-IP`; drop other forwarded headers | 1 | `TestForwardedHeaders` (forged `X-Forwarded-For`, `X-Real-IP`, `Forwarded`, `True-Client-IP` never reach the app; app sees the `CF-Connecting-IP` address), `TestStripForwarded`, `TestRateLimit` (forged `X-Forwarded-For` does not reset the count) | Pass locally 12 Nov 2026 (CI after push) |
+| S-06 | Unknown Host gets 404 (including quick share) | 1, 3 | `TestUnknownHost` (other names, IP, `localhost`, disabled site, suffix tricks, absolute-form target); quick share in Phase 3 | Partial: tunnel-token listener Pass locally 12 Nov 2026 (CI after push); quick share in Phase 3 |
 
 ## 5.2 Web worker
 
 | ID | Requirement (short) | Phase | Test | Status |
 | --- | --- | --- | --- | --- |
-| S-10 | Proxy targets loopback only; LAN opt-in; link-local and own ports refused | 1 | Config validation table test + fuzz | Not started |
-| S-11 | Static roots canonicalised; blocked folders; no escaping links | 1 | `sitecheck` table tests; junction/symlink integration test | Not started |
-| S-12 | Never serve dotfiles and secret file types; no listings by default | 1 | Path traversal suite | Not started |
-| S-13 | Reject 8.3 names, ADS, trailing dots/spaces, device names, backslashes, encoded traversal | 1 | Path traversal suite + `sitecheck` fuzz | Not started |
+| S-10 | Proxy targets loopback only; LAN opt-in; link-local and own ports refused | 1 | `TestParseTarget`, `TestNormalizeTarget`, `TestLANWarning`, `FuzzTarget`, `FuzzDecode`. The confirmation and audit entry for the LAN opt-in are S-32 (Phase 2) | Pass locally 12 Nov 2026 (CI after push) |
+| S-11 | Static roots canonicalised; blocked folders (all of ProgramData and drive-root system folders too, ADR-0005); no escaping links | 1 | `TestValidateRootSyntax`, `FuzzRootSyntax`, `TestCheckRootAccepts`, `TestCheckRootRefuses`, `TestCheckRootRealSystem`, `TestCheckRootJunction`, `TestOpenRoot`, `TestRootFSRefusesBlockedFolder`, `TestRootFSOpenAndStat`, junction and symlink cases in `TestPathTraversalSuite`. Symbolic links need Developer Mode or admin to create, so those two cases run in CI; junctions run everywhere | Pass locally 12 Nov 2026 (CI after push) |
+| S-12 | Never serve dotfiles and secret file types; no listings by default; `/.well-known/` only on sites that opt in | 1 | `TestPathTraversalSuite`, `TestCheckStatic`, `TestCheckProxy`, `TestDirectoryListing`, `TestRootFSListingFiltered`, `TestWellKnownOptIn` (sitecheck and worker: served only with the opt-in, nothing hidden or blocked inside it, other spellings refused) | Pass locally 12 Nov 2026 (CI after push) |
+| S-13 | Reject 8.3 names, ADS, trailing dots/spaces, device names, backslashes, encoded traversal | 1 | `TestPathTraversalSuite`, `TestCheckStatic`, `TestReservedAndShortNames`, `FuzzCheckStatic`, `FuzzCheckProxy` | Pass locally 12 Nov 2026 (CI after push) |
 | S-14 | Coraza + CRS blocking at PL1 by default; per-site modes; warning when off | 4 | Firewall attack/normal sets | Not started |
-| S-15 | Body, header, timeout and rate limits | 1 | Integration: limits and 429 | Not started |
-| S-16 | Default security headers, no `Server` | 1 | Integration: response headers | Not started |
+| S-15 | Body, header, timeout and rate limits | 1 | `TestBodyLimit` (10 MB, with and without Content-Length), `TestHeaderLimitAndTimeout`, `TestRateLimit` (429 after 300 a minute, other client unaffected), `TestLimiterBurstThenRate`, `TestLimiterBoundedAndFailsClosed`, `TestClientKey` | Pass locally 12 Nov 2026 (CI after push) |
+| S-16 | Default security headers, no `Server` | 1 | `TestSecurityHeaders` (static, proxy, 400, 404, 429 and unknown-host responses; app's own CSP kept; per-site override), `TestEffectiveHeaders` | Pass locally 12 Nov 2026 (CI after push) |
 | S-17 | Private sites require valid Access JWT, fail closed | After 1.0 | JWT tests | Not started (after 1.0) |
-| S-18 | Logs drop credentials and mask secret-like query params; rotation cap | 1 | Log redaction integration test | Not started |
+| S-18 | Logs drop credentials and mask secret-like query params; rotation cap | 1 | `TestLogRedaction` (planted secrets in `Authorization`, `Cookie`, `X-Api-Key`, `Cf-Access-Jwt-Assertion`, `Set-Cookie`, query and `Referer` never appear in either log), `TestRedactURI`, `TestFilterHeaders`, `TestFiltersDropUnexpectedTypes`; rotation settings in `TestBuildCaddyJSON` | Pass locally 12 Nov 2026 (CI after push) |
 
 ## 5.3 Process isolation
 
@@ -39,7 +39,7 @@ Last updated: 12 Nov 2026, end of Phase 0 (first green CI run on GitHub: 4319137
 | S-21 | Job object, no child processes, memory cap, UI restrictions for workers and cloudflared | 2, 3 | Worker test build tries `cmd.exe` and fails | Not started |
 | S-22 | Folder ACLs checked at start; refuse if writable by users | 2 | ACL drift test | Not started |
 | S-23 | cloudflared unpacked only by setup, runs from install folder, hash checked every launch, `--no-autoupdate`, token never on command line | 3 | Modified binary refused; command-line canary check | Not started |
-| S-24 | DLL search restricted to System32 (WebView2 exception recorded if needed); `-trimpath`, CGO off; ASLR, DEP, high-entropy VA | 0, 2 | `build/pecheck` in CI checks the PE flags; build script uses `-trimpath` and `CGO_ENABLED=0`. DLL restriction from Phase 2 | Partial: binary flags Pass in CI 12 Nov 2026 (run 43191377974) |
+| S-24 | DLL search restricted to System32 (WebView2 exception recorded if needed); `-trimpath`, CGO off; ASLR, DEP, high-entropy VA | 0, 2 | `build/pecheck` in CI checks the PE flags; build script uses `-trimpath` and `CGO_ENABLED=0`. DLL restriction from Phase 2 | Partial: binary flags Pass in CI 12 Nov 2026 (run 43191377974); also Pass locally on a build with the worker linked in (12 Nov 2026). The worker loads `iphlpapi.dll` with `NewLazySystemDLL` (System32 only) |
 
 ## 5.4 Control plane and control panel
 
@@ -83,4 +83,4 @@ Last updated: 12 Nov 2026, end of Phase 0 (first green CI run on GitHub: 4319137
 | S-72 | Actions pinned by SHA; least-privilege tokens; no secrets in PR builds; signing only on tagged main | 0, 6 | Workflow review | Partial: all actions SHA-pinned, `contents: read`, `persist-credentials: false`; no secrets used yet |
 | S-73 | SBOM and provenance per release | 6 | Release workflow output | Not started |
 | S-74 | Reproducible builds | 6 | Build twice, compare hashes | Not started |
-| S-75 | Written reason and supply-chain review for each new dependency | 0 | docs/DEPENDENCIES.md; `supply-chain-risk-auditor` pass | Partial: reasons and licences recorded; auditor pass waits for plugin install |
+| S-75 | Written reason and supply-chain review for each new dependency | 0 | docs/DEPENDENCIES.md; `supply-chain-risk-auditor` pass | Partial: reasons and licences recorded, including Caddy and its 150 linked modules (Phase 1); auditor pass waits for the plugin to load in a session |
