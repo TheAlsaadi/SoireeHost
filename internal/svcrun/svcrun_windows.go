@@ -19,15 +19,23 @@ var ErrNotService = errors.New("this role runs as a Windows service; setup insta
 // The service dispatcher (StartServiceCtrlDispatcher) can be started once
 // per process. Caddy, which every role links, starts it from its own init()
 // whenever the process runs as a service, with a handler that ends the
-// process on Stop. So this package claims the dispatcher first, in its own
+// process on Stop. So this package starts the dispatcher first, from its own
 // init(): the Go spec (since 1.21) initialises ready packages in import-path
 // order, and "github.com/TheAlsaadi/..." sorts before
 // "github.com/caddyserver/...", so this init runs before Caddy's, as long as
-// this package never imports Caddy. Caddy's later attempt then fails, and
-// Caddy ignores that failure. Run hands the claimed dispatcher to the role.
-var dispatcher struct {
+// this package never imports Caddy.
+//
+// init cannot wait for the dispatcher's callback: the Go runtime holds every
+// callback from a Windows thread until all init functions have returned. So
+// init starts the dispatcher in the background and pauses briefly, long
+// enough for it to register with the service manager (a local call that
+// takes milliseconds), before Caddy's init makes its own attempt, which then
+// fails and is ignored by Caddy. Run, called after start-up, waits for the
+// callback. If Caddy still won, Run reports it and the service exits with an
+// error; the service manager's recovery (or the supervisor, for a worker)
+// starts it again.
+type dispatcherState struct {
 	isService bool
-	err       error // why the dispatcher could not be claimed
 	ready     chan struct{}
 	req       <-chan svc.ChangeRequest
 	status    chan<- svc.Status
@@ -35,9 +43,13 @@ var dispatcher struct {
 	stopped   chan error     // svc.Run's own return
 }
 
-// claimTimeout bounds how long init waits for the service manager to call
-// back; Windows itself allows a service 30 seconds to connect.
-const claimTimeout = 20 * time.Second
+var dispatcher dispatcherState
+
+// Timings for claiming the dispatcher (see above).
+const (
+	registerPause = 250 * time.Millisecond
+	claimTimeout  = 30 * time.Second
+)
 
 func init() {
 	isSvc, err := svc.IsWindowsService()
@@ -50,12 +62,18 @@ func init() {
 	d.result = make(chan [2]uint32, 1)
 	d.stopped = make(chan error, 1)
 	go func() { d.stopped <- svc.Run("", bridge{}) }()
+	time.Sleep(registerPause)
+}
+
+// claim waits, after start-up, for the dispatcher to hand over control.
+func (d *dispatcherState) claim() error {
 	select {
 	case <-d.ready:
+		return nil
 	case err := <-d.stopped:
-		d.err = fmt.Errorf("starting the service dispatcher: %w", err)
+		return fmt.Errorf("starting the service dispatcher (did another component claim it first?): %w", err)
 	case <-time.After(claimTimeout):
-		d.err = errors.New("the service manager did not call back in time")
+		return errors.New("the service manager did not hand over control in time")
 	}
 }
 
@@ -82,7 +100,7 @@ func Run(name string, preShutdown bool, fn func(ctx context.Context) error) erro
 	// Application event log under its own name (setup registers the source).
 	// Messages are error texts and paths, never secret values.
 	elog, _ := eventlog.Open(name)
-	err := d.err
+	err := d.claim()
 	if err == nil {
 		h := &handler{fn: fn, preShutdown: preShutdown}
 		specific, code := h.Execute(nil, d.req, d.status)
