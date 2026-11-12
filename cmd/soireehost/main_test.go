@@ -39,3 +39,14 @@ func TestRunRejectsUnknownAndUnbuiltRoles(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkerRoleNeedsConfig(t *testing.T) {
+	for _, args := range [][]string{{"worker", "-config"}, {"worker", "-nope"}, {"worker", "-config", "x.json", "extra"}} {
+		if code := run(args); code != 2 {
+			t.Errorf("run(%q) = %d, want 2", args, code)
+		}
+	}
+	if code := run([]string{"worker", "-config", "does-not-exist.json"}); code != 1 {
+		t.Errorf("missing config file: exit %d, want 1", code)
+	}
+}

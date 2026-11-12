@@ -47,6 +47,8 @@ func run(args []string) int {
 			return 1
 		}
 		return 0
+	case roleWorker:
+		return runWorker(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "soireehost: the %s role is not built yet\n", r)
 		return 2

@@ -168,7 +168,7 @@ Not defended against: an attacker who already has administrator rights on the PC
 
 - **S-10** Reverse-proxy targets are limited to `127.0.0.1` and `::1`. A LAN target needs a per-site opt-in with a warning. Link-local addresses (`169.254.0.0/16`, `fe80::/10`) and the app's own ports are always refused.
 - **S-11** Static roots are canonicalised and checked. Refuse drive roots, `Windows`, `Program Files`, `ProgramData\SoireeHost`, a user-profile root, `AppData` and `.ssh`. Never follow a symlink or junction that leaves the root.
-- **S-12** Never serve dotfiles, `.git`, `.env`, `*.pem`, `*.key`, `*.pfx`, `*.bak`, `*.sql`, `web.config`, `desktop.ini` or `Thumbs.db`. No directory listings unless the user turns them on for a site.
+- **S-12** Never serve dotfiles, `.git`, `.env`, `*.pem`, `*.key`, `*.pfx`, `*.bak`, `*.sql`, `web.config`, `desktop.ini` or `Thumbs.db`. No directory listings unless the user turns them on for a site. The one exception is the `/.well-known/` folder, served only when the user turns it on for a site; everything inside it still follows these rules (owner decision, 12 Nov 2026).
 - **S-13** Reject Windows path tricks: 8.3 short names, alternate data streams (`:`), trailing dots and spaces, reserved device names (`CON`, `NUL`, `COM1`), backslashes and encoded traversal.
 - **S-14** Coraza with the OWASP Core Rule Set is on for every new site in blocking mode at paranoia level 1. Per site: Block, Detect only, or Off. Off shows a standing warning.
 - **S-15** Limits per site: request body 10 MB by default, header size, read and idle timeouts, and a per-client rate limit (default 300 requests a minute).
@@ -356,9 +356,9 @@ Build embedded Caddy serving one static folder and one proxied port on loopback,
 
 Done when:
 
-- [ ] Tests pass for S-01, S-04 to S-06, S-10 to S-13, S-15, S-16 and S-18.
-- [ ] The path traversal suite in section 10 passes.
-- [ ] Fuzzers for config and path validation run 10 minutes each without a crash.
+- [x] Tests pass for S-01, S-04 to S-06, S-10 to S-13, S-15, S-16 and S-18. (12 Nov 2026, local run; the CI-only S-01 test and the symbolic-link cases run after push. The cloudflared part of S-04 and quick share in S-06 belong to Phase 3)
+- [x] The path traversal suite in section 10 passes. (12 Nov 2026, `TestPathTraversalSuite`)
+- [x] Fuzzers for config and path validation run 10 minutes each without a crash. (12 Nov 2026, local: `FuzzDecode`, `FuzzHostname`, `FuzzTarget`, `FuzzRootSyntax`, `FuzzCheckStatic`, `FuzzCheckProxy`, 66 to 92 million executions each)
 
 ### Phase 2: Supervisor, IPC and isolation
 
@@ -516,6 +516,7 @@ Audience, source, UI framework, Windows version, signing route, domain and a zer
 | Windows versions | Windows 11 and Server 2022 or newer; Windows 10; ARM64 | Decided: Windows 11 on x64. Other versions are untested and unsupported | Phase 0 |
 | Domain | Use a domain on Cloudflare, or quick share only | Do not buy one. Use quick share, or a domain the owner already has. After 1.0, evaluate Tailscale Funnel as a second tunnel option: it offers a stable ts.net address on its free personal plan (check current terms) | Phase 3 |
 | Firewall default | Block from day one, or Detect only for a site's first week | Block from day one | Phase 4 |
+| Serving `/.well-known/` | Always blocked as a dotfile path; always allowed; allowed per site | Decided 12 Nov 2026: per site, off by default (`allow_well_known`) | Phase 1 |
 | Languages | English only, or more in version 1 | English first; the UI rules in section 7 keep other languages and right-to-left possible | Phase 5 |
 | Signing identity | Individual or organisation, and country | Ship unsigned with checksums first; apply to SignPath Foundation after the first release (section 11) | Phase 6 |
 | Update install | One click with a Windows prompt, or unattended through an elevated updater | One click for version 1; unattended adds attack surface | Phase 6 |
