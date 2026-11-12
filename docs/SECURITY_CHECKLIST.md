@@ -4,7 +4,7 @@ Every S-ID from docs/PLAN.md with the test that proves it and its latest result.
 
 Status values: **Not started**, **Partial** (some of it tested), **Pass**, **Fail**, **Manual** (recorded manual check, with date).
 
-Last updated: 12 Nov 2026, end of Phase 0.
+Last updated: 12 Nov 2026, end of Phase 0 (first green CI run on GitHub: 43191377974).
 
 ## 5.1 Network exposure
 
@@ -39,7 +39,7 @@ Last updated: 12 Nov 2026, end of Phase 0.
 | S-21 | Job object, no child processes, memory cap, UI restrictions for workers and cloudflared | 2, 3 | Worker test build tries `cmd.exe` and fails | Not started |
 | S-22 | Folder ACLs checked at start; refuse if writable by users | 2 | ACL drift test | Not started |
 | S-23 | cloudflared unpacked only by setup, runs from install folder, hash checked every launch, `--no-autoupdate`, token never on command line | 3 | Modified binary refused; command-line canary check | Not started |
-| S-24 | DLL search restricted to System32 (WebView2 exception recorded if needed); `-trimpath`, CGO off; ASLR, DEP, high-entropy VA | 0, 2 | `build/pecheck` in CI checks the PE flags; build script uses `-trimpath` and `CGO_ENABLED=0`. DLL restriction from Phase 2 | Partial: binary flags Pass locally 12 Nov 2026 |
+| S-24 | DLL search restricted to System32 (WebView2 exception recorded if needed); `-trimpath`, CGO off; ASLR, DEP, high-entropy VA | 0, 2 | `build/pecheck` in CI checks the PE flags; build script uses `-trimpath` and `CGO_ENABLED=0`. DLL restriction from Phase 2 | Partial: binary flags Pass in CI 12 Nov 2026 (run 43191377974) |
 
 ## 5.4 Control plane and control panel
 
@@ -78,7 +78,7 @@ Last updated: 12 Nov 2026, end of Phase 0.
 | S-63 | Supervisor-only download folder; verify twice; keep previous; auto rollback | 6 | Truncated download; kill during swap; failed start rollback | Not started |
 | S-64 | One-click install through the Windows prompt via `setup apply-update` | 6 | Manual check in VM | Not started |
 | S-65 | Upstream security fixes released within 7 days; watcher opens PRs with a GitHub App token | 6 | Watcher workflow dry run | Not started |
-| S-70 | `go.sum`, `-mod=readonly`, checksum DB on; npm lockfile and `npm ci --ignore-scripts` | 0 | CI sets `GOFLAGS=-mod=readonly`, runs `go mod verify`; CI and build script use `npm ci --ignore-scripts` | Partial: config in place; Pass once CI runs on GitHub |
+| S-70 | `go.sum`, `-mod=readonly`, checksum DB on; npm lockfile and `npm ci --ignore-scripts` | 0 | CI sets `GOFLAGS=-mod=readonly`, runs `go mod verify`; CI and build script use `npm ci --ignore-scripts` | Pass in CI 12 Nov 2026 (run 43191377974) |
 | S-71 | cloudflared SHA-256 checked against committed value before embedding | 3 | Build fails on mismatch | Partial: value committed in `build/cloudflared.lock` |
 | S-72 | Actions pinned by SHA; least-privilege tokens; no secrets in PR builds; signing only on tagged main | 0, 6 | Workflow review | Partial: all actions SHA-pinned, `contents: read`, `persist-credentials: false`; no secrets used yet |
 | S-73 | SBOM and provenance per release | 6 | Release workflow output | Not started |

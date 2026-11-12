@@ -45,4 +45,4 @@ Release builds use `-tags production` (developer tools off, dev-server redirect 
 
 ## Status
 
-Phase 0 (foundations) built and awaiting owner review (12 Nov 2026). Pushed to GitHub on 12 Nov 2026. Not yet done: repository settings on GitHub (see docs/REPO_SETUP.md), installing the vetted plugins (docs/SKILLS.md), and owner acceptance of docs/THREAT_MODEL.md. See the checklist at the end of each phase in docs/PLAN.md section 9.
+Phase 0 (foundations) built and awaiting owner review (12 Nov 2026). Pushed to GitHub on 12 Nov 2026; CI and CodeQL green on Windows runners. CI failures are also published as annotations, readable through the public API without signing in. Not yet done: repository settings on GitHub (see docs/REPO_SETUP.md), installing the vetted plugins (docs/SKILLS.md), and owner acceptance of docs/THREAT_MODEL.md. See the checklist at the end of each phase in docs/PLAN.md section 9.
