@@ -1,6 +1,6 @@
 # SoiréeHost threat model
 
-**Status:** Proposed, awaiting owner acceptance (Phase 0)
+**Status:** Accepted by the owner on 12 Nov 2026 (Phase 0)
 **Date:** 12 Nov 2026
 **Source:** docs/PLAN.md sections 4, 5 and 11
 
@@ -74,4 +74,6 @@ SoiréeHost turns a Windows 11 PC into a web host reachable only through an outb
 
 ## Acceptance
 
-The owner accepts this threat model by approving Phase 0. Changes after that are recorded here with a date.
+Accepted by the owner on 12 Nov 2026. Changes after that are recorded here with a date.
+
+Owner's stated priority: protection against intrusion, malware and hijacking. Denial of service affects availability only and is handled with Cloudflare's free edge protections and the offline switch; no access to the PC follows from it.

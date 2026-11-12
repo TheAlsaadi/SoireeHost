@@ -346,9 +346,9 @@ Build:
 
 Done when:
 
-- [ ] CI is green from a clean clone.
-- [ ] `soireehost.exe` opens a window on Windows 11.
-- [ ] The owner has accepted the threat model and answered the section 12 decisions needed by Phase 0.
+- [x] CI is green from a clean clone. (12 Nov 2026, run 43191377974)
+- [x] `soireehost.exe` opens a window on Windows 11. (12 Nov 2026)
+- [x] The owner has accepted the threat model and answered the section 12 decisions needed by Phase 0. (12 Nov 2026)
 
 ### Phase 1: Web worker
 
