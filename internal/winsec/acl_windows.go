@@ -121,8 +121,9 @@ func EnablePrivileges(names ...string) error {
 }
 
 // ForceSDDL applies an SDDL descriptor (owner if given, and a protected DACL)
-// to an existing file or folder through a backup-semantics handle, so that
-// SeRestorePrivilege overrides whatever the current descriptor says. This is
+// to an existing file or folder, and to nothing below it, through a
+// backup-semantics handle, so that SeRestorePrivilege overrides whatever the
+// current descriptor says. This is
 // how the elevated setup role repairs folders whose descriptors lock even
 // their owner out. The caller must have enabled SeRestorePrivilege.
 func ForceSDDL(path, sddl string) error {
@@ -130,13 +131,13 @@ func ForceSDDL(path, sddl string) error {
 	if err != nil {
 		return fmt.Errorf("security descriptor: %w", err)
 	}
-	dacl, _, err := sd.DACL()
-	if err != nil {
-		return err
+	if dacl, _, err := sd.DACL(); err != nil || dacl == nil {
+		return fmt.Errorf("descriptor for %s has no access list", path)
 	}
 	owner, _, _ := sd.Owner()
 	access := uint32(windows.WRITE_DAC)
-	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION)
+	// protection comes from the descriptor's own "D:P" control flag
+	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION)
 	if owner != nil {
 		access |= windows.WRITE_OWNER
 		info |= windows.OWNER_SECURITY_INFORMATION
@@ -151,7 +152,11 @@ func ForceSDDL(path, sddl string) error {
 		return fmt.Errorf("opening %s to set permissions: %w", path, err)
 	}
 	defer windows.CloseHandle(h) //nolint:errcheck // nothing to do on failure
-	return windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT, info, owner, nil, dacl, nil)
+	// SetKernelObjectSecurity changes this object only. SetSecurityInfo would
+	// also re-apply inheritance to everything below it, opening each child
+	// without the restore privilege, and fail at the first child that
+	// admits no administrators (the secrets folder).
+	return windows.SetKernelObjectSecurity(h, info, sd)
 }
 
 // Site folder access (ADR-0006, owner decision of 12 Nov 2026). When a site

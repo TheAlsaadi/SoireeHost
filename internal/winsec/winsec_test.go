@@ -275,3 +275,28 @@ func TestForceSDDLSkipsHardLinks(t *testing.T) {
 		t.Fatalf("hard-linked file: skipped=%v err=%v", skipped, err)
 	}
 }
+
+// CI regression: ForceSDDL changes only the object it is given. Re-applying
+// inheritance below it would fail at a child that locks out even its owner,
+// as the secrets folder does for administrators.
+func TestForceSDDLDoesNotPropagate(t *testing.T) {
+	user := me(t)
+	parent := filepath.Join(t.TempDir(), "parent")
+	if err := SetFolderSDDL(parent, "D:P(A;OICI;FA;;;"+user+")"); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(parent, "locked")
+	if err := SetFolderSDDL(child, "D:P(A;OICI;FA;;;"+SIDSystem+")(A;OICI;RC;;;"+SIDOwnerRights+")"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ForceSDDL(parent, "D:P(A;OICI;FA;;;"+user+")(A;OICI;FR;;;"+SIDSystem+")"); err != nil {
+		t.Fatalf("ForceSDDL reached into a locked child: %v", err)
+	}
+	sd, err := windows.GetNamedSecurityInfo(parent, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := sd.String(); !strings.HasPrefix(s, "D:P") || !strings.Contains(s, ";;;SY)") {
+		t.Fatalf("descriptor not applied: %s", s)
+	}
+}

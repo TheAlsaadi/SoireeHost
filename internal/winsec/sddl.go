@@ -72,10 +72,11 @@ func SecretsFolderSDDL(supervisor string) string {
 		SIDSystem, fileModify, supervisor, SIDOwnerRights)
 }
 
-// LogsFolderSDDL is the parent logs folder: SYSTEM full, Administrators and
-// the supervisor read.
+// LogsFolderSDDL is the parent logs folder: SYSTEM and Administrators full
+// (setup creates the log folders inside it), the supervisor read. Each log
+// folder inside has its own protected descriptor.
 func LogsFolderSDDL(supervisor string) string {
-	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FR;;;%s)(A;OICI;FR;;;%s)(A;OICI;RC;;;%s)",
+	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FA;;;%s)(A;OICI;FR;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, SIDAdministrators, supervisor, SIDOwnerRights)
 }
 
