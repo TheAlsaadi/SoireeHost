@@ -63,11 +63,19 @@ and then `/plugin install <name>@<marketplace>`, choosing project scope, for onl
 
 `frontend-design` is not loaded in this environment; install it before Phase 5 with `/plugin install frontend-design@claude-plugins-official`, after the same review.
 
-## Installation status (checked 12 Nov 2026, after Phase 2)
+## Installation status (12 Nov 2026, after Phase 2)
 
-- The three marketplaces are added, at exactly the commits reviewed above: `trailofbits/skills` `e4dd0bb5…`, `samber/cc` `798628ff…`, `spf13/go-skills` `c6ea8841…`.
-- **No plugin from them is installed yet.** `.claude/settings.json` lists them as enabled, but an enabled plugin that was never installed does nothing, so none of their skills load.
-- Installing them now fetches exactly the reviewed code: the Trail of Bits and spf13 plugins come from inside their marketplace repositories, which are at the reviewed commits, and `samber/cc-skills-golang` (fetched from its own repository) is still at the reviewed commit `d68d80ae…`. No new review is needed unless a commit changes before installation.
+All 14 approved plugins are installed at project scope, from the Claude Code program bundled with the desktop app (`claude plugin install <name>@<marketplace> --scope project`). They load in the next session started in this folder.
+
+| Marketplace | Installed at | Compared with the review |
+| --- | --- | --- |
+| `trailofbits/skills` (11 plugins) | `149d7b21f4067765b82e67029730b42d228ef4b4` | Installing refreshed the marketplace one commit past the reviewed `e4dd0bb5…`. That commit (#502) changes only `trailmark`, `property-based-testing` and `writing-lean-proofs`, none of which is installed; the diff of the 11 approved plugins' folders between the two commits is empty, so their code is exactly what was reviewed |
+| `samber/cc` → `samber/cc-skills-golang` | plugin `d68d80aec298…` (v2.0.1), marketplace `798628ff…` | Same as reviewed |
+| `spf13/go-skills` | `c6ea8841a542…` | Same as reviewed |
+
+The installer also rewrote `.claude/settings.json` with the same entries in a different order; the committed layout was kept, since the content is identical.
+
+Before trusting a later refresh, repeat the check: diff the approved plugins' folders between the reviewed commit and the new one, and review anything that changed.
 
 ## Project skill
 
