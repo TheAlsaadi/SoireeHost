@@ -62,3 +62,13 @@ and then `/plugin install <name>@<marketplace>`, choosing project scope, for onl
 - `wails@go-skills` and `go-release@go-skills`
 
 `frontend-design` is not loaded in this environment; install it before Phase 5 with `/plugin install frontend-design@claude-plugins-official`, after the same review.
+
+## Installation status (checked 12 Nov 2026, after Phase 2)
+
+- The three marketplaces are added, at exactly the commits reviewed above: `trailofbits/skills` `e4dd0bb5…`, `samber/cc` `798628ff…`, `spf13/go-skills` `c6ea8841…`.
+- **No plugin from them is installed yet.** `.claude/settings.json` lists them as enabled, but an enabled plugin that was never installed does nothing, so none of their skills load.
+- Installing them now fetches exactly the reviewed code: the Trail of Bits and spf13 plugins come from inside their marketplace repositories, which are at the reviewed commits, and `samber/cc-skills-golang` (fetched from its own repository) is still at the reviewed commit `d68d80ae…`. No new review is needed unless a commit changes before installation.
+
+## Project skill
+
+`.claude/skills/soireehost-conventions/` is SoiréeHost's own skill, written after Phase 2 as plan section 8 ("Gaps") asks, with `skill-creator`. It records the Windows and Go conventions and pitfalls found in Phases 1 and 2 (security descriptors, named pipes, running a service alongside Caddy, append-only files, the CI isolation job, lint suppressions) and the way a phase is run and recorded. It is plain Markdown with no scripts or hooks, and loads in any session started in this folder. Update it whenever a later phase finds a new trap.

@@ -314,7 +314,7 @@ Where the security skills earn their place:
 
 ### Gaps
 
-No trustworthy skill turned up for embedding Caddy as a library, tuning Coraza, or Windows service hardening (restricted tokens, job objects, ACLs, DPAPI). For those, work from the official Caddy, Coraza and Microsoft Learn documentation. After Phase 2, use `skill-creator` to write a project skill that records the conventions that worked, so later phases stay consistent.
+No trustworthy skill turned up for embedding Caddy as a library, tuning Coraza, or Windows service hardening (restricted tokens, job objects, ACLs, DPAPI). For those, work from the official Caddy, Coraza and Microsoft Learn documentation. After Phase 2, use `skill-creator` to write a project skill that records the conventions that worked, so later phases stay consistent. (Done 12 Nov 2026: `.claude/skills/soireehost-conventions/`.)
 
 The `wails` skill still describes v3 as alpha. Where it disagrees with the current Wails documentation, the documentation wins.
 
