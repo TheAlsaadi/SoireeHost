@@ -81,7 +81,7 @@ Plant canary tokens as the tunnel token and in site config, run the app through 
 
 72 hours serving a static site and a proxied app under steady load, with tunnel drops and service restarts injected every few hours. Pass: no crash, memory and handle counts flat after warm-up, every request served or cleanly failed.
 
-## Current coverage (end of Phase 1)
+## Current coverage (Phase 2 in progress)
 
 | Area | Tests |
 | --- | --- |
@@ -95,6 +95,11 @@ Plant canary tokens as the tunnel token and in site config, run the app through 
 | Path rules and static roots (S-11, S-12, S-13) | `internal/sitecheck`: path tables, `FuzzCheckStatic`, `FuzzCheckProxy`, root checks against fake and real system folders, junctions. Coverage 85.2% |
 | Web worker (S-01, S-04, S-05, S-06, S-12, S-15, S-16, S-18) | `internal/worker`: in-process worker on a random loopback port with a static site, a proxy site and a listing site, driven by raw TCP requests (path traversal suite, headers, limits, forwarding, host check, log redaction, listener self-check); unit tests for the limiter, filters, file system and config builder. Coverage 86.0% |
 | Worker role CLI | `cmd/soireehost/main_test.go`: `worker` needs `-config` in development builds; release builds refuse the role until Phase 2 |
+| Windows security helpers (S-20 to S-24, S-30) | `internal/winsec`: service SIDs against Windows' own, descriptor parsing, the S-22 writer check, confinement in a re-run copy of the test binary (no `cmd.exe`, one privilege, System32-only DLLs) |
+| Stores (S-36, S-40, S-41) | `internal/audit` (chain and tamper cases), `internal/secrets` (DPAPI round trip, nothing in clear on disk, tampered blob refused), `internal/config` store (history, rollback, damaged file) |
+| Control API and pipes (S-30, S-31, S-35) | `internal/ipc`: strict decoding tables, `FuzzDecodeRequest`, `FuzzDecodeWorkerMsg`, real pipes for caller identity, owner check against squatting, exclusive creation |
+| Supervisor (S-22, S-32, S-40, S-41) | `internal/supervisor`: the real supervisor in-process with real pipes and real Caddy (web worker) and a stand-in tunnel worker: control flow, blocked folders, confirmation, rollback of a refused config, token canary, worker restart, workers ending with the supervisor, folder refusal |
+| Installed system (CI admin runner only) | `internal/e2e` (build tag `e2e`), run by the `isolation` CI job between `setup install` and `setup uninstall --purge`: service configuration, serving through the installed services, a second local user locked out, workers in job objects, token canary in files and command lines, killing and stopping the supervisor ends both workers, ACL drift refused, and nothing left after uninstall |
 
 Gap: the GUI window itself is checked by hand (it opens, shows the version, owns no TCP or UDP endpoint). Automating that waits for Phase 5.
 

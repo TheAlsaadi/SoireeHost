@@ -15,11 +15,15 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/worker"
 )
 
-// runWorker, in development builds only, serves a config file in the
-// foreground so the web worker can be tried before the supervisor exists
-// (Phase 2). Release builds never read a config path from the command line;
-// there the supervisor hands the worker its config over a named pipe.
+// runWorker runs the web worker service. In development builds only,
+// "worker -config FILE" instead serves a config file in the foreground, so
+// the web worker can be tried without installing anything. Release builds
+// never read a config path from the command line; there the supervisor hands
+// the worker its config over a named pipe.
 func runWorker(args []string) int {
+	if len(args) == 0 {
+		return runWebWorker()
+	}
 	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	cfgPath := fs.String("config", "", "config file to serve (development builds only)")
