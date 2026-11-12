@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -16,31 +17,41 @@ import (
 // ErrNotService is returned when a service role is started from a console.
 var ErrNotService = errors.New("this role runs as a Windows service; setup installs it")
 
-// The service dispatcher (StartServiceCtrlDispatcher) can be started once
-// per process. Caddy, which every role links, starts it from its own init()
-// whenever the process runs as a service, with a handler that ends the
-// process on Stop. So this package starts the dispatcher first, from its own
-// init(): the Go spec (since 1.21) initialises ready packages in import-path
-// order, and "github.com/TheAlsaadi/..." sorts before
-// "github.com/caddyserver/...", so this init runs before Caddy's, as long as
-// this package never imports Caddy.
+// Why this package talks to the service manager itself
 //
-// init cannot wait for the dispatcher's callback: the Go runtime holds every
-// callback from a Windows thread until all init functions have returned. So
-// init starts the dispatcher in the background and pauses briefly, long
-// enough for it to register with the service manager (a local call that
-// takes milliseconds), before Caddy's init makes its own attempt, which then
-// fails and is ignored by Caddy. Run, called after start-up, waits for the
-// callback. If Caddy still won, Run reports it and the service exits with an
-// error; the service manager's recovery (or the supervisor, for a worker)
-// starts it again.
+// The service dispatcher (StartServiceCtrlDispatcher) can be started once per
+// process. Caddy, which every role links, starts it from its own init()
+// through golang.org/x/sys/windows/svc whenever the process runs as a
+// service, with a handler that ends the process on Stop. That package keeps
+// its handler in one package-level variable, so any later svc.Run call
+// replaces the handler of a dispatcher started earlier. So this package does
+// not use svc.Run: it runs the service protocol itself with its own
+// callbacks, and starts the dispatcher before Caddy can:
+//
+//   - The Go spec (since 1.21) initialises ready packages in import-path order;
+//     "github.com/TheAlsaadi/..." sorts before "github.com/caddyserver/...",
+//     and this package never imports Caddy, so this init() runs first.
+//   - init() cannot wait for the dispatcher's callback, because the Go runtime
+//     holds every callback from a Windows thread until all init functions have
+//     returned. It starts the dispatcher in the background and pauses briefly,
+//     long enough for it to register with the service manager (a local call
+//     that takes milliseconds). Caddy's attempt then fails, and Caddy ignores
+//     the failure.
+//   - Run, called after start-up, waits for the callback. If something else
+//     still claimed the dispatcher, Run reports it and the service exits with
+//     an error; the service manager's recovery (or the supervisor, for a
+//     worker) starts it again.
 type dispatcherState struct {
 	isService bool
-	ready     chan struct{}
-	req       <-chan svc.ChangeRequest
-	status    chan<- svc.Status
-	result    chan [2]uint32 // Execute's return values: specific flag, exit code
-	stopped   chan error     // svc.Run's own return
+	ready     chan struct{}  // closed once the control handler is registered
+	controls  chan uint32    // stop, shutdown and pre-shutdown requests
+	result    chan [2]uint32 // Run's verdict: service-specific flag, exit code
+	stopped   chan error     // StartServiceCtrlDispatcher's own return
+
+	mu         sync.Mutex
+	handle     windows.Handle
+	current    windows.SERVICE_STATUS
+	checkpoint uint32
 }
 
 var dispatcher dispatcherState
@@ -49,6 +60,15 @@ var dispatcher dispatcherState
 const (
 	registerPause = 250 * time.Millisecond
 	claimTimeout  = 30 * time.Second
+	stopWaitHint  = 20 * time.Second
+)
+
+var (
+	// the service name is ignored for a SERVICE_WIN32_OWN_PROCESS service
+	emptyName          = &[]uint16{0}[0]
+	serviceMainProc    = windows.NewCallback(serviceMain)
+	controlHandlerProc = windows.NewCallback(controlHandler)
+	serviceTable       = []windows.SERVICE_TABLE_ENTRY{{ServiceName: emptyName, ServiceProc: serviceMainProc}, {}}
 )
 
 func init() {
@@ -59,10 +79,76 @@ func init() {
 	d := &dispatcher
 	d.isService = true
 	d.ready = make(chan struct{})
+	d.controls = make(chan uint32, 8)
 	d.result = make(chan [2]uint32, 1)
 	d.stopped = make(chan error, 1)
-	go func() { d.stopped <- svc.Run("", bridge{}) }()
+	go func() { d.stopped <- windows.StartServiceCtrlDispatcher(&serviceTable[0]) }()
 	time.Sleep(registerPause)
+}
+
+// serviceMain is the ServiceMain the dispatcher calls on its own thread. It
+// registers the control handler, hands over to Run, and reports the final
+// stopped state with Run's exit code.
+func serviceMain(_ uint32, _ **uint16) uintptr {
+	d := &dispatcher
+	h, err := windows.RegisterServiceCtrlHandlerEx(emptyName, controlHandlerProc, 0)
+	if err != nil {
+		return 0 // Run's claim times out and says so
+	}
+	d.mu.Lock()
+	d.handle = h
+	d.mu.Unlock()
+	d.setStatus(windows.SERVICE_START_PENDING, 0, 0)
+	close(d.ready)
+	r := <-d.result
+	var win32, specific uint32
+	if r[0] != 0 {
+		win32, specific = uint32(windows.ERROR_SERVICE_SPECIFIC_ERROR), r[1]
+	}
+	d.mu.Lock()
+	d.current = windows.SERVICE_STATUS{ServiceType: windows.SERVICE_WIN32_OWN_PROCESS,
+		CurrentState: windows.SERVICE_STOPPED, Win32ExitCode: win32, ServiceSpecificExitCode: specific}
+	_ = windows.SetServiceStatus(d.handle, &d.current)
+	d.mu.Unlock()
+	return 0
+}
+
+// controlHandler is the HandlerEx the service manager calls with controls.
+func controlHandler(ctrl, _ uint32, _, _ uintptr) uintptr {
+	d := &dispatcher
+	switch ctrl {
+	case windows.SERVICE_CONTROL_INTERROGATE:
+		d.mu.Lock()
+		_ = windows.SetServiceStatus(d.handle, &d.current)
+		d.mu.Unlock()
+	case windows.SERVICE_CONTROL_STOP, windows.SERVICE_CONTROL_SHUTDOWN, windows.SERVICE_CONTROL_PRESHUTDOWN:
+		select {
+		case d.controls <- ctrl:
+		default:
+		}
+	default:
+		return uintptr(windows.ERROR_CALL_NOT_IMPLEMENTED)
+	}
+	return 0
+}
+
+// setStatus reports a state to the service manager.
+func (d *dispatcherState) setStatus(state, accepts uint32, waitHint time.Duration) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if state == windows.SERVICE_START_PENDING || state == windows.SERVICE_STOP_PENDING {
+		d.checkpoint++
+	} else {
+		d.checkpoint = 0
+	}
+	d.current = windows.SERVICE_STATUS{
+		ServiceType:      windows.SERVICE_WIN32_OWN_PROCESS,
+		CurrentState:     state,
+		ControlsAccepted: accepts,
+		CheckPoint:       d.checkpoint,
+		WaitHint:         uint32(waitHint / time.Millisecond), // #nosec G115 -- a few seconds
+	}
+	_ = windows.SetServiceStatus(d.handle, &d.current)
 }
 
 // claim waits, after start-up, for the dispatcher to hand over control.
@@ -75,17 +161,6 @@ func (d *dispatcherState) claim() error {
 	case <-time.After(claimTimeout):
 		return errors.New("the service manager did not hand over control in time")
 	}
-}
-
-// bridge is the handler the dispatcher calls; it passes the service's
-// request and status channels to Run and waits for Run's verdict.
-type bridge struct{}
-
-func (bridge) Execute(_ []string, req <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
-	dispatcher.req, dispatcher.status = req, status
-	close(dispatcher.ready)
-	r := <-dispatcher.result
-	return r[0] != 0, r[1]
 }
 
 // Run runs fn as the service name until the service control manager asks it
@@ -102,20 +177,7 @@ func Run(name string, preShutdown bool, fn func(ctx context.Context) error) erro
 	elog, _ := eventlog.Open(name)
 	err := d.claim()
 	if err == nil {
-		h := &handler{fn: fn, preShutdown: preShutdown}
-		specific, code := h.Execute(nil, d.req, d.status)
-		var flag uint32
-		if specific {
-			flag = 1
-		}
-		d.result <- [2]uint32{flag, code}
-		// let the dispatcher report SERVICE_STOPPED before the process exits
-		select {
-		case dispErr := <-d.stopped:
-			_ = dispErr // the dispatcher's own result; the role's error is what matters
-		case <-time.After(10 * time.Second):
-		}
-		err = h.err
+		err = d.serve(preShutdown, fn)
 	}
 	if elog != nil {
 		if err != nil {
@@ -126,42 +188,41 @@ func Run(name string, preShutdown bool, fn func(ctx context.Context) error) erro
 	return err
 }
 
-type handler struct {
-	fn          func(ctx context.Context) error
-	preShutdown bool
-	err         error
-}
-
-func (h *handler) Execute(_ []string, req <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
-	accepts := svc.AcceptStop | svc.AcceptShutdown
-	if h.preShutdown {
-		accepts |= svc.AcceptPreShutdown
+// serve reports the service running, runs fn until it returns or a stop
+// arrives, then lets serviceMain report it stopped.
+func (d *dispatcherState) serve(preShutdown bool, fn func(ctx context.Context) error) error {
+	accepts := uint32(windows.SERVICE_ACCEPT_STOP | windows.SERVICE_ACCEPT_SHUTDOWN)
+	if preShutdown {
+		accepts |= windows.SERVICE_ACCEPT_PRESHUTDOWN
 	}
-	status <- svc.Status{State: svc.StartPending}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- h.fn(ctx) }()
-	status <- svc.Status{State: svc.Running, Accepts: accepts}
+	go func() { done <- fn(ctx) }()
+	d.setStatus(windows.SERVICE_RUNNING, accepts, 0)
+	var err error
+loop:
 	for {
 		select {
-		case err := <-done:
+		case err = <-done:
+			break loop
+		case <-d.controls:
+			d.setStatus(windows.SERVICE_STOP_PENDING, 0, stopWaitHint)
 			cancel()
-			h.err = err
-			status <- svc.Status{State: svc.StopPending}
-			if err != nil {
-				return true, 1
-			}
-			return false, 0
-		case c := <-req:
-			switch c.Cmd {
-			case svc.Interrogate:
-				status <- c.CurrentStatus
-			case svc.Stop, svc.Shutdown, svc.PreShutdown:
-				status <- svc.Status{State: svc.StopPending, WaitHint: 20000}
-				cancel()
-			}
 		}
 	}
+	var flag, code uint32
+	if err != nil {
+		flag, code = 1, 1
+	}
+	d.result <- [2]uint32{flag, code}
+	// let serviceMain report SERVICE_STOPPED before the process exits
+	select {
+	case dispErr := <-d.stopped:
+		_ = dispErr // the dispatcher's own result; the role's error is what matters
+	case <-time.After(10 * time.Second):
+	}
+	return err
 }
 
 // SCM starts and stops services through the service control manager, asking
