@@ -43,9 +43,11 @@ All ten named skills are present and are Markdown only. No hooks, no MCP servers
 
 `wails` and `go-release` are a single `SKILL.md` each. No hooks, MCP servers or scripts. The `wails` skill still calls v3 "alpha" and recommends nightly tags; Wails v3.1.0 is stable, so where the skill and the current Wails docs disagree, the docs win (plan section 8). Verdict: approved.
 
-## Install commands
+## Installation
 
-Run these in Claude Code from the repository root and choose **project** scope when asked. Claude Code cannot run `/plugin` commands itself.
+The approved plugins are declared at project scope in `.claude/settings.json` (`extraKnownMarketplaces` and `enabledPlugins`). Claude Code reads that file when a session starts in this folder and offers to install the marketplaces and plugins listed there; accept the prompts. Nothing outside that list is enabled. The marketplaces follow their default branches; Claude Code settings cannot pin a marketplace to a commit, so re-check the commits above against what gets installed.
+
+In the Claude desktop app, `/plugin` opens the Settings > Customize > Plugins screen rather than the terminal command. The equivalent terminal commands, for the `claude` CLI, are:
 
 ```
 /plugin marketplace add trailofbits/skills
@@ -53,7 +55,7 @@ Run these in Claude Code from the repository root and choose **project** scope w
 /plugin marketplace add spf13/go-skills
 ```
 
-Then, from `/plugin menu` (or `/plugin install <name>@<marketplace>`), install only:
+and then `/plugin install <name>@<marketplace>`, choosing project scope, for only:
 
 - From `trailofbits/skills`: `insecure-defaults`, `sharp-edges`, `static-analysis`, `semgrep-rule-creator`, `differential-review`, `audit-context-building`, `fp-check`, `spec-to-code-compliance`, `variant-analysis`, `testing-handbook-skills`, `supply-chain-risk-auditor`.
 - `cc-skills-golang@samber`

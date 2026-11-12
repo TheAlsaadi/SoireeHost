@@ -1,0 +1,34 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "extraKnownMarketplaces": {
+    "trailofbits": {
+      "source": { "source": "github", "repo": "trailofbits/skills" }
+    },
+    "samber": {
+      "source": { "source": "github", "repo": "samber/cc" }
+    },
+    "go-skills": {
+      "source": { "source": "github", "repo": "spf13/go-skills" }
+    }
+  },
+  "enabledPlugins": {
+    "insecure-defaults@trailofbits": true,
+    "sharp-edges@trailofbits": true,
+    "supply-chain-risk-auditor@trailofbits": true,
+    "static-analysis@trailofbits": true,
+    "semgrep-rule-creator@trailofbits": true,
+    "differential-review@trailofbits": true,
+    "audit-context-building@trailofbits": true,
+    "fp-check@trailofbits": true,
+    "spec-to-code-compliance@trailofbits": true,
+    "variant-analysis@trailofbits": true,
+    "testing-handbook-skills@trailofbits": true,
+    "cc-skills-golang@samber": true,
+    "wails@go-skills": true,
+    "go-release@go-skills": true
+  }
+}
