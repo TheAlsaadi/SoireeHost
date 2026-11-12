@@ -16,24 +16,87 @@ import (
 // ErrNotService is returned when a service role is started from a console.
 var ErrNotService = errors.New("this role runs as a Windows service; setup installs it")
 
+// The service dispatcher (StartServiceCtrlDispatcher) can be started once
+// per process. Caddy, which every role links, starts it from its own init()
+// whenever the process runs as a service, with a handler that ends the
+// process on Stop. So this package claims the dispatcher first, in its own
+// init(): the Go spec (since 1.21) initialises ready packages in import-path
+// order, and "github.com/TheAlsaadi/..." sorts before
+// "github.com/caddyserver/...", so this init runs before Caddy's, as long as
+// this package never imports Caddy. Caddy's later attempt then fails, and
+// Caddy ignores that failure. Run hands the claimed dispatcher to the role.
+var dispatcher struct {
+	isService bool
+	err       error // why the dispatcher could not be claimed
+	ready     chan struct{}
+	req       <-chan svc.ChangeRequest
+	status    chan<- svc.Status
+	result    chan [2]uint32 // Execute's return values: specific flag, exit code
+	stopped   chan error     // svc.Run's own return
+}
+
+// claimTimeout bounds how long init waits for the service manager to call
+// back; Windows itself allows a service 30 seconds to connect.
+const claimTimeout = 20 * time.Second
+
+func init() {
+	isSvc, err := svc.IsWindowsService()
+	if err != nil || !isSvc {
+		return
+	}
+	d := &dispatcher
+	d.isService = true
+	d.ready = make(chan struct{})
+	d.result = make(chan [2]uint32, 1)
+	d.stopped = make(chan error, 1)
+	go func() { d.stopped <- svc.Run("", bridge{}) }()
+	select {
+	case <-d.ready:
+	case err := <-d.stopped:
+		d.err = fmt.Errorf("starting the service dispatcher: %w", err)
+	case <-time.After(claimTimeout):
+		d.err = errors.New("the service manager did not call back in time")
+	}
+}
+
+// bridge is the handler the dispatcher calls; it passes the service's
+// request and status channels to Run and waits for Run's verdict.
+type bridge struct{}
+
+func (bridge) Execute(_ []string, req <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
+	dispatcher.req, dispatcher.status = req, status
+	close(dispatcher.ready)
+	r := <-dispatcher.result
+	return r[0] != 0, r[1]
+}
+
 // Run runs fn as the service name until the service control manager asks it
 // to stop (or, with preShutdown, the system is shutting down), then cancels
 // fn's context and waits for it to return.
 func Run(name string, preShutdown bool, fn func(ctx context.Context) error) error {
-	isSvc, err := svc.IsWindowsService()
-	if err != nil {
-		return err
-	}
-	if !isSvc {
+	d := &dispatcher
+	if !d.isService {
 		return ErrNotService
 	}
 	// A service has no console, so its start and failure are written to the
 	// Application event log under its own name (setup registers the source).
 	// Messages are error texts and paths, never secret values.
 	elog, _ := eventlog.Open(name)
-	h := &handler{fn: fn, preShutdown: preShutdown}
-	err = svc.Run(name, h)
+	err := d.err
 	if err == nil {
+		h := &handler{fn: fn, preShutdown: preShutdown}
+		specific, code := h.Execute(nil, d.req, d.status)
+		var flag uint32
+		if specific {
+			flag = 1
+		}
+		d.result <- [2]uint32{flag, code}
+		// let the dispatcher report SERVICE_STOPPED before the process exits
+		select {
+		case dispErr := <-d.stopped:
+			_ = dispErr // the dispatcher's own result; the role's error is what matters
+		case <-time.After(10 * time.Second):
+		}
 		err = h.err
 	}
 	if elog != nil {
