@@ -1,6 +1,6 @@
 # ADR-0006: Supervisor, named pipes, stores and service setup
 
-**Status:** Proposed
+**Status:** Accepted by the owner on 12 Nov 2026
 **Date:** 12 Nov 2026
 **Deciders:** Owner
 
@@ -169,5 +169,5 @@ Phase 6 adds:
 
 ## Action items
 
-1. [ ] Owner: accept or amend this record.
-2. [ ] Phase 2: CI job on an admin runner that installs, runs the isolation checks, and uninstalls.
+1. [x] Owner: accept or amend this record. Accepted 12 Nov 2026.
+2. [x] Phase 2: CI job on an admin runner that installs, runs the isolation checks, and uninstalls. Green on 12 Nov 2026 (run 43281534909).

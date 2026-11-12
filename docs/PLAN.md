@@ -366,11 +366,11 @@ Build the Windows service under its virtual account, the named pipe and control 
 
 Done when:
 
-- [ ] Tests pass for S-20 to S-22, S-24, S-30 to S-32, S-35, S-36, S-40 and S-41.
-- [ ] A second local user cannot open the pipe.
-- [ ] A test build of the worker that tries to start `cmd.exe` fails.
-- [ ] Stopping the supervisor ends both workers, and so does killing its process.
-- [ ] An ordinary user cannot start or stop the worker services.
+- [x] Tests pass for S-20 to S-22, S-24, S-30 to S-32, S-35, S-36, S-40 and S-41. (12 Nov 2026, locally and in CI: pull request 2, run 43281534909. The cloudflared part of S-21, the remaining S-32 actions and the S-35 control panel arrive in later phases)
+- [x] A second local user cannot open the pipe. (12 Nov 2026, `TestSecondUserLockedOut` on the CI runner)
+- [x] A test build of the worker that tries to start `cmd.exe` fails. (12 Nov 2026, `TestConfineStopsChildProcesses`; the installed workers are in job objects, `TestWorkersAreConfined`)
+- [x] Stopping the supervisor ends both workers, and so does killing its process. (12 Nov 2026, `TestStoppingSupervisorEndsWorkers`, `TestKillingSupervisorEndsWorkers` on the CI runner)
+- [x] An ordinary user cannot start or stop the worker services. (12 Nov 2026, `TestSecondUserLockedOut` on the CI runner)
 
 ### Phase 3: Tunnel
 

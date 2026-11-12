@@ -81,7 +81,7 @@ Plant canary tokens as the tunnel token and in site config, run the app through 
 
 72 hours serving a static site and a proxied app under steady load, with tunnel drops and service restarts injected every few hours. Pass: no crash, memory and handle counts flat after warm-up, every request served or cleanly failed.
 
-## Current coverage (Phase 2 in progress)
+## Current coverage (end of Phase 2)
 
 | Area | Tests |
 | --- | --- |
