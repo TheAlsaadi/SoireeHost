@@ -46,9 +46,21 @@ jobs:
         run: go vet ./...
       - name: Tests with race detector
         # The race detector needs cgo; release builds stay CGO_ENABLED=0.
+        # On failure the relevant lines are also published as an annotation,
+        # which GitHub shows without signing in (job logs need a sign-in).
         env:
           CGO_ENABLED: "1"
-        run: go test -race -count=1 ./...
+        shell: pwsh
+        run: |
+          $out = go test -race -count=1 ./... 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|WARNING: DATA RACE|error|cannot|undefined|--- |\.go:\d+' } | Select-Object -First 40
+            $msg = ($lines -join '%0A') -replace '::', ': :'
+            Write-Output "::error title=go test -race failed::$msg"
+            exit $code
+          }
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
