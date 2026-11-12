@@ -52,7 +52,42 @@ func TestMain(m *testing.M) {
 		fmt.Println("skipping: set SOIREEHOST_E2E=1 on a CI runner after setup install")
 		os.Exit(0)
 	}
+	// Every test needs a running supervisor. Wait for it once and stop with
+	// a clear message if it never starts, instead of each test waiting and
+	// the run hitting go test's timeout.
+	if err := waitSupervisor(2 * time.Minute); err != nil {
+		fmt.Println("the installed supervisor never started:", err)
+		fmt.Println("see the Application event log (source SoireeHost) for its reason")
+		os.Exit(1)
+	}
 	os.Exit(m.Run())
+}
+
+func waitSupervisor(within time.Duration) error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = m.Disconnect() }()
+	s, err := m.OpenService(winsec.SupervisorService)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = s.Close() }()
+	deadline := time.Now().Add(within)
+	for {
+		st, err := s.Query()
+		if err != nil {
+			return err
+		}
+		if st.State == svc.Running {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("state %d after %v", st.State, within)
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 func layout(t *testing.T) setup.Layout {

@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/eventlog"
 )
 
 // ErrNotService is returned when a service role is started from a console.
@@ -26,11 +27,22 @@ func Run(name string, preShutdown bool, fn func(ctx context.Context) error) erro
 	if !isSvc {
 		return ErrNotService
 	}
+	// A service has no console, so its start and failure are written to the
+	// Application event log under its own name (setup registers the source).
+	// Messages are error texts and paths, never secret values.
+	elog, _ := eventlog.Open(name)
 	h := &handler{fn: fn, preShutdown: preShutdown}
-	if err := svc.Run(name, h); err != nil {
-		return err
+	err = svc.Run(name, h)
+	if err == nil {
+		err = h.err
 	}
-	return h.err
+	if elog != nil {
+		if err != nil {
+			_ = elog.Error(1, name+" stopped with an error: "+err.Error())
+		}
+		_ = elog.Close()
+	}
+	return err
 }
 
 type handler struct {

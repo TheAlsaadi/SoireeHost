@@ -166,7 +166,7 @@ jobs:
           SOIREEHOST_E2E: "1"
         shell: pwsh
         run: |
-          $out = go test -tags e2e -count=1 -v ./internal/e2e/ 2>&1 | Out-String
+          $out = go test -tags e2e -count=1 -v -timeout 25m ./internal/e2e/ 2>&1 | Out-String
           $code = $LASTEXITCODE
           Write-Output $out
           if ($code -ne 0) {
@@ -195,6 +195,16 @@ jobs:
           $s = Get-Service SoireeHost* | Format-Table Name, Status, StartType -AutoSize | Out-String
           Write-Output $s
           Write-Output "::error title=service state::$(($s -split "`r?`n" | Where-Object { $_ }) -join '%0A')"
+          # the services' own messages, and the service manager's
+          $ev = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'SoireeHost', 'SoireeHostWeb', 'SoireeHostTunnel' } -MaxEvents 20 -ErrorAction SilentlyContinue |
+            ForEach-Object { "$($_.TimeCreated.ToString('HH:mm:ss')) $($_.ProviderName): $($_.Message)" }
+          $scm = Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager' } -MaxEvents 50 -ErrorAction SilentlyContinue |
+            Where-Object { $_.Message -match 'SoireeHost|Soir' } | Select-Object -First 10 |
+            ForEach-Object { "$($_.TimeCreated.ToString('HH:mm:ss')) SCM $($_.Id): $($_.Message)" }
+          $all = @($ev) + @($scm) | Where-Object { $_ }
+          Write-Output ($all -join "`n")
+          $msg = (($all | ForEach-Object { $_ -replace "`r?`n", ' ' }) -join '%0A') -replace '::', ': :'
+          if ($msg) { Write-Output "::error title=service events::$msg" }
       - name: setup uninstall --purge
         if: always()
         run: ./bin/soireehost.exe setup uninstall --purge

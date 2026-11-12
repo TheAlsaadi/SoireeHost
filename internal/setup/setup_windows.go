@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
@@ -88,6 +89,7 @@ func Install(l Layout) error {
 	if err := registerServices(l.Exe()); err != nil {
 		return err
 	}
+	registerEventSources()
 	return startService(winsec.SupervisorService)
 }
 
@@ -195,6 +197,15 @@ func checkDataRoot(root string) error {
 		return fmt.Errorf("refusing to install: %s already exists and was created by another account (%s); delete it and run setup again", root, o)
 	}
 	return nil
+}
+
+// registerEventSources lets each service write to the Application event
+// log under its own name. A source that already exists is replaced.
+func registerEventSources() {
+	for _, spec := range services {
+		_ = eventlog.Remove(spec.name)
+		_ = eventlog.InstallAsEventCreate(spec.name, eventlog.Error|eventlog.Warning|eventlog.Info)
+	}
 }
 
 // stopInstalled stops the three services if they exist, supervisor first.
@@ -358,6 +369,7 @@ func Uninstall(l Layout, purge bool) error {
 			errs = append(errs, fmt.Errorf("removing %s: %w", spec.name, err))
 		}
 		_ = s.Close()
+		_ = eventlog.Remove(spec.name)
 	}
 	if self, err := os.Executable(); err == nil && strings.EqualFold(filepath.Dir(self), l.ProgramDir) {
 		errs = append(errs, errors.New("run uninstall from a copy outside the program folder to remove it (self-removal comes in Phase 6)"))
