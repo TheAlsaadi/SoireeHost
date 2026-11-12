@@ -32,8 +32,10 @@ func TestParseRole(t *testing.T) {
 	}
 }
 
-func TestRunRejectsUnknownAndUnbuiltRoles(t *testing.T) {
-	for _, args := range [][]string{{"nope"}, {"service"}, {"worker"}, {"tunnel"}, {"setup"}} {
+// Service roles started from a console, unknown roles and bad setup
+// arguments all exit 2 without doing anything.
+func TestRunRejectsUnknownRolesAndConsoleServices(t *testing.T) {
+	for _, args := range [][]string{{"nope"}, {"service"}, {"worker"}, {"tunnel"}, {"setup"}, {"setup", "remove"}, {"setup", "uninstall", "--force"}} {
 		if code := run(args); code != 2 {
 			t.Errorf("run(%q) = %d, want 2", args, code)
 		}

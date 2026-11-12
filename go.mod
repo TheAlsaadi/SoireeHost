@@ -6,6 +6,7 @@ go 1.27.4
 ignore ./frontend/node_modules
 
 require (
+	github.com/Microsoft/go-winio v0.6.4
 	github.com/caddyserver/caddy/v2 v2.11.9
 	github.com/wailsapp/wails/v3 v3.1.0
 	go.uber.org/zap v1.28.0

@@ -141,6 +141,83 @@ jobs:
           go install github.com/zricethezav/gitleaks/v8@${{ env.GITLEAKS_VERSION }}
           gitleaks git --redact --no-banner -v .
 
+  isolation:
+    # Installs the three services on this throwaway runner (which has
+    # administrator rights) and checks isolation from the outside: plan
+    # Phase 2, docs/TEST_PLAN.md "Isolation". Never run on a developer PC.
+    name: Isolation (installs services on the runner)
+    runs-on: windows-2025
+    needs: [go]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build release binary
+        env:
+          CGO_ENABLED: "0"
+        run: go build -trimpath -tags production -o bin/soireehost.exe ./cmd/soireehost
+      - name: setup install
+        run: ./bin/soireehost.exe setup install
+      - name: Isolation tests
+        env:
+          SOIREEHOST_E2E: "1"
+        shell: pwsh
+        run: |
+          $out = go test -tags e2e -count=1 -v -timeout 25m ./internal/e2e/ 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|error|--- |\.go:\d+' } | Select-Object -First 40
+            $msg = ($lines -join '%0A') -replace '::', ': :'
+            Write-Output "::error title=isolation tests failed::$msg"
+            exit $code
+          }
+      - name: setup install again over the running install (repair)
+        shell: pwsh
+        run: |
+          ./bin/soireehost.exe setup install
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=reinstall::setup install failed over an existing install"; exit 1 }
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Get-Date) -lt $deadline) {
+            $down = Get-Service SoireeHost, SoireeHostWeb, SoireeHostTunnel | Where-Object Status -ne 'Running'
+            if (-not $down) { exit 0 }
+            Start-Sleep -Seconds 2
+          }
+          Write-Output "::error title=reinstall::services not running 90 seconds after reinstall"
+          exit 1
+      - name: Service state on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $s = Get-Service SoireeHost* | Format-Table Name, Status, StartType -AutoSize | Out-String
+          Write-Output $s
+          Write-Output "::error title=service state::$(($s -split "`r?`n" | Where-Object { $_ }) -join '%0A')"
+          # the services' own messages, and the service manager's
+          $ev = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'SoireeHost', 'SoireeHostWeb', 'SoireeHostTunnel' } -MaxEvents 20 -ErrorAction SilentlyContinue |
+            ForEach-Object { "$($_.TimeCreated.ToString('HH:mm:ss')) $($_.ProviderName): $($_.Message)" }
+          $scm = Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager' } -MaxEvents 50 -ErrorAction SilentlyContinue |
+            Where-Object { $_.Message -match 'SoireeHost|Soir' } | Select-Object -First 10 |
+            ForEach-Object { "$($_.TimeCreated.ToString('HH:mm:ss')) SCM $($_.Id): $($_.Message)" }
+          $all = @($ev) + @($scm) | Where-Object { $_ }
+          Write-Output ($all -join "`n")
+          $msg = (($all | ForEach-Object { $_ -replace "`r?`n", ' ' }) -join '%0A') -replace '::', ': :'
+          if ($msg) { Write-Output "::error title=service events::$msg" }
+      - name: setup uninstall --purge
+        if: always()
+        run: ./bin/soireehost.exe setup uninstall --purge
+      - name: Uninstall left nothing behind
+        if: always()
+        shell: pwsh
+        run: |
+          $left = @()
+          if (Get-Service SoireeHost* -ErrorAction SilentlyContinue) { $left += "services" }
+          if (Test-Path "$env:ProgramFiles\SoireeHost") { $left += "program folder" }
+          if (Test-Path "$env:ProgramData\SoireeHost") { $left += "data folder" }
+          if ($left) { Write-Output "::error title=uninstall left::$($left -join ', ')"; exit 1 }
+
   fuzz:
     name: Fuzz (nightly, 10 minutes per target)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
