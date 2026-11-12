@@ -1,0 +1,35 @@
+# Build output
+/bin/
+/dist/
+*.exe
+*.syso
+*.test
+*.out
+coverage.*
+
+# Embedded third-party binaries are fetched and verified by CI, never committed
+/internal/tunnel/embed/
+
+# Frontend
+node_modules/
+# dist/ is built; the placeholder keeps go:embed working before the first build
+/frontend/dist/*
+!/frontend/dist/.gitkeep
+
+# Go fuzz cache stays local; seed corpora under testdata/fuzz are committed
+/.cache/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Secrets must never be committed
+*.pem
+*.key
+*.pfx
+.env
+.env.*

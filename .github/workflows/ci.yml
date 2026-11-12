@@ -1,0 +1,145 @@
+# Build, lint, test and scan on every push and pull request; deeper runs nightly.
+# Every action is pinned to a full commit SHA (S-72); the tag is in the comment.
+# Pull-request builds get no secrets and a read-only token (S-72).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: -mod=readonly
+  NODE_VERSION: "26"
+  WAILS_VERSION: v3.1.0
+  GOLANGCI_LINT_VERSION: v2.15.0
+  STATICCHECK_VERSION: v0.8.2
+  GOSEC_VERSION: v2.30.0
+  GOVULNCHECK_VERSION: v1.9.0
+  GITLEAKS_VERSION: v8.30.1
+
+jobs:
+  go:
+    name: Go checks
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Verify module checksums
+        run: go mod verify
+      - name: go vet
+        run: go vet ./...
+      - name: Tests with race detector
+        # The race detector needs cgo; release builds stay CGO_ENABLED=0.
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@${{ env.STATICCHECK_VERSION }} ./...
+      - name: gosec
+        run: go run github.com/securego/gosec/v2/cmd/gosec@${{ env.GOSEC_VERSION }} -quiet ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }} ./...
+
+  frontend:
+    name: Frontend checks
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install (no install scripts)
+        run: npm ci --ignore-scripts --no-fund
+      - name: Type check
+        run: npm run check
+      - name: Lint (includes S-34 rules)
+        run: npm run lint
+      - name: Tests
+        run: npm test
+      - name: npm audit
+        # Low-severity findings are reviewed in docs/DEPENDENCIES.md.
+        run: npm audit --audit-level=moderate
+
+  build:
+    name: Build soireehost.exe
+    runs-on: windows-2025
+    needs: [go, frontend]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install wails3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+        env:
+          GOFLAGS: ""
+      - name: Build
+        shell: pwsh
+        run: ./build/build.ps1 -SkipChecks
+      - name: Committed bindings match the Go code
+        run: git diff --exit-code -- frontend/bindings
+      - name: Binary has ASLR, DEP and high-entropy VA (S-24)
+        run: go run ./build/pecheck bin/soireehost.exe
+
+  secrets:
+    name: Secret scan
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: gitleaks (full history)
+        env:
+          GOFLAGS: ""
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@${{ env.GITLEAKS_VERSION }}
+          gitleaks git --redact --no-banner -v .
+
+  fuzz:
+    name: Fuzz (nightly, 10 minutes per target)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Run every fuzz target
+        shell: pwsh
+        run: ./build/fuzz.ps1 -Duration 10m

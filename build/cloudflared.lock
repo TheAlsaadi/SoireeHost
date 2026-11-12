@@ -1,0 +1,6 @@
+# cloudflared pinned for embedding (S-23, S-71).
+# Source: https://github.com/cloudflare/cloudflared/releases/tag/2026.10.7
+# SHA-256 copied from the "SHA256 Checksums" section of the release notes on 2026-11-12.
+version=2026.10.7
+asset=cloudflared-windows-amd64.exe
+sha256=2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343
