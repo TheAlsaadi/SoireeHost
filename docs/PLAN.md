@@ -356,7 +356,7 @@ Build embedded Caddy serving one static folder and one proxied port on loopback,
 
 Done when:
 
-- [x] Tests pass for S-01, S-04 to S-06, S-10 to S-13, S-15, S-16 and S-18. (12 Nov 2026, local run; the CI-only S-01 test and the symbolic-link cases run after push. The cloudflared part of S-04 and quick share in S-06 belong to Phase 3)
+- [x] Tests pass for S-01, S-04 to S-06, S-10 to S-13, S-15, S-16 and S-18. (12 Nov 2026, locally and in CI: pull request 1, run 43232776044, and `main` after the merge, run 43236752556. The cloudflared part of S-04 and quick share in S-06 belong to Phase 3)
 - [x] The path traversal suite in section 10 passes. (12 Nov 2026, `TestPathTraversalSuite`)
 - [x] Fuzzers for config and path validation run 10 minutes each without a crash. (12 Nov 2026, local: `FuzzDecode`, `FuzzHostname`, `FuzzTarget`, `FuzzRootSyntax`, `FuzzCheckStatic`, `FuzzCheckProxy`, 66 to 92 million executions each)
 
