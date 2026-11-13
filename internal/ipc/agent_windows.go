@@ -5,12 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"time"
 )
 
 // AgentOptions configure a worker's side of its pipe.
 type AgentOptions struct {
+	// Pipe is the supervisor's pipe. If it is empty, the agent reads the
+	// pipe's name from PipeFile (the supervisor's names are random, DR-1).
 	Pipe          string
+	PipeFile      string
 	SupervisorSID string
 	Role          string
 	Version       string
@@ -35,7 +39,16 @@ func RunAgent(ctx context.Context, o AgentOptions) error {
 		defer o.Stop()
 	}
 	dctx, cancel := context.WithTimeout(ctx, o.DialTimeout)
-	conn, err := Dial(dctx, o.Pipe, o.SupervisorSID)
+	var conn net.Conn
+	var err error
+	switch {
+	case o.Pipe != "":
+		conn, err = Dial(dctx, o.Pipe, o.SupervisorSID)
+	case o.PipeFile != "":
+		conn, err = dialFileWait(dctx, o.PipeFile, o.SupervisorSID)
+	default:
+		err = errors.New("no pipe and no pipe-name file given")
+	}
 	cancel()
 	if err != nil {
 		return fmt.Errorf("connecting to the supervisor: %w", err)

@@ -34,7 +34,7 @@ A Windows app that turns a PC into a web host reachable through Cloudflare Tunne
 Go is installed per user at `%LOCALAPPDATA%\Programs\go`; tools are in `%USERPROFILE%\go\bin`.
 
 - Full build (bindings, frontend checks, frontend build, Go binary): `powershell -File build\build.ps1 [-Version 1.2.3] [-Dev] [-SkipChecks]` → `bin\soireehost.exe`
-- Go checks: `go vet ./...`, `go test ./...`, `golangci-lint run ./...`, `staticcheck ./...`, `gosec -quiet ./...`, `govulncheck ./...`
+- Go checks: `go vet ./...`, `go test ./...`, `golangci-lint run ./...`, `staticcheck ./...`, `gosec -quiet -exclude-dir=.semgrep ./...`, `govulncheck ./...`
 - Race tests need cgo and a C compiler; they run in CI only.
 - Frontend (in `frontend/`): `npm ci --ignore-scripts`, `npm run check`, `npm run lint`, `npm test`, `npm run build`
 - Fuzz all targets: `powershell -File build\fuzz.ps1 -Duration 30s`

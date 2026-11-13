@@ -44,6 +44,10 @@ var blockedNames = map[string]bool{
 	"web.config":  true,
 	"desktop.ini": true,
 	"thumbs.db":   true,
+	// a user profile's application data (browser passwords and cookies,
+	// mail, tokens) and its registry hive, wherever the profile lives (S-11)
+	"appdata":    true,
+	"ntuser.dat": true,
 	// SSH private keys carry no extension
 	"id_rsa":        true,
 	"id_dsa":        true,

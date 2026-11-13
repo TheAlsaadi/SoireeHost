@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 )
@@ -27,6 +28,11 @@ type Locations struct {
 	// It and every profile root directly inside it are refused; folders
 	// deeper inside a profile are allowed (except AppData and .ssh).
 	UserProfiles string
+	// Profiles lists every profile folder Windows knows about (the
+	// ProfileList registry key), wherever it is stored. A profile moved out
+	// of the Users folder is still a profile: it and every folder containing
+	// it are refused.
+	Profiles []string
 }
 
 // DefaultLocations reads the folders from Windows.
@@ -56,7 +62,47 @@ func DefaultLocations() (Locations, error) {
 	if loc.UserProfiles, err = get(windows.FOLDERID_UserProfiles); err != nil {
 		return Locations{}, err
 	}
+	if loc.Profiles, err = profilePaths(); err != nil {
+		return Locations{}, err
+	}
 	return loc, nil
+}
+
+// profileListKey holds one subkey per profile, named by the account's SID.
+const profileListKey = `SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList`
+
+// profilePaths reads every ProfileImagePath under the ProfileList key. A
+// subkey without a usable path is skipped; failing to open the key at all is
+// an error, so the check fails closed.
+func profilePaths() ([]string, error) {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, profileListKey, registry.ENUMERATE_SUB_KEYS|registry.QUERY_VALUE)
+	if err != nil {
+		return nil, fmt.Errorf("reading the list of user profiles: %w", err)
+	}
+	defer k.Close() //nolint:errcheck // read-only key
+	names, err := k.ReadSubKeyNames(-1)
+	if err != nil {
+		return nil, fmt.Errorf("reading the list of user profiles: %w", err)
+	}
+	var out []string
+	for _, n := range names {
+		sk, err := registry.OpenKey(k, n, registry.QUERY_VALUE)
+		if err != nil {
+			continue
+		}
+		v, _, err := sk.GetStringValue("ProfileImagePath")
+		_ = sk.Close()
+		if err != nil || v == "" {
+			continue
+		}
+		if x, err := registry.ExpandString(v); err == nil {
+			v = x
+		}
+		if filepath.IsAbs(v) {
+			out = append(out, canonicalOrClean(v))
+		}
+	}
+	return out, nil
 }
 
 func canonicalOrClean(p string) string {
@@ -228,6 +274,11 @@ func checkCanonical(canon string, loc Locations) error {
 		}
 		if within(canon, up) && !strings.Contains(canon[len(up)+1:], `\`) {
 			return errors.New("a whole user profile cannot be published; choose a folder inside it, such as Documents\\site")
+		}
+	}
+	for _, p := range loc.Profiles {
+		if equalPath(canon, p) || within(p, canon) {
+			return errors.New("a whole user profile, or a folder containing one, cannot be published; choose a folder inside it, such as Documents\\site")
 		}
 	}
 	return nil

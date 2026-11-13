@@ -5,12 +5,6 @@ import (
 	"fmt"
 )
 
-// Worker pipes, one per worker role. The supervisor is the server of both.
-const (
-	WebPipe    = `\\.\pipe\soireehost-web`
-	TunnelPipe = `\\.\pipe\soireehost-tunnel`
-)
-
 // Worker message types, a closed set (ADR-0006).
 const (
 	// supervisor to worker

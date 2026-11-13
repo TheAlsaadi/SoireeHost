@@ -1,0 +1,57 @@
+rules:
+  - id: go-no-public-listener
+    languages: [go]
+    severity: HIGH
+    message: >-
+      S-01: listening address $ADDR is not loopback. An empty host (":8080"),
+      0.0.0.0, [::], a host name or a LAN address exposes the port beyond this
+      PC. Listen on 127.0.0.1 or [::1] only.
+    metadata:
+      requirement: S-01
+      cwe: "CWE-1327: Binding to an Unrestricted IP Address"
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: net.Listen($NET, $ADDR)
+          - pattern: net.ListenPacket($NET, $ADDR)
+          - pattern: '($LC : net.ListenConfig).Listen($CTX, $NET, $ADDR)'
+          - pattern: '($LC : net.ListenConfig).ListenPacket($CTX, $NET, $ADDR)'
+          - pattern: http.ListenAndServe($ADDR, ...)
+          - pattern: http.ListenAndServeTLS($ADDR, ...)
+          - pattern: 'http.Server{..., Addr: $ADDR, ...}'
+          - pattern: '($SRV : *http.Server).Addr = $ADDR'
+          - pattern: '($SRV : http.Server).Addr = $ADDR'
+      - metavariable-pattern:
+          metavariable: $ADDR
+          patterns:
+            - pattern-either:
+                # A whole address as a constant string. metavariable-pattern
+                # also looks inside $ADDR, so skip literals that are only a
+                # part of a join, concatenation or format call (checked below).
+                - patterns:
+                    - pattern: '"$HOSTPORT"'
+                    - pattern-not-inside: net.JoinHostPort(...)
+                    - pattern-not-inside: $LEFT + $RIGHT
+                    - pattern-not-inside: fmt.Sprintf(...)
+                    - metavariable-regex:
+                        metavariable: $HOSTPORT
+                        regex: ^(?!127\.\d{1,3}\.\d{1,3}\.\d{1,3}(:|$)|\[::1\](:|$))
+                # A host prefix joined to a port: ":" + port, "0.0.0.0:" + port.
+                - patterns:
+                    - pattern: '"$PREFIX" + $PORT'
+                    - metavariable-regex:
+                        metavariable: $PREFIX
+                        regex: ^(?!127\.\d{1,3}\.\d{1,3}\.\d{1,3}(:|$)|\[::1\](:|$))
+                # A format string whose host is not loopback: ":%d".
+                - patterns:
+                    - pattern: fmt.Sprintf("$FORMAT", ...)
+                    - metavariable-regex:
+                        metavariable: $FORMAT
+                        regex: ^(?!%|127\.\d{1,3}\.\d{1,3}\.\d{1,3}(:|$)|\[::1\](:|$))
+                # net.JoinHostPort with an empty, wildcard or non-loopback host.
+                - patterns:
+                    - pattern: net.JoinHostPort("$HOST", $PORT)
+                    - metavariable-regex:
+                        metavariable: $HOST
+                        regex: ^(?!127\.\d{1,3}\.\d{1,3}\.\d{1,3}$|::1$)
+      - focus-metavariable: $ADDR

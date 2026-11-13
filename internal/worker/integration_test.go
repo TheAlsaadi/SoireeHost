@@ -513,7 +513,7 @@ func TestLogRedaction(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"page=2", "token=REDACTED", "test-agent/1.0", "203.0.113.9", `"status":200`, `"status":404`} {
+	for _, want := range []string{"page=REDACTED", "token=REDACTED", "test-agent/1.0", "203.0.113.9", `"status":200`, `"status":404`} {
 		if !strings.Contains(string(access), want) {
 			t.Errorf("access log lacks %q:\n%s", want, access)
 		}

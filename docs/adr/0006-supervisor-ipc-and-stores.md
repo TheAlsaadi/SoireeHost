@@ -24,7 +24,7 @@ Owner decisions taken on 12 Nov 2026:
 
 Functional:
 
-- The control panel reads status and config, changes sites, sets the tunnel token, reads the audit log and rolls config back, all through `\\.\pipe\soireehost-control`.
+- The control panel reads status and config, changes sites, sets the tunnel token, reads the audit log and rolls config back, all through `\\.\pipe\soireehost-control-<random>`.
 - The supervisor stores config and secrets, starts both workers, hands the web worker its Caddy config and the tunnel launcher its token, restarts a worker that dies, and stops both before it stops.
 - A worker exits when its pipe to the supervisor closes.
 
@@ -37,9 +37,9 @@ Non-functional:
 ## Design
 
 ```
-control panel (user) ──\\.\pipe\soireehost-control──▶ supervisor (NT SERVICE\SoireeHost)
+control panel (user) ──\\.\pipe\soireehost-control-*──▶ supervisor (NT SERVICE\SoireeHost)
                                                        │  config\  secrets\  logs\audit\
-                         \\.\pipe\soireehost-web ◀─────┤  (server side, owner = supervisor SID)
+                         \\.\pipe\soireehost-web-*  ◀──┤  (server side, owner = supervisor SID)
 web worker (NT SERVICE\SoireeHostWeb) ─────client──────┘
 tunnel launcher (NT SERVICE\SoireeHostTunnel) ──client── \\.\pipe\soireehost-tunnel
 ```
@@ -62,7 +62,7 @@ Worker messages are a closed set of types: supervisor to worker `load` (Caddy JS
 | Pipe DACL (workers) | Only that worker's service SID (`NT SERVICE\SoireeHostWeb` or `...Tunnel`) gets read and write-data | Any other local process |
 | Remote clients | `PIPE_REJECT_REMOTE_CLIENTS` on every instance, plus the `NETWORK` deny | SMB access to the pipe |
 | Caller identity, every connection | `ImpersonateNamedPipeClient`, read the thread token's user and groups, `RevertToSelf`. Clients connect at `SecurityIdentification`, so no impersonation privilege is needed and the supervisor cannot act as the caller. The SID must be the installing user's, `SYSTEM`'s, or carry an enabled Administrators group | Anything the DACL let through by mistake |
-| Server identity, every client | The supervisor creates each pipe with `FILE_FLAG_FIRST_PIPE_INSTANCE` and sets its own service SID as owner. Clients read the pipe's owner with `GetSecurityInfo` and refuse to send anything unless it is `NT SERVICE\SoireeHost`'s SID (S-1-5-80-…, computed from the service name). Only a process running as that service can own the object | Pipe squatting: a local program that creates the pipe name first to collect the tunnel token or feed a worker a hostile config |
+| Server identity, every client | The supervisor creates each pipe with `FILE_FLAG_FIRST_PIPE_INSTANCE` and sets its own service SID as owner. Clients read the pipe's owner with `GetSecurityInfo` and refuse to send anything unless it is `NT SERVICE\SoireeHost`'s SID (S-1-5-80-…, computed from the service name). Only a process running as that service can own the object | Pipe squatting: a local program that creates the pipe name first to collect the tunnel token or feed a worker a hostile config. The names carry 128 random bits chosen at every start (review finding DR-1, 12 Nov 2026): any user may create a named pipe, so a fixed name could be held while the supervisor restarts and keep it from starting. The supervisor writes each name to a pipe-name file in `config` (`control.pipe`, `web.pipe`, `tunnel.pipe`) that it owns and that only the pipe's clients, SYSTEM and Administrators may read; clients open that known path (SeChangeNotifyPrivilege bypasses the folder's traverse check), check the file's owner, and dial that exact name, so they never search the pipe namespace and decoys cannot get in the way |
 
 If the supervisor cannot create a pipe because the name already exists, it logs that someone else holds the name and refuses to start.
 
@@ -126,10 +126,11 @@ A worker that cannot apply a limit exits instead of running unconfined.
 - Creates each missing folder with its final descriptor in the same call (`CreateDirectory` with security attributes), so a new folder never carries `%ProgramData%`'s permissions, even briefly. Otherwise a standard user could race setup to plant a file such as `control-users.json` (Phase 2 security review).
 - Gives every folder an explicit owner: Administrators, or SYSTEM for `secrets`.
 - Writes `control-users.json` as a new file, so it always takes the config folder's descriptor.
-- Refuses to install over an existing `%ProgramData%\SoireeHost` that is a link or junction, or that another account owns. A standard user can create folders in `%ProgramData%`, so one could pre-create this folder with a planted config before the first install.
+- Refuses to install over an existing `%ProgramData%\SoireeHost` that is a link or junction, that another account owns, or that holds any link, hard-linked file or entry owned by anyone but Administrators, SYSTEM or a SoiréeHost service. A standard user can create folders in `%ProgramData%`, so one could pre-create this folder with a planted config before the first install. Whether the folder exists is decided by creating it, so no gap is left between a check and the creation (DR-8).
+- Refuses to install from a folder that anyone but the person running setup, Administrators, SYSTEM or TrustedInstaller could change, and holds the program open without write or delete sharing from the start, copying from that handle (DR-9).
 - Records the installing user's SID in `config\control-users.json`, which the supervisor reads and only setup writes.
 
-`setup uninstall` stops and deletes the three services and removes the program folder. With `--purge` it also removes `%ProgramData%\SoireeHost`. It first takes ownership of every entry through backup-semantics handles that do not follow junctions. It skips re-permissioning any file with more than one hard link, so a link planted in a log folder cannot carry the change to its target, and simply unlinks those.
+`setup uninstall` stops and deletes the three services and removes the program folder. With `--purge` it also removes `%ProgramData%\SoireeHost`. It first waits for every service process to exit, and keeps the folder if one does not (DR-7). It then takes ownership of every entry by walking the tree through open handles: each entry is opened relative to its parent's handle without following reparse points, and its descriptor is set on that handle, so a junction swapped in during the walk is never entered (`winsec.WalkTree`). It skips re-permissioning any file with more than one hard link, so a link planted in a log folder cannot carry the change to its target, and simply unlinks those.
 
 Phase 6 adds:
 - the Windows prompt;

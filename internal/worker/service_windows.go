@@ -21,8 +21,12 @@ func RunService(version string) error {
 		if err := winsec.Confine(Limits); err != nil {
 			return fmt.Errorf("refusing to run unconfined: %w", err)
 		}
+		root, err := ipc.DataRoot()
+		if err != nil {
+			return err
+		}
 		return ipc.RunAgent(ctx, ipc.AgentOptions{
-			Pipe:          ipc.WebPipe,
+			PipeFile:      ipc.PipeFilePath(root, ipc.WebPipeFile),
 			SupervisorSID: winsec.ServiceSID(winsec.SupervisorService),
 			Role:          ipc.RoleWeb,
 			Version:       version,

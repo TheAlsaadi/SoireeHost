@@ -1,0 +1,27 @@
+rules:
+  - id: ts-no-inner-html
+    languages: [typescript, javascript]
+    severity: HIGH
+    message: >-
+      S-34: this parses a string as HTML. Hostnames, paths, user agents and
+      log lines are attacker-controlled and must be rendered as text only.
+      Use textContent, insertAdjacentText or Svelte text bindings.
+    metadata:
+      requirement: S-34
+      cwe: "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+      confidence: HIGH
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $EL.$PROP = $HTML
+              - pattern: $EL.$PROP += $HTML
+          - metavariable-regex:
+              metavariable: $PROP
+              regex: ^(innerHTML|outerHTML)$
+      - pattern: $EL["innerHTML"] = $HTML
+      - pattern: $EL["outerHTML"] = $HTML
+      - pattern: $EL.insertAdjacentHTML(...)
+      - pattern: document.write(...)
+      - pattern: document.writeln(...)
+      - pattern: $WIN.document.write(...)
+      - pattern: $WIN.document.writeln(...)

@@ -10,9 +10,6 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 )
 
-// ControlPipe is the control panel's pipe to the supervisor.
-const ControlPipe = `\\.\pipe\soireehost-control`
-
 // Control API methods (ADR-0006). No method takes a command to run, and the
 // only path any method accepts is a site folder to publish, which the
 // supervisor resolves and checks but never writes (S-31).
