@@ -42,6 +42,7 @@ Read the reference that matches the task:
 10. **Caddy keeps a log file open for the life of the process** once it has written to it, shared across reloads. Tests must use one log folder per test run (cleared in `TestMain`), never `t.TempDir()`, whose cleanup would fail.
 11. **`t.TempDir()` is under `AppData`, which S-11 refuses to publish.** Static site fixtures come from `testutil.SiteDir`.
 12. **Never write a secret where it can be printed.** Types that carry one (`ipc.WorkerMsg`, `ipc.SecretSetParams`) implement `String`/`GoString` that redact it; keep that true for any new one, and keep canary sweeps in tests.
+13. **A service cannot give its own new files a descriptor in an OWNER RIGHTS folder.** Every SoiréeHost folder grants OWNER RIGHTS only read-control, and Windows then refuses any descriptor passed at creation (owner, DACL or both) and any later DACL change, with "Access is denied", whether or not the token is restricted. When a file the supervisor writes needs other readers, setup creates a folder for it with those readers inheritable (see `winsec.PipeNameFolderSDDL`) and the supervisor writes a plain file (`fsutil.WriteAtomic`). Only elevated setup, through Administrators' full control, may write files with explicit descriptors.
 
 ## How a phase runs
 

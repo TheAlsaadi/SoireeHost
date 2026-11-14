@@ -150,7 +150,7 @@ func control(t *testing.T) *ipc.Client {
 	defer cancel()
 	var last error
 	for ctx.Err() == nil {
-		c, err := ipc.DialControl(ctx, ipc.ControlPipe, winsec.ServiceSID(winsec.SupervisorService))
+		c, err := ipc.DialControlFile(ctx, ipc.PipeFilePath(layout(t).DataRoot, ipc.ControlPipeFile), winsec.ServiceSID(winsec.SupervisorService))
 		if err == nil {
 			t.Cleanup(func() { _ = c.Close() })
 			return c
@@ -336,14 +336,19 @@ func TestSecondUserLockedOut(t *testing.T) {
 	l := layout(t)
 	p := supervisor.Paths{Root: l.DataRoot}
 
+	controlPipe, webPipe := livePipe(t, ipc.ControlPipeFile), livePipe(t, ipc.WebPipeFile)
 	results := asUser(t, tok, func() map[string]error {
 		r := map[string]error{}
-		r["open control pipe"] = openPipe(ipc.ControlPipe)
-		r["open web pipe"] = openPipe(ipc.WebPipe)
+		r["open control pipe"] = openPipe(controlPipe)
+		r["open web pipe"] = openPipe(webPipe)
 		r["start web worker"] = serviceAccess(winsec.WebService, windows.SERVICE_START)
 		r["stop tunnel launcher"] = serviceAccess(winsec.TunnelService, windows.SERVICE_STOP)
 		r["read secrets"] = readDir(p.Secrets())
 		r["read config"] = readDir(p.Config())
+		for _, f := range []string{ipc.ControlPipeFile, ipc.WebPipeFile, ipc.TunnelPipeFile} {
+			_, err := os.ReadFile(ipc.PipeFilePath(l.DataRoot, f)) // #nosec G304 -- fixed SoiréeHost path
+			r["read "+f+" pipe-name file"] = err
+		}
 		r["read audit log"] = readDir(p.Audit())
 		return r
 	})
@@ -400,6 +405,18 @@ func asUser(t *testing.T, tok windows.Token, fn func() map[string]error) map[str
 		out <- res
 	}()
 	return <-out
+}
+
+// livePipe returns the supervisor's current pipe name from its pipe-name
+// file; names are random at every start (DR-1). The test runs as an
+// administrator, whom every pipe-name file admits.
+func livePipe(t *testing.T, file string) string {
+	t.Helper()
+	name, err := ipc.ReadPipeName(ipc.PipeFilePath(layout(t).DataRoot, file), winsec.ServiceSID(winsec.SupervisorService))
+	if err != nil {
+		t.Fatalf("reading %s: %v", file, err)
+	}
+	return name
 }
 
 func openPipe(path string) error {

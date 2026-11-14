@@ -39,6 +39,12 @@ TypeScript stays on 6.0.x because `svelte-check` 4.7.8 and `typescript-eslint` 8
 
 Go tools, installed at pinned versions and also pinned in `.github/workflows/ci.yml`: `wails3` v3.1.0, `golangci-lint` v2.15.0, `staticcheck` v0.8.2, `gosec` v2.30.0, `govulncheck` v1.9.0, `gitleaks` v8.30.1.
 
+Other CI and developer tools, pinned in the `env` block of `.github/workflows/ci.yml`:
+
+| Tool | Version | Licence | Why |
+| --- | --- | --- | --- |
+| Semgrep (Community Edition, from PyPI) | 1.185.0 | LGPL-2.1-or-later | Plan section 10 requires Semgrep with the project's own rules (`.semgrep/`: S-01, S-34, S-40, R-14, CLAUDE.md rule 6), which golangci-lint and gosec cannot express. Runs offline with `--metrics=off`; no login or cloud platform. Developers install it per user with `python -m pip install --user semgrep==1.185.0` |
+
 ## Overrides
 
 | Package | Forced to | Why |
@@ -50,6 +56,7 @@ Go tools, installed at pinned versions and also pinned in `.github/workflows/ci.
 | Finding | Severity | Where | Why accepted | Review again |
 | --- | --- | --- | --- | --- |
 | GHSA-gcqx-w48m-w2h4, `deepmerge` prototype poisoning | Low | `@sveltejs/vite-plugin-svelte`, build time only | No fixed version exists. It merges this project's own config files at build time; no attacker-controlled input reaches it, and nothing from it ships | When a fixed `deepmerge` or a plugin release without it appears |
+| GHSA-4w3g-jfj2-cw2q, GHSA-mgcc-cww5-fp2q, GHSA-vvm8-gf78-28g4, `github.com/go-jose/go-jose/v3` v3.0.5 panics and denial of service on hostile JOSE input | Medium | Caddy `caddytls` → smallstep `certificates` → `go.step.sm/crypto/jose` | No v3 release fixes them (3.0.5 is the last); the fixes are in v4. `govulncheck` reports none reachable: the parsing runs only in Caddy's internal CA and ACME server, which the generated config never enables. `go-jose/v4`, which SoiréeHost does reach, is at v4.1.9 (newest) | When Caddy or smallstep drops go-jose v3, and at every Caddy upgrade |
 
 CI runs `npm audit --audit-level=moderate`, so this low finding does not fail the build; a new moderate or higher one does.
 

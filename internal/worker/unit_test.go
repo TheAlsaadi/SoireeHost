@@ -88,9 +88,20 @@ func TestClientKey(t *testing.T) {
 	}
 }
 
+// forgedNames are forwarding headers seen in the wild; StripForwarded must
+// drop every one by its shape (S-05).
+var forgedNames = []string{
+	"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Port", "X-Forwarded-Server",
+	"X-Original-Forwarded-For", "X-Original-Forwarded-Host", "X-Forwarded", "X-Forwarded-By",
+	"X-Forwarded-Client-Ip", "Forwarded", "Forwarded-For", "X-Real-Ip", "X-Client-Ip",
+	"X-Cluster-Client-Ip", "X-Originating-Ip", "X-Remote-Ip", "X-Remote-Addr", "X-Proxyuser-Ip",
+	"Client-Ip", "True-Client-Ip", "Fastly-Client-Ip", "Proxy-Client-Ip", "Wl-Proxy-Client-Ip",
+	"X-Azure-Clientip", "X-Azure-Socketip", "Cf-Connecting-Ipv6", "Cf-Pseudo-Ipv4", "X-Envoy-External-Address",
+}
+
 func TestStripForwarded(t *testing.T) {
 	h := http.Header{}
-	for _, k := range forwardedHeaders {
+	for _, k := range forgedNames {
 		h.Set(k, "6.6.6.6")
 	}
 	h.Set("Cf-Connecting-Ip", "203.0.113.7")
@@ -99,8 +110,9 @@ func TestStripForwarded(t *testing.T) {
 	h["X_real_ip"] = []string{"6.6.6.6"}
 	h["X_forwarded_proto"] = []string{"http"}
 	h["X_custom"] = []string{"kept"}
+	h["Cf_connecting_ip"] = []string{"6.6.6.6"}
 	StripForwarded(h)
-	for _, k := range []string{"X_forwarded_for", "X_real_ip", "X_forwarded_proto"} {
+	for _, k := range []string{"X_forwarded_for", "X_real_ip", "X_forwarded_proto", "Cf_connecting_ip"} {
 		if _, ok := h[k]; ok {
 			t.Errorf("%s kept", k)
 		}
@@ -108,7 +120,7 @@ func TestStripForwarded(t *testing.T) {
 	if v := h["X_custom"]; len(v) != 1 || v[0] != "kept" {
 		t.Error("unrelated underscore header dropped")
 	}
-	for _, k := range forwardedHeaders {
+	for _, k := range forgedNames {
 		if h.Get(k) != "" {
 			t.Errorf("%s kept", k)
 		}
@@ -128,19 +140,17 @@ func TestStripForwarded(t *testing.T) {
 func TestRedactURI(t *testing.T) {
 	cases := map[string]string{ //nolint:gosec // G101: URIs with fake secret parameters the filter must mask
 		"/":                                     "/",
-		"/a?page=2":                             "/a?page=2",
-		"/a?token=abc&page=2":                   "/a?token=REDACTED&page=2",
-		"/a?access_token=abc":                   "/a?access_token=REDACTED",
-		"/a?API_KEY=abc":                        "/a?API_KEY=REDACTED",
-		"/a?Password=x&user=bob":                "/a?Password=REDACTED&user=bob",
-		"/a?client_secret=x":                    "/a?client_secret=REDACTED",
-		"/a?pass%77ord=x":                       "/a?pass%77ord=REDACTED",
-		"/a?x=1;token=abc":                      "/a?x=1;token=REDACTED",
+		"/a?page=2":                             "/a?page=REDACTED",
+		"/a?token=abc&page=2":                   "/a?token=REDACTED&page=REDACTED",
+		"/a?Password=x&user=bob":                "/a?Password=REDACTED&user=REDACTED",
+		"/a?x=1;token=abc":                      "/a?x=REDACTED;token=REDACTED",
 		"/a?%zz=1":                              "/a?REDACTED",
-		"/a?sessionid=1#frag":                   "/a?sessionid=REDACTED#frag",
-		"https://x.example/p?sig=1&signature=2": "https://x.example/p?sig=1&signature=REDACTED",
-		"/a?token":                              "/a?token",
-		"/a?keyword=foo":                        "/a?keyword=REDACTED",
+		"/a?sessionid=1#frag":                   "/a?sessionid=REDACTED",
+		"/p?a=1#&token=S":                       "/p?a=REDACTED&token=REDACTED",
+		"https://x.example/p?sig=1&signature=2": "https://x.example/p?sig=REDACTED&signature=REDACTED",
+		"/cb?code=c&state=s":                    "/cb?code=REDACTED&state=REDACTED",
+		"/a?token":                              "/a?REDACTED",
+		"/a?a=&b=":                              "/a?a=REDACTED&b=REDACTED",
 	}
 	for in, want := range cases {
 		if got := RedactURI(in); got != want {
@@ -163,7 +173,7 @@ func TestFilterHeaders(t *testing.T) {
 	}
 	got := FilterHeaders(h)
 	if len(got) != 3 || got.Get("User-Agent") != "ua" || got.Get("Content-Type") != "text/html" ||
-		got.Get("Referer") != "https://x.example/?token=REDACTED&q=1" {
+		got.Get("Referer") != "https://x.example/?token=REDACTED&q=REDACTED" {
 		t.Fatalf("got %v", got)
 	}
 }

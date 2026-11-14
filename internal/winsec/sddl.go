@@ -40,6 +40,25 @@ func ControlPipeSDDL(owner string, users ...string) string {
 	return sddl
 }
 
+// PipeNameFolderSDDL is the descriptor of the folder that holds one
+// pipe-name file (DR-1): SYSTEM and Administrators full, the supervisor
+// modify, and the given readers (the pipe's intended clients) read. Setup
+// creates the folder; the supervisor writes the file as a plain new file,
+// which inherits these permissions and is owned by its service account,
+// which is what clients check. The supervisor cannot give a file a
+// descriptor of its own: the OWNER RIGHTS entry, which stops a file's
+// creator from granting itself more, also refuses any descriptor passed at
+// creation. The config folder admits no one else, but every account may
+// open a known path inside it because SeChangeNotifyPrivilege bypasses
+// traverse checks.
+func PipeNameFolderSDDL(supervisor string, readers ...string) string {
+	s := fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FA;;;%s)(A;OICI;%s;;;%s)", SIDSystem, SIDAdministrators, fileModify, supervisor)
+	for _, r := range readers {
+		s += "(A;OICI;FR;;;" + r + ")"
+	}
+	return s + "(A;OICI;RC;;;" + SIDOwnerRights + ")"
+}
+
 // WorkerPipeSDDL is the security descriptor of a worker pipe: only the
 // worker's service account may connect.
 func WorkerPipeSDDL(owner, worker string) string {

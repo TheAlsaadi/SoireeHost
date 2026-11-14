@@ -334,6 +334,12 @@ func validHeaderValue(v string) error {
 	if strings.TrimSpace(v) != v {
 		return errors.New("must not start or end with a space")
 	}
+	// Caddy expands {placeholders} in header values on every response, and
+	// {file.PATH} or {env.NAME} would publish files and environment variables
+	// to every visitor (DR-2). No header these values set needs a brace.
+	if strings.ContainsAny(v, "{}") {
+		return errors.New("must not contain { or }")
+	}
 	return nil
 }
 

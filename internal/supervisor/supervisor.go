@@ -75,13 +75,27 @@ type ServiceControl interface {
 	Stop(service string) error
 }
 
-// Pipes are the pipe names, fixed in production, unique in tests.
+// Pipes are the pipe names: random at every start in production (DR-1),
+// unique in tests.
 type Pipes struct {
 	Control, Web, Tunnel string
 }
 
-// DefaultPipes are the production pipe names.
-var DefaultPipes = Pipes{Control: ipc.ControlPipe, Web: ipc.WebPipe, Tunnel: ipc.TunnelPipe}
+// NewPipes returns a new random name for each pipe.
+func NewPipes() (Pipes, error) {
+	var p Pipes
+	var err error
+	if p.Control, err = ipc.NewPipeName(ipc.ControlPipePrefix); err != nil {
+		return Pipes{}, err
+	}
+	if p.Web, err = ipc.NewPipeName(ipc.WebPipePrefix); err != nil {
+		return Pipes{}, err
+	}
+	if p.Tunnel, err = ipc.NewPipeName(ipc.TunnelPipePrefix); err != nil {
+		return Pipes{}, err
+	}
+	return p, nil
+}
 
 // Options configure a supervisor.
 type Options struct {
@@ -228,6 +242,12 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		_ = tunLn.Close()
 		return err
 	}
+	if err := s.publishPipes(); err != nil {
+		_ = webLn.Close()
+		_ = tunLn.Close()
+		_ = ctlLn.Close()
+		return err
+	}
 	// If the control pipe stops serving for any reason, the workers stop too,
 	// so Run never waits on managers that are still running.
 	runCtx, cancel := context.WithCancel(ctx)
@@ -241,6 +261,27 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	wg.Wait()
 	s.record(winsec.SIDSystem, "supervisor.stop", nil)
 	return err
+}
+
+// publishPipes writes each pipe's random name to its pipe-name file, readable
+// only by that pipe's clients (DR-1). It runs after the pipes exist and
+// before any worker is started. Each file goes in the folder setup made for
+// it and takes that folder's permissions (winsec.PipeNameFolderSDDL); the
+// supervisor never creates the folders, so a missing one stops it rather
+// than publishing a name its clients cannot read.
+func (s *Supervisor) publishPipes() error {
+	root := s.opts.Paths.Root
+	files := []struct{ name, pipe string }{
+		{ipc.WebPipeFile, s.opts.Pipes.Web},
+		{ipc.TunnelPipeFile, s.opts.Pipes.Tunnel},
+		{ipc.ControlPipeFile, s.opts.Pipes.Control},
+	}
+	for _, f := range files {
+		if err := fsutil.WriteAtomic(ipc.PipeFilePath(root, f.name), []byte(f.pipe)); err != nil {
+			return fmt.Errorf("publishing the %s pipe name (run setup again if its folder is missing): %w", f.name, err)
+		}
+	}
+	return nil
 }
 
 // record writes an audit entry. A failure to audit is reported by status, and

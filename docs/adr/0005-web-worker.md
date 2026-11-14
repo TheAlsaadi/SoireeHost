@@ -17,7 +17,7 @@ The supervisor turns the SoiréeHost config (`internal/config`) into a Caddy JSO
 | Guard | `http.handlers.soireehost_guard` | Drops forged forwarding headers (S-05); applies the S-12 and S-13 path rules from `internal/sitecheck` before any file or app is reached |
 | Rate limit | `http.handlers.soireehost_ratelimit` | Per-client limit (S-15), GCRA, IPv6 grouped by /64, bounded table that fails closed when full |
 | Rooted file system | `caddy.fs.soireehost_root` | Serves a static site from an `os.Root` opened on the checked, canonical folder (S-11, S-12) |
-| Log filters | `caddy.logging.encoders.filter.soireehost_headers`, `..._query` | Header allow-list and secret query masking in every log (S-18) |
+| Log filters | `caddy.logging.encoders.filter.soireehost_headers`, `..._query` | Header allow-list and query masking in every log (S-18) |
 
 Each site is a Caddy route matched on its hostnames. Handler order: security headers, rate limit, guard, request body limit, then `file_server` or `reverse_proxy`. A last route answers every other Host with 404 (S-06). Server-level error routes add the security headers to every error response.
 
@@ -51,7 +51,7 @@ Each default header is set only when the response does not already carry it, so 
 
 ### Logs keep an allow-list of headers
 
-Request and response headers in the logs are reduced to `Accept`, `Accept-Encoding`, `Accept-Language`, `Cf-Connecting-Ip`, `Cf-Ipcountry`, `Cf-Ray`, `Content-Length`, `Content-Type`, `Referer` and `User-Agent`. Any query parameter whose name contains `token`, `key`, `password`, `passwd`, `pwd`, `secret`, `auth`, `session`, `signature` or `credential` has its value replaced with `REDACTED`, in the URI and in `Referer`. A query that cannot be parsed is masked whole. Logs rotate at 10 MB, keeping 5 files for up to 30 days.
+Request and response headers in the logs are reduced to `Accept`, `Accept-Encoding`, `Accept-Language`, `Cf-Connecting-Ip`, `Cf-Ipcountry`, `Cf-Ray`, `Content-Length`, `Content-Type`, `Referer` and `User-Agent`. Every query value is replaced with `REDACTED`, in the URI and in `Referer`; parameter names are kept. Masking every value fails closed: credentials travel under many names (`code`, `sig`, `jwt`, `otp`, `ticket`, `SAMLResponse`), and an earlier list of secret-looking names missed them (review finding SE-32, 12 Nov 2026). Everything after the first `?` counts as query, including a raw `#`, because Go does not split a fragment off the request target (R-19). A query whose names cannot be decoded is masked whole. Logs rotate at 10 MB, keeping 5 files for up to 30 days.
 
 ### No disk writes outside the log folder
 

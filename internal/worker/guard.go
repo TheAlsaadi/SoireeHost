@@ -2,8 +2,8 @@ package worker
 
 import (
 	"fmt"
+	"io"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
@@ -42,43 +42,39 @@ func (g *Guard) Provision(caddy.Context) error {
 	return nil
 }
 
-// forwardedHeaders are headers a client can use to claim another address or
-// host. cloudflared on loopback is the only real client, and the address it
-// vouches for arrives in CF-Connecting-IP, so all of these are dropped.
-var forwardedHeaders = []string{
-	"X-Forwarded-For",
-	"X-Forwarded-Host",
-	"X-Forwarded-Port",
-	"X-Forwarded-Server",
-	"X-Original-Forwarded-For",
-	"X-Real-Ip",
-	"X-Client-Ip",
-	"X-Cluster-Client-Ip",
-	"X-Originating-Ip",
-	"X-Remote-Ip",
-	"X-Remote-Addr",
-	"X-Proxyuser-Ip",
-	"Client-Ip",
-	"True-Client-Ip",
-	"Fastly-Client-Ip",
-	"Forwarded",
+// isForwardingName reports whether a header name is one a client can use to
+// claim another address or host (S-05). cloudflared on loopback is the only
+// real client, and the address it vouches for arrives in CF-Connecting-IP, so
+// every such header is dropped. The rule is by shape, not a fixed list,
+// because apps and frameworks read many spellings (Forwarded-For,
+// X-Forwarded-By, Proxy-Client-IP, WL-Proxy-Client-IP, ...). '_' counts as
+// '-', since apps that read headers as CGI-style variables see both as the
+// same name.
+func isForwardingName(k string) bool {
+	n := strings.ToLower(strings.ReplaceAll(k, "_", "-"))
+	if strings.Contains(n, "forwarded") || strings.Contains(n, "clientip") || strings.Contains(n, "client-ip") ||
+		strings.Contains(n, "socketip") || strings.Contains(n, "remote-addr") || strings.Contains(n, "external-address") {
+		return true
+	}
+	for _, suf := range []string{"-ip", "-ipv4", "-ipv6"} {
+		if strings.HasSuffix(n, suf) {
+			return true
+		}
+	}
+	return false
 }
 
-// StripForwarded removes forged forwarding headers from h. X-Forwarded-Proto
-// is kept only when it is exactly "http" or "https", because Cloudflare's edge
-// sets it and apps need it to build correct links.
+// StripForwarded removes forged forwarding headers from h. Two names survive
+// in their exact canonical spelling: Cf-Connecting-Ip, which cloudflared sets
+// and Caddy reads for the client address, and X-Forwarded-Proto when it is
+// exactly "http" or "https", because Cloudflare's edge sets it and apps need it
+// to build correct links.
 func StripForwarded(h http.Header) {
-	for _, k := range forwardedHeaders {
-		delete(h, k)
-	}
-	// Spellings with '_' instead of '-' (X_Forwarded_For) reach apps that read
-	// headers through CGI-style variables, where both become HTTP_X_FORWARDED_FOR.
 	for k := range h {
-		if !strings.Contains(k, "_") {
+		if k == "Cf-Connecting-Ip" || k == "X-Forwarded-Proto" {
 			continue
 		}
-		alias := http.CanonicalHeaderKey(strings.ReplaceAll(k, "_", "-"))
-		if alias == "X-Forwarded-Proto" || slices.Contains(forwardedHeaders, alias) {
+		if isForwardingName(k) {
 			delete(h, k)
 		}
 	}
@@ -87,9 +83,43 @@ func StripForwarded(h http.Header) {
 	}
 }
 
+// stripTrailers removes every forwarding name from request trailers, with no
+// exceptions: a trailer has no business carrying an address. Go fills
+// r.Trailer when the body has been read to its end, so the body is wrapped and
+// the trailers are cleaned again at that point, before a reverse proxy copies
+// them upstream.
+func stripTrailers(r *http.Request) {
+	clean := func() {
+		for k := range r.Trailer {
+			if isForwardingName(k) {
+				delete(r.Trailer, k)
+			}
+		}
+	}
+	clean()
+	if r.Body != nil && r.Body != http.NoBody {
+		r.Body = &trailerScrub{ReadCloser: r.Body, clean: clean}
+	}
+}
+
+// trailerScrub calls clean once the wrapped body reports its end.
+type trailerScrub struct {
+	io.ReadCloser
+	clean func()
+}
+
+func (t *trailerScrub) Read(p []byte) (int, error) {
+	n, err := t.ReadCloser.Read(p)
+	if err == io.EOF {
+		t.clean()
+	}
+	return n, err
+}
+
 // ServeHTTP implements caddyhttp.MiddlewareHandler.
 func (g Guard) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	StripForwarded(r.Header)
+	stripTrailers(r)
 
 	raw := r.RequestURI
 	if strings.HasPrefix(raw, "/") {

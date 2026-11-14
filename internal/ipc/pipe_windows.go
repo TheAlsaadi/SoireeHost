@@ -165,7 +165,7 @@ type Client struct {
 	next uint64
 }
 
-// DialControl connects to the supervisor's control pipe and checks that the
+// DialControl connects to the control pipe at path and checks that the
 // supervisor's service account owns it.
 func DialControl(ctx context.Context, path, supervisorSID string) (*Client, error) {
 	conn, err := Dial(ctx, path, supervisorSID)

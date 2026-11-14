@@ -29,10 +29,14 @@ func RunService(version string) error {
 		if err != nil {
 			return err
 		}
+		pipes, err := NewPipes()
+		if err != nil {
+			return err
+		}
 		s, err := New(Options{
 			Paths:     Paths{Root: root},
 			Identity:  ServiceIdentity(),
-			Pipes:     DefaultPipes,
+			Pipes:     pipes,
 			Services:  svcrun.SCM{},
 			Version:   version,
 			CheckACLs: true,

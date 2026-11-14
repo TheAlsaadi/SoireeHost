@@ -1,0 +1,32 @@
+rules:
+  - id: go-no-default-servemux
+    languages: [go]
+    severity: HIGH
+    message: >-
+      This serves http.DefaultServeMux (a nil handler or a server without a
+      Handler falls back to it). Imported packages, Caddy's among them,
+      register pprof and expvar debug handlers there, so serving it would
+      expose them (R-14). Serve a mux of your own from http.NewServeMux.
+    metadata:
+      requirement: R-14 (S-04 hardening)
+      cwe: "CWE-489: Active Debug Code"
+      confidence: HIGH
+    pattern-either:
+      - pattern: http.ListenAndServe($ADDR, nil)
+      - pattern: http.ListenAndServeTLS($ADDR, $CERT, $KEY, nil)
+      - pattern: http.Serve($LN, nil)
+      - pattern: http.ServeTLS($LN, nil, $CERT, $KEY)
+      - pattern: http.DefaultServeMux
+      - pattern: 'http.Server{..., Handler: nil, ...}'
+      # A server literal with no Handler, unless one is assigned afterwards.
+      - patterns:
+          - pattern: http.Server{...}
+          - pattern-not: 'http.Server{..., Handler: $H, ...}'
+          - pattern-not-inside: |
+              $SRV := &http.Server{...}
+              ...
+              $SRV.Handler = $H
+          - pattern-not-inside: |
+              $SRV := http.Server{...}
+              ...
+              $SRV.Handler = $H

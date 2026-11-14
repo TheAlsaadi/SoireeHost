@@ -37,8 +37,12 @@ func RunService(version string) error {
 			return fmt.Errorf("refusing to run unconfined: %w", err)
 		}
 		var tok tokenHolder
+		root, err := ipc.DataRoot()
+		if err != nil {
+			return err
+		}
 		return ipc.RunAgent(ctx, ipc.AgentOptions{
-			Pipe:          ipc.TunnelPipe,
+			PipeFile:      ipc.PipeFilePath(root, ipc.TunnelPipeFile),
 			SupervisorSID: winsec.ServiceSID(winsec.SupervisorService),
 			Role:          ipc.RoleTunnel,
 			Version:       version,

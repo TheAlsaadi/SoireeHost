@@ -1,0 +1,26 @@
+rules:
+  - id: go-no-insecure-skip-verify
+    languages: [go]
+    severity: HIGH
+    message: >-
+      TLS certificate verification is turned off (InsecureSkipVerify set to
+      true). Anyone on the network path can then impersonate the server.
+      CLAUDE.md rule 6 forbids this; fix the certificate or trust store
+      instead.
+    metadata:
+      requirement: CLAUDE.md rule 6
+      cwe: "CWE-295: Improper Certificate Validation"
+      confidence: HIGH
+    options:
+      # Semgrep parses Go's `true` as an identifier, not a literal, so plain
+      # constant propagation does not see through `skip := true`; symbolic
+      # propagation does.
+      symbolic_propagation: true
+    pattern-either:
+      # The first pattern only binds $SKIP so the finding points at the field
+      # rather than at the whole literal.
+      - patterns:
+          - pattern: 'tls.Config{..., InsecureSkipVerify: $SKIP, ...}'
+          - pattern: 'tls.Config{..., InsecureSkipVerify: true, ...}'
+          - focus-metavariable: $SKIP
+      - pattern: $CFG.InsecureSkipVerify = true

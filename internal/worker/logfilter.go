@@ -37,12 +37,8 @@ var loggedHeaders = map[string]bool{
 	"User-Agent":       true,
 }
 
-// secretParamWords: a query parameter whose lower-cased name contains one of
-// these has its value masked (S-18).
-var secretParamWords = []string{"token", "key", "password", "passwd", "pwd", "secret", "auth", "session", "signature", "credential"}
-
 // HeaderFilter is a Caddy log field filter that keeps only allow-listed
-// headers, and masks secret query parameters inside Referer.
+// headers, and masks every query value inside Referer.
 type HeaderFilter struct{}
 
 // CaddyModule returns the Caddy module information.
@@ -65,7 +61,7 @@ func (HeaderFilter) Filter(in zapcore.Field) zapcore.Field {
 }
 
 // FilterHeaders returns a copy of h with only the allow-listed headers, and
-// with secret query values in Referer masked.
+// with every query value in Referer masked.
 func FilterHeaders(h http.Header) http.Header {
 	out := make(http.Header, len(loggedHeaders))
 	for k, v := range h {
@@ -85,8 +81,8 @@ func FilterHeaders(h http.Header) http.Header {
 	return out
 }
 
-// QueryFilter is a Caddy log field filter for URI strings: it masks the values
-// of query parameters whose names look secret.
+// QueryFilter is a Caddy log field filter for URI strings: it masks every
+// query value.
 type QueryFilter struct{}
 
 // CaddyModule returns the Caddy module information.
@@ -107,17 +103,21 @@ func (QueryFilter) Filter(in zapcore.Field) zapcore.Field {
 	return in
 }
 
-// RedactURI masks the values of secret-looking query parameters in a request
-// URI or URL. If the query cannot be parsed, the whole query is masked.
-// Parameter names, order and the rest of the URI are kept.
+// RedactURI masks every query value in a request URI or URL (S-18) and keeps
+// the parameter names, their order and the path. Masking every value fails
+// closed: credentials travel under many names (code, sig, jwt, otp, ticket,
+// SAMLResponse, ...), and a list of secret-looking names always misses some.
+// Everything after the first '?' is treated as query, including a raw '#':
+// Go's server does not split a fragment off the request target, so a value
+// after '#' reaches the app as a parameter and must be masked too. If a name
+// cannot be decoded, the whole query is masked.
 func RedactURI(uri string) string {
 	base, query, hasQuery := strings.Cut(uri, "?")
 	if !hasQuery {
 		return uri
 	}
-	query, frag, hasFrag := strings.Cut(query, "#")
-	// ';' is not a separator for Go, but some apps treat it as one, so a
-	// value after it is masked as if it were its own parameter
+	// ';' is not a separator for Go, but some apps treat it as one, so each
+	// ';' part is masked as if it were its own parameter
 	groups := strings.Split(query, "&")
 	for gi, g := range groups {
 		parts := strings.Split(g, ";")
@@ -126,30 +126,18 @@ func RedactURI(uri string) string {
 				continue
 			}
 			name, _, hasValue := strings.Cut(p, "=")
-			decoded, err := url.QueryUnescape(name)
-			if err != nil {
+			if _, err := url.QueryUnescape(name); err != nil {
 				// a name we cannot read may hide anything
 				return base + "?" + Redacted
 			}
-			if hasValue && isSecretParam(decoded) {
+			if hasValue {
 				parts[i] = name + "=" + Redacted
+			} else {
+				// a bare item (/verify?eyJhbGci...) may itself be the token
+				parts[i] = Redacted
 			}
 		}
 		groups[gi] = strings.Join(parts, ";")
 	}
-	out := base + "?" + strings.Join(groups, "&")
-	if hasFrag {
-		out += "#" + frag
-	}
-	return out
-}
-
-func isSecretParam(name string) bool {
-	n := strings.ToLower(name)
-	for _, w := range secretParamWords {
-		if strings.Contains(n, w) {
-			return true
-		}
-	}
-	return false
+	return base + "?" + strings.Join(groups, "&")
 }

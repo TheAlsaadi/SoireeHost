@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unsafe"
@@ -19,6 +20,7 @@ import (
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 	"github.com/TheAlsaadi/SoireeHost/internal/supervisor"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
@@ -69,18 +71,23 @@ func Install(l Layout) error {
 	if err != nil {
 		return err
 	}
-	if err := winsec.EnablePrivileges("SeRestorePrivilege", "SeTakeOwnershipPrivilege"); err != nil {
+	// Open the program now, before anything waits, and keep it open: the
+	// copy below reads this handle, so what is installed is the file that
+	// was checked here, whatever happens to the path meanwhile (DR-9).
+	img, err := openSelf(self, me.SID)
+	if err != nil {
+		return err
+	}
+	defer img.Close() //nolint:errcheck // read-only
+	if err := winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege", "SeTakeOwnershipPrivilege"); err != nil {
 		return err
 	}
 	// a running install holds the binary open; stop it before replacing it
 	stopInstalled()
-	if err := copyBinary(self, l.Exe()); err != nil {
+	if err := copyBinary(img, self, l.Exe()); err != nil {
 		return fmt.Errorf("copying the program: %w", err)
 	}
-	if err := checkDataRoot(l.DataRoot); err != nil {
-		return err
-	}
-	if err := makeFolders(l.DataRoot); err != nil {
+	if err := makeFolders(l.DataRoot, me.SID); err != nil {
 		return fmt.Errorf("creating data folders: %w", err)
 	}
 	if err := writeControlUsers(l.DataRoot, me.SID); err != nil {
@@ -93,19 +100,49 @@ func Install(l Layout) error {
 	return startService(winsec.SupervisorService)
 }
 
-// copyBinary copies src to dst unless they are the same file.
-func copyBinary(src, dst string) error {
+// sidTrustedInstaller owns Windows' own files.
+const sidTrustedInstaller = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
+
+// openSelf refuses to install from a folder that another account could
+// change, then opens the program so that no one can replace or rename it
+// until setup ends (no write or delete sharing). Setup runs as an
+// administrator and copies itself into Program Files to run as three
+// services, so a file another user swapped in at that path would be
+// installed in its place (DR-9). Accepted writers: the person running setup,
+// Administrators, SYSTEM, TrustedInstaller, and the owner placeholders
+// CREATOR OWNER and OWNER RIGHTS.
+func openSelf(self, user string) (*os.File, error) {
+	allowed := []string{winsec.SIDSystem, winsec.SIDAdministrators, user, sidTrustedInstaller, "S-1-3-0", "S-1-3-4"}
+	for _, p := range []string{filepath.Dir(self), self} {
+		if err := winsec.CheckWriters(p, allowed...); err != nil {
+			return nil, fmt.Errorf("refusing to install from %s, because another account could replace the program there (%w); "+
+				"copy soireehost.exe to a folder only you and administrators can change, such as your Downloads folder, and run setup from there",
+				filepath.Dir(self), err)
+		}
+	}
+	p, err := windows.UTF16PtrFromString(self)
+	if err != nil {
+		return nil, err
+	}
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", self, err)
+	}
+	return os.NewFile(uintptr(h), self), nil
+}
+
+// copyBinary copies the program open as in (found at src) to dst, unless
+// src is dst.
+func copyBinary(in *os.File, src, dst string) error {
 	if a, err := filepath.Abs(src); err == nil && strings.EqualFold(a, dst) {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { // #nosec G301 -- Program Files permissions are inherited from Windows (Administrators write, Users read)
 		return err
 	}
-	in, err := os.Open(src) // #nosec G304 -- the running executable
-	if err != nil {
+	if _, err := in.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	defer in.Close() //nolint:errcheck // read-only
 	tmp := dst + ".new"
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755) // #nosec G302 G304 -- program file under Program Files
 	if err != nil {
@@ -125,7 +162,7 @@ func copyBinary(src, dst string) error {
 
 // makeFolders creates %ProgramData%\SoireeHost and its subfolders with the
 // ADR-0006 descriptors.
-func makeFolders(root string) error {
+func makeFolders(root, caller string) error {
 	sup, web, tun := winsec.ServiceSID(winsec.SupervisorService), winsec.ServiceSID(winsec.WebService), winsec.ServiceSID(winsec.TunnelService)
 	p := supervisor.Paths{Root: root}
 	// Every folder gets an explicit owner, so nothing created earlier by
@@ -135,12 +172,40 @@ func makeFolders(root string) error {
 	steps := []struct{ path, sddl string }{
 		{root, ba + winsec.DataRootSDDL(sup, web, tun)},
 		{p.Config(), ba + winsec.ConfigFolderSDDL(sup)},
+		// one folder per pipe-name file, readable by that pipe's clients
+		// (DR-1); the control pipe's client is the user named in
+		// control-users.json, which writeControlUsers sets to caller
+		{ipc.PipeFileFolder(root, ipc.ControlPipeFile), ba + winsec.PipeNameFolderSDDL(sup, caller)},
+		{ipc.PipeFileFolder(root, ipc.WebPipeFile), ba + winsec.PipeNameFolderSDDL(sup, web)},
+		{ipc.PipeFileFolder(root, ipc.TunnelPipeFile), ba + winsec.PipeNameFolderSDDL(sup, tun)},
 		{p.Secrets(), sy + winsec.SecretsFolderSDDL(sup)},
 		{p.Logs(), ba + winsec.LogsFolderSDDL(sup)},
 		{p.Audit(), ba + winsec.AuditFolderSDDL(sup)},
 		{p.WebLogs(), ba + winsec.WorkerLogFolderSDDL(sup, web)},
 		{p.TunnelLogs(), ba + winsec.WorkerLogFolderSDDL(sup, tun)},
 		{p.Updates(), ba + winsec.UpdatesFolderSDDL(sup)},
+	}
+	// Whether the root already exists is decided by creating it: a separate
+	// check and create would leave a gap in which a standard user could
+	// create it first (DR-8). An existing root, and everything inside it,
+	// must belong to Administrators, SYSTEM or a SoiréeHost service.
+	if err := winsec.CreateFolderSDDL(root, steps[0].sddl); err != nil {
+		if !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+			return fmt.Errorf("%s: %w", root, err)
+		}
+		if err := checkDataRoot(root); err != nil {
+			return err
+		}
+		// lock the root first, so nothing new can be planted while the
+		// walk below runs
+		if err := winsec.ForceSDDL(root, steps[0].sddl); err != nil {
+			return fmt.Errorf("%s: %w", root, err)
+		}
+		if err := checkContents(root, caller, sup, web, tun); err != nil {
+			return err
+		}
+	} else {
+		steps = steps[1:] // the root is steps[0]
 	}
 	for _, s := range steps {
 		fi, err := os.Lstat(s.path)
@@ -199,6 +264,38 @@ func checkDataRoot(root string) error {
 	return nil
 }
 
+// checkContents refuses an existing data root that holds a link, junction or
+// hard-linked file, or anything owned by an account other than
+// Administrators, SYSTEM, the administrator running setup, or a SoiréeHost
+// service. Re-permissioning sets only
+// the folders' own descriptors, so anything a standard user planted inside
+// before setup ran (a folder that lets everyone write, a config, an audit
+// log) would otherwise survive the install (DR-8). The walk opens every
+// entry through its parent's handle, so it cannot be redirected while it
+// runs.
+func checkContents(root string, services ...string) error {
+	allowed := append([]string{winsec.SIDAdministrators, winsec.SIDSystem}, services...)
+	return winsec.WalkTree(root, func(e winsec.TreeEntry) error {
+		name := filepath.Join(root, e.Rel)
+		if e.IsLink() || (!e.IsDir() && e.Links > 1) {
+			return fmt.Errorf("refusing to install: %s is a link; delete %s and run setup again", name, root)
+		}
+		sd, err := windows.GetSecurityInfo(e.Handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+		if err != nil {
+			return fmt.Errorf("reading the owner of %s: %w", name, err)
+		}
+		owner, _, err := sd.Owner()
+		if err != nil || owner == nil {
+			return fmt.Errorf("%s has no owner", name)
+		}
+		if !slices.Contains(allowed, owner.String()) {
+			return fmt.Errorf("refusing to install: %s was created by another account (%s) and may have been planted; "+
+				"check it, delete it if you do not recognise it, and run setup again", name, owner)
+		}
+		return nil
+	})
+}
+
 // registerEventSources lets each service write to the Application event
 // log under its own name. A source that already exists is replaced.
 func registerEventSources() {
@@ -228,18 +325,13 @@ func writeControlUsers(root, user string) error {
 	if err != nil {
 		return err
 	}
-	// Delete and create anew, so the file always takes the config folder's
-	// descriptor instead of keeping whatever an earlier file had.
+	// The file is written with an explicit owner and descriptor, so it never
+	// depends on the elevated token's default owner (which is the user's own
+	// account on a full administrator token) or on an earlier file's.
 	p := supervisor.Paths{Root: root}.ControlUsersFile()
-	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- fixed path under the protected config folder
-	if err != nil {
-		return err
-	}
-	_, werr := f.Write(b)
-	return errors.Join(werr, f.Close())
+	sup := winsec.ServiceSID(winsec.SupervisorService)
+	sddl := "O:" + winsec.SIDAdministrators + "D:P(A;;FA;;;" + winsec.SIDSystem + ")(A;;FA;;;" + winsec.SIDAdministrators + ")(A;;FR;;;" + sup + ")"
+	return winsec.WriteFileSDDL(p, sddl, b)
 }
 
 func registerServices(exe string) error {
@@ -357,26 +449,52 @@ func Uninstall(l Layout, purge bool) error {
 		return err
 	}
 	defer m.Disconnect() //nolint:errcheck // nothing to do on failure
+	// SeDebugPrivilege lets stopAndWait open each service's process
+	_ = winsec.EnablePrivileges("SeDebugPrivilege")
 	var errs []error
+	allStopped := true
+	// Record every service's process before stopping anything: the
+	// supervisor stops the workers itself, and a worker that then reports
+	// "stopped" shows no process id even if its process is still running.
+	var pids []uint32
+	for _, spec := range services {
+		if s, err := m.OpenService(spec.name); err == nil {
+			if st, err := s.Query(); err == nil && st.ProcessId != 0 {
+				pids = append(pids, st.ProcessId)
+			}
+			_ = s.Close()
+		}
+	}
 	// supervisor first: it stops both workers itself
 	for _, spec := range services {
 		s, err := m.OpenService(spec.name)
 		if err != nil {
 			continue
 		}
-		stopAndWait(s)
+		if !stopAndWait(s) {
+			allStopped = false
+		}
 		if err := s.Delete(); err != nil {
 			errs = append(errs, fmt.Errorf("removing %s: %w", spec.name, err))
 		}
 		_ = s.Close()
 		_ = eventlog.Remove(spec.name)
 	}
+	for _, pid := range pids {
+		if !processExited(pid, 10*time.Second) {
+			allStopped = false
+		}
+	}
 	if self, err := os.Executable(); err == nil && strings.EqualFold(filepath.Dir(self), l.ProgramDir) {
 		errs = append(errs, errors.New("run uninstall from a copy outside the program folder to remove it (self-removal comes in Phase 6)"))
 	} else if err := os.RemoveAll(l.ProgramDir); err != nil {
 		errs = append(errs, err)
 	}
-	if purge {
+	if purge && !allStopped {
+		// A service process still running could change the data folder while
+		// it is taken over, so the purge waits for a restart (DR-7).
+		errs = append(errs, errors.New("a SoiréeHost service did not stop, so the data folder was kept; restart the PC and run uninstall --purge again"))
+	} else if purge {
 		if err := takeBack(l.DataRoot); err != nil {
 			errs = append(errs, err)
 		} else if err := os.RemoveAll(l.DataRoot); err != nil {
@@ -386,39 +504,76 @@ func Uninstall(l Layout, purge bool) error {
 	return errors.Join(errs...)
 }
 
-func stopAndWait(s *mgr.Service) {
-	st, err := s.Control(svc.Stop)
+// stopAndWait stops a service and reports whether its process has exited.
+// A service can report "stopped" and keep running, so the process itself is
+// waited on.
+func stopAndWait(s *mgr.Service) bool {
+	st, err := s.Query()
 	if err != nil {
-		return
+		return false
 	}
-	deadline := time.Now().Add(20 * time.Second)
-	for st.State != svc.Stopped && time.Now().Before(deadline) {
-		time.Sleep(250 * time.Millisecond)
-		if st, err = s.Query(); err != nil {
-			return
+	pid := st.ProcessId
+	if st.State != svc.Stopped {
+		if st, err = s.Control(svc.Stop); err != nil {
+			if st, err = s.Query(); err != nil {
+				return false
+			}
+		}
+		deadline := time.Now().Add(20 * time.Second)
+		for st.State != svc.Stopped && time.Now().Before(deadline) {
+			time.Sleep(250 * time.Millisecond)
+			if st, err = s.Query(); err != nil {
+				return false
+			}
+		}
+		if st.State != svc.Stopped {
+			return false
 		}
 	}
+	return processExited(pid, 10*time.Second)
+}
+
+// processExited waits up to wait for process pid to end. A pid that no
+// longer exists counts as ended.
+func processExited(pid uint32, wait time.Duration) bool {
+	if pid == 0 {
+		return true
+	}
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
+	if err != nil {
+		return errors.Is(err, windows.ERROR_INVALID_PARAMETER)
+	}
+	defer windows.CloseHandle(h)                                             //nolint:errcheck // nothing to do on failure
+	ev, err := windows.WaitForSingleObject(h, uint32(wait/time.Millisecond)) // #nosec G115 -- a few seconds
+	return err == nil && ev == windows.WAIT_OBJECT_0
 }
 
 // takeBack makes Administrators owner of root and everything under it, with
 // full control, so an elevated uninstall can delete folders that only the
 // services could open.
 func takeBack(root string) error {
-	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	if err := winsec.EnablePrivileges("SeRestorePrivilege", "SeTakeOwnershipPrivilege"); err != nil {
+	if err := winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege", "SeTakeOwnershipPrivilege"); err != nil {
 		return err
 	}
-	sddl := "O:" + winsec.SIDAdministrators + "D:P(A;OICI;FA;;;" + winsec.SIDAdministrators + ")"
-	// WalkDir reads a folder only after the callback for it returns, so
-	// taking it over here is what lets the walk see inside
-	// A file with several hard links is not re-permissioned (that would
-	// change its other ends too); RemoveAll unlinks it through the folder,
-	// which Administrators then control.
-	return filepath.WalkDir(root, func(p string, _ os.DirEntry, _ error) error {
-		if _, err := winsec.ForceSDDLUnlessLinked(p, sddl); err != nil {
-			return fmt.Errorf("taking ownership of %s: %w", p, err)
+	sd, err := windows.SecurityDescriptorFromString("O:" + winsec.SIDAdministrators + "D:P(A;OICI;FA;;;" + winsec.SIDAdministrators + ")")
+	if err != nil {
+		return err
+	}
+	// WalkTree opens each entry through its parent's handle and never enters
+	// a link, so a junction swapped in during the walk is taken over as a
+	// link object and its target is never touched (DR-7). A file with
+	// several hard links is not re-permissioned (that would change its other
+	// ends too); RemoveAll unlinks it through the folder, which
+	// Administrators then control.
+	return winsec.WalkTree(root, func(e winsec.TreeEntry) error {
+		if !e.IsDir() && e.Links > 1 {
+			return nil
+		}
+		if err := windows.SetKernelObjectSecurity(e.Handle, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION, sd); err != nil {
+			return fmt.Errorf("taking ownership of %s: %w", filepath.Join(root, e.Rel), err)
 		}
 		return nil
 	})
