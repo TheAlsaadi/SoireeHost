@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
 func plantedRoot(t *testing.T) string {
@@ -37,9 +38,16 @@ func TestCheckContentsAcceptsAllowedOwners(t *testing.T) {
 }
 
 func TestCheckContentsRefusesOtherOwner(t *testing.T) {
-	// the test account is not in the allowed list here, so every entry it
-	// created counts as planted by another account
-	err := checkContents(plantedRoot(t), "S-1-5-80-0")
+	// The test account is not in the allowed list here, so an entry it owns
+	// counts as planted by another account. Its owner is set explicitly: on
+	// an elevated CI runner new entries are owned by Administrators, which
+	// checkContents always allows.
+	root := plantedRoot(t)
+	planted := filepath.Join(root, "config", "history")
+	if err := winsec.SetFolderSDDL(planted, "O:"+me(t)+"D:P(A;OICI;FA;;;"+me(t)+")(A;OICI;FA;;;"+winsec.SIDAdministrators+")"); err != nil {
+		t.Fatal(err)
+	}
+	err := checkContents(root, "S-1-5-80-0")
 	if err == nil || !strings.Contains(err.Error(), "created by another account") {
 		t.Fatalf("got %v, want a refusal", err)
 	}
