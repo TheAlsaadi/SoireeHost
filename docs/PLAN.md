@@ -82,8 +82,9 @@ Request path (internet traffic)
           --HTTP on 127.0.0.1:8787--> web worker (Caddy + Coraza) --loopback--> site
 
 Control path (settings)
-  control panel --\\.\pipe\soireehost-control--> supervisor --pipe--> web worker (Caddy JSON config)
-                                                            --pipe--> tunnel launcher (tunnel token)
+  control panel --control pipe--> supervisor --web pipe-----> web worker (Caddy JSON config)
+                                             --tunnel pipe--> tunnel launcher (tunnel token)
+  (each pipe gets a random name at every supervisor start, read from a pipe-name file)
 ```
 
 A request travels visitor, Cloudflare edge, tunnel, web worker, site. A settings change travels control panel, supervisor, worker. The two paths never share a process.
@@ -100,7 +101,8 @@ How the parts talk:
 
 - **Supervisor to web worker.** The supervisor builds Caddy's JSON config and sends it over a second named pipe that only the web worker's service account can open. The worker loads it in-process with `caddy.Load`. Caddy's admin API is disabled (`"admin": {"disabled": true}`).
 - **Tunnel to web worker.** Plain HTTP to a `127.0.0.1` port set in config (see tunnel-token mode and quick share below). TLS ends at Cloudflare's edge and the tunnel itself is encrypted, so the worker needs no certificates or private keys.
-- **Control panel to supervisor.** A named pipe, `\\.\pipe\soireehost-control`, with typed request and response messages. No HTTP server, no localhost port.
+- **Control panel to supervisor.** A named pipe with typed request and response messages. No HTTP server, no localhost port.
+- **Pipe names.** The supervisor names each of its three pipes `\\.\pipe\soireehost-control-`, `-web-` or `-tunnel-` followed by 128 random bits, chosen again at every start, because any user may create a named pipe and could otherwise hold a fixed name while the supervisor restarts. It writes each name to a pipe-name file (`config\pipe-control\control.pipe`, `pipe-web\web.pipe`, `pipe-tunnel\tunnel.pipe`) that only that pipe's clients, SYSTEM and Administrators may read. A client checks that the supervisor owns the file, dials that exact name, and checks the pipe's owner before sending anything (owner decision, 14 Nov 2026; review finding DR-1).
 - **Supervisor to tunnel launcher.** The supervisor hands over the tunnel token on a pipe only the tunnel service account can open. The launcher passes it to cloudflared as an environment variable, so the token is never written where a worker can read it.
 - **Tunnel-token mode.** The web worker listens on one fixed loopback port (default `127.0.0.1:8787`, changeable). Every public hostname set up in Cloudflare points at that address and Caddy routes by Host header. The control panel shows the exact hostname and service URL to enter in the Cloudflare dashboard.
 - **Quick share.** One cloudflared process per shared site, pointed at that site's own loopback port. The supervisor reads the assigned hostname from cloudflared's output and adds it to that site's allowed hostnames. Until it does, the port answers every request with 404, so S-06 holds for quick share too.
@@ -174,7 +176,7 @@ Not defended against: an attacker who already has administrator rights on the PC
 - **S-15** Limits: per site, a request body limit (10 MB by default) and a per-client rate limit (default 300 requests a minute); for the shared listener, header size and read and idle timeouts, because they apply before the Host header, and so the site, is known (ADR-0005, owner decision, 13 Nov 2026).
 - **S-16** Default response headers: `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Content-Security-Policy: frame-ancestors 'none'`, a minimal `Permissions-Policy`, and no `Server` header. The four headers can be changed per site; the `Server` header is always removed. Responses that Go's HTTP server writes itself before any handler runs (400 for a malformed request, 431 for oversized headers, 501 for an unknown transfer encoding) are short fixed texts and carry none of the four headers (ADR-0005, owner decision, 13 Nov 2026).
 - **S-17** When the private-sites feature ships (after 1.0), a site marked Private rejects any request without a valid Cloudflare Access token (`Cf-Access-Jwt-Assertion`), checked against the team's signing keys and the application's audience tag. Fail closed.
-- **S-18** Access logs never store `Authorization`, `Cookie` or `Set-Cookie` values, and mask query parameters named like `token`, `key`, `password` or `secret`. Logs rotate with a size cap.
+- **S-18** Access logs keep only an allow-list of headers, so `Authorization`, `Cookie`, `Set-Cookie` and every other credential header are never stored. They mask every query value and keep the parameter names, because credentials travel under many names (`code`, `sig`, `jwt`, `ticket` and more), and they treat everything after the first `?`, including a raw `#`, as query. Logs rotate with a size cap (owner decision, 14 Nov 2026; review findings SE-32, R-19).
 
 ### 5.3 Process isolation on Windows
 

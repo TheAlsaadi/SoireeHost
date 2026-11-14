@@ -52,7 +52,7 @@ From Phase 2. Each attempt must fail:
 - Web worker test build starts `cmd.exe`.
 - Web worker reads `%ProgramData%\SoireeHost\secrets\`.
 - Web worker writes outside its log folder.
-- An ordinary user opens `\\.\pipe\soireehost-control` (VM, second user).
+- An ordinary user opens the control pipe, `\\.\pipe\soireehost-control-<random>`, or reads its pipe-name file (CI runner, second user: `TestSecondUserLockedOut`).
 - An ordinary user starts or stops a worker service.
 - Config or secrets folder made writable by Users: supervisor refuses to start.
 - Supervisor killed: both workers exit within 5 seconds.
