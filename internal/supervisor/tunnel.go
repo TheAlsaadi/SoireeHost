@@ -230,6 +230,11 @@ func (s *Supervisor) quickShareStart(c winsec.Caller, id string) (any, *ipc.Erro
 		if !cfg.Sites[i].Enabled {
 			return ipc.Errorf(ipc.CodeInvalid, "Turn the site on before sharing it.")
 		}
+		if cfg.Sites[i].QuickShare != nil {
+			// a start that raced another keeps the ports already chosen, so
+			// the link does not change
+			return nil
+		}
 		shared := 0
 		for _, x := range cfg.Sites {
 			if x.QuickShare != nil {

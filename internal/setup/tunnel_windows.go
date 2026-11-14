@@ -55,9 +55,20 @@ func installCloudflared(l Layout) (written bool, err error) {
 	}
 	from, _ := windows.UTF16PtrFromString(tmp)
 	to, _ := windows.UTF16PtrFromString(dst)
-	if err := windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH); err != nil {
-		_ = os.Remove(tmp)
-		return false, err
+	// A cloudflared of the install being replaced ends when the stopped
+	// launcher's job handle closes, a moment after its service stops; until
+	// then its image is mapped and cannot be replaced.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		err = windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+		if err == nil {
+			break
+		}
+		if (!errors.Is(err, windows.ERROR_ACCESS_DENIED) && !errors.Is(err, windows.ERROR_SHARING_VIOLATION)) || time.Now().After(deadline) {
+			_ = os.Remove(tmp)
+			return false, err
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 	back, err := os.ReadFile(dst) // #nosec G304 -- the file just written under Program Files
 	if err != nil {

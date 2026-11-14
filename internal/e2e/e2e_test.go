@@ -21,7 +21,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -492,15 +491,22 @@ func TestTunnelTokenCanary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// let cloudflared run with the token and write its log (the tunnel does
-	// not exist, so it fails to connect and is restarted)
-	waitTunnel(t, c, 2*time.Minute, "cloudflared to have run with the token", func(ts ipc.TunnelStatus) bool {
-		return slices.ContainsFunc(ts.Tunnels, func(v ipc.TunnelView) bool {
-			return v.Kind == ipc.TunnelKindToken && v.State != ipc.TunnelStarting
-		})
-	})
-	time.Sleep(5 * time.Second)
+	// let cloudflared run with the token and write to its log (the tunnel
+	// does not exist, so it cannot connect)
 	l := layout(t)
+	logFile := filepath.Join(supervisor.Paths{Root: l.DataRoot}.TunnelLogs(), "cloudflared.log")
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		b, _ := os.ReadFile(logFile) //nolint:gosec // G304: the tunnel log of this install
+		if bytes.Count(b, []byte("[token] ")) >= 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cloudflared wrote nothing to %s with the token set; status %+v", logFile, status(t, c).Tunnel)
+		}
+		time.Sleep(time.Second)
+	}
+	time.Sleep(5 * time.Second)
 	// The secrets folder grants Administrators nothing, so the sweep reads
 	// with backup semantics; any file or folder it still cannot read fails
 	// the test, and it must have read the stored token (GOE-12). The token

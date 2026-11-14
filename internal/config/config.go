@@ -35,8 +35,10 @@ const (
 	DefaultReadTimeout              = 300      // seconds, whole request including body
 	DefaultIdleTimeout              = 120      // seconds between requests on a kept-alive connection
 	// DefaultMetricsPort is the loopback port of the token tunnel's
-	// cloudflared metrics server, which cannot be turned off (ADR-0007).
-	DefaultMetricsPort = 20241
+	// cloudflared metrics server, which cannot be turned off (ADR-0007). It
+	// is clear of 20241-20245, which a cloudflared the user runs on their
+	// own takes by default; sharing one would stop ours from starting.
+	DefaultMetricsPort = 20300
 )
 
 // Quick share limits and the port ranges quickshare.start picks from
@@ -46,8 +48,8 @@ const (
 	MaxQuickShares       = 4
 	QuickSharePortMin    = 8788
 	QuickSharePortMax    = 8887
-	QuickShareMetricsMin = 20242
-	QuickShareMetricsMax = 20341
+	QuickShareMetricsMin = 20301
+	QuickShareMetricsMax = 20400
 	minAppPort           = 1024
 )
 
@@ -453,6 +455,10 @@ func (c Config) Warnings() []string {
 	}
 	return w
 }
+
+// ValidSiteID reports whether id is a valid site id (1 to 32 characters
+// from a-z, 0-9 and '-', not starting with '-').
+func ValidSiteID(id string) bool { return validID(id) }
 
 func validID(id string) bool {
 	if id == "" || len(id) > maxIDLen || id[0] == '-' {

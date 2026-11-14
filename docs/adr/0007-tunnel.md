@@ -92,7 +92,7 @@ Each line of stderr is read with a 64 KB cap and decoded as JSON. Lines that do 
 
 ### 4. Quick share (S-06, S-51, R-06)
 
-- **Config.** A site may carry `"quick_share": {"port": P, "metrics_port": M}`. Its presence means the site is shared. New control methods `quickshare.start {site_id}` and `quickshare.stop {site_id}` change it through the normal change path (validated, versioned, audited). `start` picks the lowest free ports in 8788–8887 and 20242–20341. At most 4 sites may be shared at once.
+- **Config.** A site may carry `"quick_share": {"port": P, "metrics_port": M}`. Its presence means the site is shared. New control methods `quickshare.start {site_id}` and `quickshare.stop {site_id}` change it through the normal change path (validated, versioned, audited). `start` picks the lowest free ports in 8788–8887 and 20301–20400. At most 4 sites may be shared at once.
 - **Web worker.** It gets one extra Caddy server per shared site, listening on `127.0.0.1:P`. Its only site route matches the hostname cloudflared assigned and runs that site's normal handler chain. Everything else, including every request before a hostname is known, gets the same 404 as the main listener. The main listener never serves the quick-share hostname.
 - **The assigned hostname** lives only in the supervisor's memory: a new process gets a new hostname, so saving it would be wrong after any restart. The supervisor passes it to `worker.BuildCaddyJSON` as runtime input, reloads the web worker, and reports the link in `status.get` with `temporary: true` and the label "Temporary link for testing. It changes whenever the tunnel restarts." (S-51).
 - **After a restart.** A shared site stays shared across a supervisor restart and gets a new link. This is stated in the label.
@@ -113,7 +113,7 @@ Each line of stderr is read with a 64 KB cap and decoded as JSON. Lines that do 
 `config.Validate` collects the app's own ports:
 
 - the listen port;
-- `tunnel.metrics_port` (default 20241, the token tunnel's metrics);
+- `tunnel.metrics_port` (default 20300, the token tunnel's metrics; clear of 20241–20245, which a cloudflared the user runs on their own takes by default);
 - every quick share's `port` and `metrics_port`.
 
 They must all differ and be 1024 or higher, and no proxy target on a loopback address may use any of them. A LAN target is not checked, because these ports listen on loopback only. `ParseTarget`'s single own-port argument becomes a set. Quick-share and metrics addresses are always `127.0.0.1`, built by code and never read from config.

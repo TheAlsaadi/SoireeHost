@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -401,13 +402,25 @@ func TestTamperedCloudflaredRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// the launcher holds the file open while it hashes it, so a write can
+	// briefly meet a sharing violation
+	write := func(b []byte) error {
+		var err error
+		for range 60 {
+			if err = os.WriteFile(path, b, 0o755); err == nil { //nolint:gosec // G306: the program file
+				return nil
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		return err
+	}
 	restore := func() {
-		if err := os.WriteFile(path, orig, 0o755); err != nil { //nolint:gosec // G306: restoring the program file
+		if err := write(orig); err != nil {
 			t.Errorf("restoring cloudflared.exe: %v", err)
 		}
 	}
 	t.Cleanup(restore)
-	if err := os.WriteFile(path, append(append([]byte{}, orig...), 0), 0o755); err != nil { //nolint:gosec // G306: the tampering under test
+	if err := write(append(append([]byte{}, orig...), 0)); err != nil {
 		t.Fatal(err)
 	}
 	if err := call(t, c, ipc.MethodTunnelOffline, ipc.OfflineParams{Offline: false}, nil); err != nil {
@@ -417,19 +430,11 @@ func TestTamperedCloudflaredRefused(t *testing.T) {
 	if !slices.ContainsFunc(ts.Warnings, func(w string) bool { return strings.Contains(w, "Run Repair") }) {
 		t.Errorf("warnings %q", ts.Warnings)
 	}
-	if procs := ourProcesses(t); slices.Contains(mapsValues(procs), tunnel.ExeName) {
+	if procs := ourProcesses(t); slices.Contains(slices.Collect(maps.Values(procs)), tunnel.ExeName) {
 		t.Error("a cloudflared process runs although the file was changed")
 	}
 	restore()
 	waitTunnel(t, c, 3*time.Minute, "the tunnel back after the repair", func(ts ipc.TunnelStatus) bool { return !ts.RepairNeeded })
-}
-
-func mapsValues(m map[uint32]string) []string {
-	out := make([]string, 0, len(m))
-	for _, v := range m {
-		out = append(out, v)
-	}
-	return out
 }
 
 // S-50 on the installed system: anything but a tunnel token is refused.

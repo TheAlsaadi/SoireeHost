@@ -241,18 +241,7 @@ func (p TunnelPlan) String() string {
 // GoString keeps %#v from printing the token.
 func (p TunnelPlan) GoString() string { return p.String() }
 
-func validSiteID(id string) bool {
-	if id == "" || len(id) > 32 || id[0] == '-' {
-		return false
-	}
-	for i := 0; i < len(id); i++ {
-		c := id[i]
-		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
-			return false
-		}
-	}
-	return true
-}
+func validSiteID(id string) bool { return config.ValidSiteID(id) }
 
 // ----- Tunnel report (tunnel launcher to supervisor) -----
 

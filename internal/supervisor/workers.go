@@ -234,9 +234,6 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 	if ctx.Err() != nil {
 		lost = errWorkerDown
 	}
-	if w.role == ipc.RoleTunnel {
-		w.sup.tunnelGone()
-	}
 	w.mu.Lock()
 	w.conn = nil
 	for rev, ch := range w.pending {
@@ -245,6 +242,12 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 	}
 	w.mu.Unlock()
 	_ = wc.Close()
+	// the reader has stopped once the pipe is closed, so no report can
+	// arrive after the tunnel state is cleared
+	<-done
+	if w.role == ipc.RoleTunnel {
+		w.sup.tunnelGone()
+	}
 }
 
 // load sends one load and waits for the worker's answer. Revision numbers on

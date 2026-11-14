@@ -269,7 +269,7 @@ func TestSiteValidation(t *testing.T) {
 		"proxy to own port":     mut(func(c *Config) { c.Sites[1].Proxy.Target = "127.0.0.1:8787" }),
 		"proxy to LAN no optin": mut(func(c *Config) { c.Sites[1].Proxy.Target = "192.168.0.2:80" }),
 		// R-06: every port SoiréeHost listens on is refused as a target
-		"proxy to metrics port": mut(func(c *Config) { c.Sites[1].Proxy.Target = "127.0.0.1:20241" }),
+		"proxy to metrics port": mut(func(c *Config) { c.Sites[1].Proxy.Target = "127.0.0.1:20300" }),
 		"proxy to share port": mut(func(c *Config) {
 			c.Sites[0].QuickShare = &QuickShare{Port: 8788, MetricsPort: 20242}
 			c.Sites[1].Proxy.Target = "[::1]:8788"
@@ -279,7 +279,7 @@ func TestSiteValidation(t *testing.T) {
 			c.Sites[1].Proxy.Target = "127.0.0.1:20242"
 		}),
 		"share on listen port":   mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: 8787, MetricsPort: 20242} }),
-		"share on metrics port":  mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: 20241, MetricsPort: 20242} }),
+		"share on metrics port":  mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: DefaultMetricsPort, MetricsPort: 20242} }),
 		"share ports equal":      mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: 9000, MetricsPort: 9000} }),
 		"share low port":         mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: 80, MetricsPort: 20242} }),
 		"share port too big":     mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: 70000, MetricsPort: 20242} }),
