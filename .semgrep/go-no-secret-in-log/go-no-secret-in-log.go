@@ -72,7 +72,7 @@ func (s *Supervisor) fromField() {
 	// ok: go-no-secret-in-log
 	s.audit.Append("system", "secret.read", map[string]string{"name": secrets.TunnelToken})
 	// ok: go-no-secret-in-log
-	_ = s.sendToWorker(ipc.WorkerMsg{Type: "load", Token: string(tok)})
+	_ = s.sendToWorker(ipc.WorkerMsg{Type: "load", Tunnel: &ipc.TunnelPlan{Token: string(tok)}})
 }
 
 func reassigned(st *secrets.Store) {
@@ -124,22 +124,22 @@ func secretByValue(p ipc.SecretSetParams) string {
 	return fmt.Sprintf("value=%s", v)
 }
 
-func workerMessage(m ipc.WorkerMsg, elog *eventlog.Log) {
+func tunnelPlan(m ipc.TunnelPlan, elog *eventlog.Log) {
 	for i := 0; i < 1; i++ {
 		// ruleid: go-no-secret-in-log
 		_ = elog.Error(1, "token "+m.Token)
 	}
 	// ok: go-no-secret-in-log
-	_ = elog.Info(1, "message type "+m.Type)
+	_ = elog.Info(1, "tunnel plan")
 	// ok: go-no-secret-in-log
-	log.Printf("worker message %v", m)
+	log.Printf("tunnel plan %v", m)
 }
 
-func workerPointer(m *ipc.WorkerMsg, logger *log.Logger) {
+func planPointer(m *ipc.TunnelPlan, logger *log.Logger) {
 	// ruleid: go-no-secret-in-log
 	logger.Println(m.Token)
 	// ok: go-no-secret-in-log
-	logger.Println(m.Role)
+	logger.Println(m.Offline)
 }
 
 func unrelatedStore(cfg interface{ Get(rev uint64) (string, error) }) {

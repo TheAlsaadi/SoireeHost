@@ -158,7 +158,7 @@ func (w *workerMgr) await(ctx context.Context, accepted <-chan net.Conn) (*ipc.W
 		if !ok {
 			return nil, false
 		}
-		wc := ipc.NewWorkerConn(c)
+		wc := ipc.NewWorkerConn(c, w.role)
 		_ = c.SetReadDeadline(time.Now().Add(w.sup.opts.WorkerStartTimeout))
 		hello, err := wc.Recv()
 		_ = c.SetReadDeadline(time.Time{})
@@ -193,6 +193,11 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 			if err != nil {
 				return
 			}
+			if m.Type == ipc.MsgStatus {
+				// only the tunnel pipe can carry one (SE-21)
+				w.sup.tunnelReport(*m.Report)
+				continue
+			}
 			w.mu.Lock()
 			ch := w.pending[m.Revision]
 			delete(w.pending, m.Revision)
@@ -201,7 +206,11 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 				continue
 			}
 			if m.Type == ipc.MsgFailed {
-				ch <- &loadError{reason: m.Reason, refused: true}
+				reason := m.Reason
+				if w.role == ipc.RoleTunnel {
+					reason = tunnelRefusedReason // R-21
+				}
+				ch <- &loadError{reason: reason, refused: true}
 			} else {
 				ch <- nil
 			}
@@ -224,6 +233,9 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 	lost := error(&loadError{reason: "the " + w.role + " worker stopped while applying the change"})
 	if ctx.Err() != nil {
 		lost = errWorkerDown
+	}
+	if w.role == ipc.RoleTunnel {
+		w.sup.tunnelGone()
 	}
 	w.mu.Lock()
 	w.conn = nil

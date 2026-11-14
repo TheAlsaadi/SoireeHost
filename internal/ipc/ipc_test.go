@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -81,45 +82,121 @@ func TestDecodeResponse(t *testing.T) {
 	}
 }
 
-func TestWorkerMsgValidate(t *testing.T) {
-	good := []WorkerMsg{
-		{Type: MsgHello, Role: RoleWeb, Version: "1.0.0"},
-		{Type: MsgLoad, Revision: 3, Caddy: json.RawMessage(`{}`)},
-		{Type: MsgLoad, Token: "t"},
-		{Type: MsgLoaded, Revision: 3},
-		{Type: MsgFailed, Reason: "port in use"},
-		{Type: MsgStop},
+// testToken is a well-formed tunnel token with a canary in its secret.
+func testToken(t testing.TB) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]string{
+		"a": "0123456789abcdef0123456789abcdef",
+		"t": "6ff42ae2-765d-4adf-8112-31c55c1551ef",
+		"s": base64.StdEncoding.EncodeToString([]byte("CANARY-TOKEN-SECRET-0123456789abcdef")),
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, m := range good {
-		if err := m.Validate(); err != nil {
-			t.Errorf("%v refused: %v", m, err)
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+func goodPlan(t testing.TB) *TunnelPlan {
+	return &TunnelPlan{Token: testToken(t), ListenPort: 8787, MetricsPort: 20241,
+		Shares: []SharePlan{{SiteID: "blog", Port: 8788, MetricsPort: 20242}}}
+}
+
+// SE-21: each pipe accepts only its own role's messages.
+func TestWorkerMsgValidate(t *testing.T) {
+	report := &TunnelReport{Tunnels: []TunnelState{
+		{Kind: TunnelKindToken, State: TunnelConnected, Connections: 4},
+		{Kind: TunnelKindQuick, SiteID: "blog", State: TunnelStarting, Hostname: "a-b-c.trycloudflare.com"},
+	}}
+	good := []struct {
+		role string
+		m    WorkerMsg
+	}{
+		{RoleWeb, WorkerMsg{Type: MsgHello, Role: RoleWeb, Version: "1.0.0"}},
+		{RoleTunnel, WorkerMsg{Type: MsgHello, Role: RoleTunnel}},
+		{RoleWeb, WorkerMsg{Type: MsgLoad, Revision: 3, Caddy: json.RawMessage(`{}`)}},
+		{RoleTunnel, WorkerMsg{Type: MsgLoad, Tunnel: goodPlan(t)}},
+		{RoleTunnel, WorkerMsg{Type: MsgLoad, Tunnel: &TunnelPlan{Offline: true, ListenPort: 8787, MetricsPort: 20241}}},
+		{RoleWeb, WorkerMsg{Type: MsgLoaded, Revision: 3}},
+		{RoleTunnel, WorkerMsg{Type: MsgFailed, Reason: "port in use"}},
+		{RoleTunnel, WorkerMsg{Type: MsgStatus, Report: report}},
+		{RoleWeb, WorkerMsg{Type: MsgStop}},
+	}
+	for _, g := range good {
+		if err := g.m.ValidateFor(g.role); err != nil {
+			t.Errorf("%s %v refused: %v", g.role, g.m, err)
 		}
 	}
-	bad := []WorkerMsg{
-		{Type: "exec"},
-		{Type: MsgHello, Role: "admin"},
-		{Type: MsgHello, Role: RoleWeb, Token: "t"},
-		{Type: MsgLoad},
-		{Type: MsgLoad, Caddy: json.RawMessage(`{}`), Token: "t"},
-		{Type: MsgFailed},
-		{Type: MsgFailed, Reason: strings.Repeat("x", MaxReasonLen+1)},
-		{Type: MsgStop, Token: "t"},
-		{Type: MsgLoaded, Token: "t"},
+	bad := []struct {
+		role string
+		m    WorkerMsg
+	}{
+		{RoleWeb, WorkerMsg{Type: "exec"}},
+		{"admin", WorkerMsg{Type: MsgStop}},
+		{RoleWeb, WorkerMsg{Type: MsgHello, Role: "admin"}},
+		{RoleWeb, WorkerMsg{Type: MsgHello, Role: RoleTunnel}},
+		{RoleTunnel, WorkerMsg{Type: MsgHello, Role: RoleWeb}},
+		{RoleWeb, WorkerMsg{Type: MsgHello, Role: RoleWeb, Tunnel: goodPlan(t)}},
+		{RoleWeb, WorkerMsg{Type: MsgLoad}},
+		{RoleWeb, WorkerMsg{Type: MsgLoad, Caddy: json.RawMessage(`[]`)}},
+		{RoleWeb, WorkerMsg{Type: MsgLoad, Caddy: json.RawMessage(`{`)}},
+		// a token sent to the web worker, a Caddy load sent to the tunnel
+		{RoleWeb, WorkerMsg{Type: MsgLoad, Tunnel: goodPlan(t)}},
+		{RoleWeb, WorkerMsg{Type: MsgLoad, Caddy: json.RawMessage(`{}`), Tunnel: goodPlan(t)}},
+		{RoleTunnel, WorkerMsg{Type: MsgLoad, Caddy: json.RawMessage(`{}`)}},
+		{RoleTunnel, WorkerMsg{Type: MsgLoad}},
+		{RoleTunnel, WorkerMsg{Type: MsgLoad, Tunnel: &TunnelPlan{Token: "not a token", ListenPort: 8787, MetricsPort: 20241}}},
+		{RoleTunnel, WorkerMsg{Type: MsgLoad, Tunnel: &TunnelPlan{ListenPort: 8787, MetricsPort: 8787}}},
+		{RoleTunnel, WorkerMsg{Type: MsgLoad, Tunnel: &TunnelPlan{ListenPort: 80, MetricsPort: 20241}}},
+		{RoleTunnel, WorkerMsg{Type: MsgLoad, Tunnel: &TunnelPlan{ListenPort: 8787, MetricsPort: 20241,
+			Shares: []SharePlan{{SiteID: "Bad!", Port: 8788, MetricsPort: 20242}}}}},
+		{RoleTunnel, WorkerMsg{Type: MsgFailed}},
+		{RoleTunnel, WorkerMsg{Type: MsgFailed, Reason: strings.Repeat("x", MaxReasonLen+1)}},
+		{RoleWeb, WorkerMsg{Type: MsgStatus, Report: report}},
+		{RoleTunnel, WorkerMsg{Type: MsgStatus}},
+		{RoleTunnel, WorkerMsg{Type: MsgStatus, Report: &TunnelReport{Tunnels: []TunnelState{{Kind: "ssh", State: TunnelDown}}}}},
+		{RoleTunnel, WorkerMsg{Type: MsgStatus, Report: &TunnelReport{Tunnels: []TunnelState{{Kind: TunnelKindQuick, SiteID: "x", State: TunnelDown, Hostname: "evil.example.com"}}}}},
+		{RoleTunnel, WorkerMsg{Type: MsgStatus, Report: &TunnelReport{Tunnels: []TunnelState{{Kind: TunnelKindToken, State: TunnelDown, Problems: []string{"rm -rf"}}}}}},
+		{RoleTunnel, WorkerMsg{Type: MsgStop, Tunnel: goodPlan(t)}},
+		{RoleWeb, WorkerMsg{Type: MsgLoaded, Caddy: json.RawMessage(`{}`)}},
 	}
-	for _, m := range bad {
-		if err := m.Validate(); err == nil {
-			t.Errorf("%v accepted", m)
+	for _, b := range bad {
+		if err := b.m.ValidateFor(b.role); err == nil {
+			t.Errorf("%s %v accepted", b.role, b.m)
 		}
 	}
 }
 
-// S-40 and S-35: printing a message or params never shows a token.
+// SE-21: a message meant for one role does not decode on the other's pipe.
+func TestDecodeIsRoleAware(t *testing.T) {
+	plan, err := json.Marshal(WorkerMsg{Type: MsgLoad, Tunnel: goodPlan(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeWorkerMsg(plan, RoleWeb); err == nil {
+		t.Error("a tunnel plan decoded on the web pipe")
+	}
+	if _, err := DecodeWorkerMsg(plan, RoleTunnel); err != nil {
+		t.Errorf("a tunnel plan refused on the tunnel pipe: %v", err)
+	}
+	caddy := []byte(`{"type":"load","caddy":{"apps":{}}}`)
+	if _, err := DecodeWorkerMsg(caddy, RoleTunnel); err == nil {
+		t.Error("a Caddy load decoded on the tunnel pipe")
+	}
+	// the Phase 2 token field no longer exists
+	if _, err := DecodeWorkerMsg([]byte(`{"type":"load","token":"x"}`), RoleTunnel); err == nil {
+		t.Error("the old token field was accepted")
+	}
+}
+
+// S-40 and S-35: printing a message, a plan or params never shows a token.
 func TestSecretsNotPrinted(t *testing.T) {
-	const canary = "CANARY-TOKEN-1234"
-	m := WorkerMsg{Type: MsgLoad, Token: canary}
-	p := SecretSetParams{Name: "tunnel_token", Value: canary}
-	for _, s := range []string{fmt.Sprint(m), fmt.Sprintf("%v %+v %#v %s", m, m, m, m), fmt.Sprintf("%v %+v %#v %s", p, p, p, p)} {
-		if strings.Contains(s, canary) {
+	const canary = "CANARY-TOKEN"
+	plan := goodPlan(t)
+	m := WorkerMsg{Type: MsgLoad, Tunnel: plan}
+	p := SecretSetParams{Name: "tunnel_token", Value: plan.Token}
+	for _, s := range []string{fmt.Sprint(m), fmt.Sprintf("%v %+v %#v %s", m, m, m, m), fmt.Sprintf("%v %+v %#v %s", p, p, p, p),
+		fmt.Sprintf("%v %+v %#v %s", plan, plan, plan, plan), fmt.Sprintf("%v %+v %#v", *plan, *plan, *plan)} {
+		if strings.Contains(s, plan.Token) || strings.Contains(s, canary) {
 			t.Errorf("printed secret: %s", s)
 		}
 	}
@@ -291,7 +368,7 @@ func TestWorkerPipe(t *testing.T) {
 		if err != nil {
 			return
 		}
-		wc := NewWorkerConn(c)
+		wc := NewWorkerConn(c, RoleWeb)
 		m, _ := wc.Recv()
 		got <- m
 		_ = wc.Send(WorkerMsg{Type: MsgLoad, Revision: 1, Caddy: json.RawMessage(`{"apps":{}}`)})
@@ -302,7 +379,7 @@ func TestWorkerPipe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wc := NewWorkerConn(conn)
+	wc := NewWorkerConn(conn, RoleWeb)
 	defer func() { _ = wc.Close() }()
 	if err := wc.Send(WorkerMsg{Type: MsgHello, Role: RoleWeb}); err != nil {
 		t.Fatal(err)

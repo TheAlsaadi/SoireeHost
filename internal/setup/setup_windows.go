@@ -86,6 +86,15 @@ func Install(l Layout) error {
 	if err := copyBinary(img, self, l.Exe()); err != nil {
 		return fmt.Errorf("copying the program: %w", err)
 	}
+	// S-23: only this elevated role unpacks cloudflared, into the program
+	// folder; install and repair both write it again
+	if _, err := installCloudflared(l); err != nil {
+		return fmt.Errorf("unpacking cloudflared: %w", err)
+	}
+	// S-02: block inbound traffic to both programs
+	if err := addFirewallRules(l); err != nil {
+		return err
+	}
 	if err := makeFolders(l.DataRoot, me.SID); err != nil {
 		return fmt.Errorf("creating data folders: %w", err)
 	}
@@ -474,6 +483,7 @@ func Uninstall(l Layout, purge bool) error {
 			allStopped = false
 		}
 	}
+	removeFirewallRules(l)
 	if self, err := os.Executable(); err == nil && strings.EqualFold(filepath.Dir(self), l.ProgramDir) {
 		errs = append(errs, errors.New("run uninstall from a copy outside the program folder to remove it (self-removal comes in Phase 6)"))
 	} else if err := os.RemoveAll(l.ProgramDir); err != nil {

@@ -23,6 +23,12 @@ Upgraded in Phase 1 above what Caddy selects, to clear `govulncheck` findings: `
 
 `govulncheck ./...` (v1.9.0, 12 Nov 2026): no vulnerabilities found.
 
+## Embedded executable
+
+| Program | Version | Licence | Why |
+| --- | --- | --- | --- |
+| `cloudflared-windows-amd64.exe` (Cloudflare) | 2026.11.0, SHA-256 `d5c1d82031da6253dcdcff64c944cd0fe063016edeb2e4fd088075fc9bd52d0a` | Apache-2.0 | The Cloudflare Tunnel connector (plan section 3, ADR-0002, ADR-0007). It has no library API, so the official release binary is embedded with `go:embed` and run as a child process. Pinned in `build/cloudflared.lock`; `build/fetch-cloudflared.ps1` downloads it from the official release and refuses it unless the hash matches (S-71). Moved from 2026.10.7 to 2026.11.0 on 14 Nov 2026: the new release fixes VULN-170057 (Access bypass with matrix parameters) and builds with Go 1.27.4; no other change |
+
 ## Bundled into the UI (npm, ends up in the binary)
 
 | Package | Version | Licence | Why |

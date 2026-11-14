@@ -80,6 +80,24 @@ func (s *Supervisor) handle(_ context.Context, c winsec.Caller, method string, p
 			return nil, perr
 		}
 		return s.auditList(p)
+	case ipc.MethodQuickShareStart:
+		p, perr := paramsAs[ipc.QuickShareParams](params)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.quickShareStart(c, p.SiteID)
+	case ipc.MethodQuickShareStop:
+		p, perr := paramsAs[ipc.QuickShareParams](params)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.quickShareStop(c, p.SiteID)
+	case ipc.MethodTunnelOffline:
+		p, perr := paramsAs[ipc.OfflineParams](params)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.setOffline(c, p.Offline)
 	}
 	return nil, ipc.Errorf(ipc.CodeInvalid, "Unknown request.")
 }
@@ -104,6 +122,7 @@ func (s *Supervisor) status() ipc.StatusResult {
 		Warnings:  rec.Config.Warnings(),
 		AuditOK:   s.auditOK(),
 		StartedAt: s.started,
+		Tunnel:    s.tunnelStatus(rec.Config),
 	}
 	if good := s.store.LastGood(); rec.Revision != 0 && good != rec.Revision {
 		st.ConfigNote = fmt.Sprintf("Revision %d is saved but the web server last loaded revision %d.", rec.Revision, good)
@@ -183,7 +202,7 @@ func (s *Supervisor) applyOrRestore(rec config.Record, prev config.Config) (any,
 // applyWeb builds the Caddy config for rec and loads it; on success the
 // revision becomes the last good one.
 func (s *Supervisor) applyWeb(rec config.Record) error {
-	j, err := worker.BuildCaddyJSON(rec.Config, worker.Options{LogDir: s.opts.Paths.WebLogs()})
+	j, err := worker.BuildCaddyJSON(rec.Config, worker.Options{LogDir: s.opts.Paths.WebLogs(), QuickHosts: s.quickHosts()})
 	if err != nil {
 		return &loadError{reason: err.Error(), refused: true}
 	}
@@ -235,20 +254,12 @@ func (s *Supervisor) workerConnected(_ context.Context, role string) {
 			_ = s.applyWeb(back)
 		}
 	case ipc.RoleTunnel:
-		s.sendTunnelToken()
+		// the whole tunnel plan, token included; the token travels only on
+		// the tunnel pipe, which only the launcher's account can open (S-23)
+		if err := s.pushTunnel(); err != nil && !errors.Is(err, errWorkerDown) {
+			s.tunnel.setState(StateRunning, "The tunnel launcher did not take the tunnel settings: "+tunnelErrText(err))
+		}
 	}
-}
-
-// sendTunnelToken hands the tunnel launcher its token, if one is set. The
-// token travels only on the tunnel pipe, which only the tunnel launcher's
-// account can open (S-23, S-40).
-func (s *Supervisor) sendTunnelToken() {
-	tok, err := s.secrets.Get(secrets.TunnelToken)
-	if err != nil || len(tok) == 0 {
-		return
-	}
-	_ = s.tunnel.load(ipc.WorkerMsg{Type: ipc.MsgLoad, Token: string(tok)})
-	clear(tok)
 }
 
 func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc.Error) {
@@ -283,7 +294,7 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 	if cerr != nil {
 		prev = config.Default()
 	}
-	return s.applyOrRestore(rec, prev)
+	return s.withTunnel(s.applyOrRestore(rec, prev))
 }
 
 // newLANTargets lists the local-network addresses next forwards to that cur
@@ -333,8 +344,14 @@ func (s *Supervisor) sitePut(c winsec.Caller, p *ipc.SitePutParams) (any, *ipc.E
 	if site.Proxy != nil {
 		detail["target"] = site.Proxy.Target
 	}
-	return s.change(c, "site.put", detail, func(cfg *config.Config) *ipc.Error {
+	return s.withTunnel(s.change(c, "site.put", detail, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == site.ID })
+		// quick shares are changed only through quickshare.start and
+		// quickshare.stop; replacing a site keeps its share as it is
+		site.QuickShare = nil
+		if i >= 0 {
+			site.QuickShare = cfg.Sites[i].QuickShare
+		}
 		// S-32: forwarding to a LAN device not already reachable through the
 		// current settings is a weakening change, including pointing a site
 		// that already allows the LAN at another device (review finding R-04)
@@ -351,37 +368,46 @@ func (s *Supervisor) sitePut(c winsec.Caller, p *ipc.SitePutParams) (any, *ipc.E
 			cfg.Sites = append(cfg.Sites, site)
 		}
 		return nil
-	})
+	}))
 }
 
 func (s *Supervisor) siteRemove(c winsec.Caller, id string) (any, *ipc.Error) {
-	return s.change(c, "site.remove", map[string]string{"site": id}, func(cfg *config.Config) *ipc.Error {
+	return s.withTunnel(s.change(c, "site.remove", map[string]string{"site": id}, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == id })
 		if i < 0 {
 			return ipc.Errorf(ipc.CodeNotFound, "There is no site %q.", id)
 		}
 		cfg.Sites = slices.Delete(cfg.Sites, i, i+1)
 		return nil
-	})
+	}))
 }
 
 func (s *Supervisor) siteSetEnabled(c winsec.Caller, id string, enabled bool) (any, *ipc.Error) {
-	return s.change(c, "site.set_enabled", map[string]string{"site": id, "enabled": strconv.FormatBool(enabled)}, func(cfg *config.Config) *ipc.Error {
+	return s.withTunnel(s.change(c, "site.set_enabled", map[string]string{"site": id, "enabled": strconv.FormatBool(enabled)}, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == id })
 		if i < 0 {
 			return ipc.Errorf(ipc.CodeNotFound, "There is no site %q.", id)
 		}
 		cfg.Sites[i].Enabled = enabled
 		return nil
-	})
+	}))
 }
 
-// secretSet stores the tunnel token (write-only, S-35). Replacing a token
-// that is already set changes the tunnel, so it needs confirmation (S-32).
+// secretSet stores the tunnel token (write-only, S-35). Only a Cloudflare
+// Tunnel token is accepted (S-50). Replacing a token that is already set
+// changes the tunnel, so it needs confirmation (S-32). The whole call holds
+// tunnelMu, from the "is one set?" check through storing and handing the
+// token over, so two quick calls cannot both skip confirmation or leave the
+// tunnel on the older token; a failed hand-over is reported (GO-6).
 func (s *Supervisor) secretSet(c winsec.Caller, p *ipc.SecretSetParams) (any, *ipc.Error) {
 	if p.Name != secrets.TunnelToken {
 		return nil, ipc.Errorf(ipc.CodeInvalid, "Unknown secret %q.", p.Name)
 	}
+	if _, err := config.ValidateTunnelToken(p.Value); err != nil {
+		return nil, ipc.Errorf(ipc.CodeInvalid, "%s.", capitalise(config.ErrNotTunnelToken.Error()))
+	}
+	s.tunnelMu.Lock()
+	defer s.tunnelMu.Unlock()
 	st, err := s.secrets.Status(p.Name)
 	if err != nil {
 		return nil, ipc.Errorf(ipc.CodeInternal, "The secrets could not be read.")
@@ -397,9 +423,25 @@ func (s *Supervisor) secretSet(c winsec.Caller, p *ipc.SecretSetParams) (any, *i
 		action = "secret.replace"
 	}
 	s.record(c.SID, action, map[string]string{"name": p.Name})
-	go s.sendTunnelToken()
+	res := ipc.SecretStatusResult{}
+	switch err := s.pushTunnelLocked(); {
+	case err == nil:
+	case errors.Is(err, errWorkerDown):
+		res.Warnings = append(res.Warnings, "Saved. The tunnel launcher is not running right now, so the token is used when it starts.")
+	default:
+		res.Warnings = append(res.Warnings, "Saved, but the tunnel did not take the new token: "+tunnelErrText(err))
+	}
 	st, _ = s.secrets.Status(p.Name)
-	return ipc.SecretStatusResult{Secrets: []ipc.SecretStatus{{Name: st.Name, Set: st.Set, SetAt: st.SetAt}}}, nil
+	res.Secrets = []ipc.SecretStatus{{Name: st.Name, Set: st.Set, SetAt: st.SetAt}}
+	return res, nil
+}
+
+// capitalise upper-cases the first letter of an ASCII sentence.
+func capitalise(s string) string {
+	if s == "" || s[0] < 'a' || s[0] > 'z' {
+		return s
+	}
+	return string(s[0]-'a'+'A') + s[1:]
 }
 
 func (s *Supervisor) auditList(p *ipc.AuditListParams) (any, *ipc.Error) {

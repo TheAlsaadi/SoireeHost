@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -475,28 +476,42 @@ func TestWorkersAreConfined(t *testing.T) {
 	}
 }
 
-// S-40 canary sweep (plan section 10): a tunnel token set over the pipe never
-// appears in clear in files, logs or process command lines.
+// S-40 canary sweep (plan section 10, Phase 3 check "a canary token never
+// appears in the process list, logs or config"): a tunnel token set over the
+// pipe, which the real cloudflared then runs with, never appears in clear in
+// files, logs or process command lines.
 func TestTunnelTokenCanary(t *testing.T) {
 	waitAllRunning(t)
 	c := control(t)
-	err := call(t, c, ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: canary}, nil)
+	tok := canaryToken(t)
+	err := call(t, c, ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok}, nil)
 	var e *ipc.Error
 	if errors.As(err, &e) && e.Code == ipc.CodeConfirmationRequired {
-		err = call(t, c, ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: canary, Confirm: true}, nil)
+		err = call(t, c, ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok, Confirm: true}, nil)
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(2 * time.Second)
+	// let cloudflared run with the token and write its log (the tunnel does
+	// not exist, so it fails to connect and is restarted)
+	waitTunnel(t, c, 2*time.Minute, "cloudflared to have run with the token", func(ts ipc.TunnelStatus) bool {
+		return slices.ContainsFunc(ts.Tunnels, func(v ipc.TunnelView) bool {
+			return v.Kind == ipc.TunnelKindToken && v.State != ipc.TunnelStarting
+		})
+	})
+	time.Sleep(5 * time.Second)
 	l := layout(t)
 	// The secrets folder grants Administrators nothing, so the sweep reads
 	// with backup semantics; any file or folder it still cannot read fails
-	// the test, and it must have read the stored token (GOE-12).
+	// the test, and it must have read the stored token (GOE-12). The token
+	// is base64 text, so the sweep looks for the token itself.
 	var seen []string
 	asBackupOperator(t, func() {
-		seen = testutil.SweepFiles(t, l.DataRoot, []byte(canary), backupRead)
+		seen = testutil.SweepFiles(t, l.DataRoot, []byte(tok), backupRead)
 	})
+	if testutil.Under(seen, supervisor.Paths{Root: l.DataRoot}.TunnelLogs()) == 0 {
+		t.Error("the canary sweep read no tunnel log")
+	}
 	p := supervisor.Paths{Root: l.DataRoot}
 	for _, dir := range []string{p.Secrets(), p.Config(), p.Audit()} {
 		if testutil.Under(seen, dir) == 0 {
@@ -508,8 +523,11 @@ func TestTunnelTokenCanary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(out, []byte(canary)) {
+	if bytes.Contains(out, []byte(tok)) {
 		t.Error("the token appears in a process command line")
+	}
+	if !bytes.Contains(out, []byte("cloudflared")) {
+		t.Error("no cloudflared command line was checked")
 	}
 }
 

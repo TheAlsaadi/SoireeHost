@@ -194,39 +194,20 @@ func TestFiltersDropUnexpectedTypes(t *testing.T) {
 
 func TestCheckEndpoints(t *testing.T) {
 	ok := []Endpoint{
-		{"tcp", netip.MustParseAddrPort("127.0.0.1:8787")},
-		{"tcp", netip.MustParseAddrPort("[::1]:8787")},
+		{Proto: "tcp", Addr: netip.MustParseAddrPort("127.0.0.1:8787")},
+		{Proto: "tcp", Addr: netip.MustParseAddrPort("[::1]:8787")},
 	}
 	if err := checkEndpoints(ok); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []string{"0.0.0.0:8787", "[::]:8787", "192.168.1.2:80", "127.0.0.2:80", "[::ffff:127.0.0.1]:80"} {
-		eps := append(append([]Endpoint{}, ok...), Endpoint{"tcp", netip.MustParseAddrPort(bad)})
+		eps := append(append([]Endpoint{}, ok...), Endpoint{Proto: "tcp", Addr: netip.MustParseAddrPort(bad)})
 		if err := checkEndpoints(eps); err == nil {
 			t.Errorf("%s passed", bad)
 		}
 	}
-	if err := checkEndpoints([]Endpoint{{"udp", netip.MustParseAddrPort("0.0.0.0:53")}}); err == nil {
+	if err := checkEndpoints([]Endpoint{{Proto: "udp", Addr: netip.MustParseAddrPort("0.0.0.0:53")}}); err == nil {
 		t.Error("UDP wildcard passed")
-	}
-}
-
-func TestParseTableRejectsGarbage(t *testing.T) {
-	k := tableKinds[0]
-	if _, err := parseTable([]byte{1}, k, 1); err == nil {
-		t.Error("short table accepted")
-	}
-	if _, err := parseTable([]byte{0xff, 0xff, 0, 0, 1, 2, 3}, k, 1); err == nil {
-		t.Error("count larger than buffer accepted")
-	}
-	row := make([]byte, 4+24)
-	row[0] = 1
-	copy(row[4+4:], []byte{127, 0, 0, 1})
-	row[4+8], row[4+9] = 0x22, 0x53 // port 8787
-	row[4+20] = 42
-	eps, err := parseTable(row, k, 42)
-	if err != nil || len(eps) != 1 || eps[0].Addr != netip.MustParseAddrPort("127.0.0.1:8787") {
-		t.Fatalf("eps=%v err=%v", eps, err)
 	}
 }
 

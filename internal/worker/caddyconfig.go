@@ -16,6 +16,11 @@ type Options struct {
 	// LogDir is the absolute folder the worker writes its logs to. It is the
 	// only folder the worker writes to.
 	LogDir string
+	// QuickHosts maps a shared site's id to the hostname cloudflared was
+	// given for its quick share. It is runtime state, never saved: a site
+	// that is shared but has no hostname yet answers everything with 404
+	// (S-06, ADR-0007).
+	QuickHosts map[string]string
 }
 
 // Log file names inside Options.LogDir.
@@ -31,7 +36,8 @@ const (
 	logRollDays = 30
 )
 
-// serverName is the key of the single HTTP server in the Caddy config.
+// serverName is the key of the main HTTP server in the Caddy config; each
+// quick share has a server of its own (quickServerName).
 const serverName = "soireehost"
 
 // BuildCaddyJSON turns a validated config into the Caddy JSON config the web
@@ -48,89 +54,50 @@ func BuildCaddyJSON(cfg config.Config, opts Options) ([]byte, error) {
 
 	var routes, errRoutes []any
 	var filesystems []any
+	servers := obj{}
 	for _, site := range cfg.Sites {
-		if !site.Enabled || len(site.Hostnames) == 0 {
+		if !site.Enabled {
 			continue
 		}
-		match := []any{obj{"host": site.Hostnames}}
-		headers := headerHandlers(site.EffectiveHeaders())
-
-		chain := append([]any{}, headers...)
-		chain = append(chain,
-			obj{"handler": "soireehost_ratelimit", "per_minute": site.RateLimitPerMinute},
-			obj{"handler": "soireehost_guard", "mode": site.Type, "allow_well_known": site.AllowWellKnown},
-			obj{"handler": "request_body", "max_size": site.MaxBodyBytes},
-		)
-		switch site.Type {
-		case config.TypeStatic:
-			fsName := "site-" + site.ID
+		var fsName string
+		if site.Type == config.TypeStatic {
+			fsName = "site-" + site.ID
+		}
+		used := false
+		if len(site.Hostnames) > 0 {
+			r, er := siteRoutes(site, site.Hostnames, fsName)
+			routes, errRoutes = append(routes, r), append(errRoutes, er)
+			used = true
+		}
+		if site.QuickShare != nil {
+			// the share's own listener serves this site only, and only under
+			// the hostname cloudflared assigned; before that, only 404s
+			var qr, qer []any
+			if h := opts.QuickHosts[site.ID]; h != "" {
+				if !config.ValidQuickShareHostname(h) {
+					return nil, fmt.Errorf("quick share hostname for %q is not valid", site.ID)
+				}
+				r, er := siteRoutes(site, []string{h}, fsName)
+				qr, qer = []any{r}, []any{er}
+				used = true
+			}
+			listen := "127.0.0.1:" + strconv.Itoa(site.QuickShare.Port)
+			servers[quickServerName(site.ID)] = httpServer(listen, s, append(qr, notFoundRoute()), append(qer, defaultErrRoute()))
+		}
+		if used && fsName != "" {
 			filesystems = append(filesystems, obj{
 				"name":        fsName,
 				"file_system": obj{"backend": "soireehost_root", "root": site.Static.Root, "allow_well_known": site.AllowWellKnown},
 			})
-			fileServer := obj{
-				"handler":     "file_server",
-				"fs":          fsName,
-				"root":        ".",
-				"index_names": []string{"index.html", "index.htm"},
-			}
-			if site.Static.DirectoryListing {
-				fileServer["browse"] = obj{}
-			}
-			chain = append(chain, fileServer)
-		case config.TypeProxy:
-			chain = append(chain, obj{
-				"handler":   "reverse_proxy",
-				"upstreams": []any{obj{"dial": site.Proxy.Target}},
-				"headers": obj{"request": obj{
-					// after StripForwarded removed any forged values, tell the
-					// app the real client address (S-05)
-					"set": obj{
-						"X-Forwarded-For":  []string{"{http.vars.client_ip}"},
-						"X-Forwarded-Host": []string{"{http.request.host}"},
-					},
-					"delete": []string{"Via"},
-				}},
-			})
 		}
-		routes = append(routes, obj{
-			"match":    match,
-			"handle":   []any{obj{"handler": "subroute", "routes": []any{obj{"handle": chain}}}},
-			"terminal": true,
-		})
-		errRoutes = append(errRoutes, obj{
-			"match":    match,
-			"handle":   append(append([]any{}, headers...), errorResponse()),
-			"terminal": true,
-		})
 	}
 	// S-06: anything that did not match a site hostname gets a 404.
-	defaults := config.DefaultHeaders()
-	routes = append(routes, obj{"handle": append(headerHandlers(defaults),
-		obj{"handler": "static_response", "status_code": 404, "body": "404 Not Found\n",
-			"headers": obj{"Content-Type": []string{"text/plain; charset=utf-8"}}})})
-	errRoutes = append(errRoutes, obj{"handle": append(headerHandlers(defaults), errorResponse())})
-
-	server := obj{
-		"listen":    []string{cfg.Listen},
-		"protocols": []string{"h1"}, // no HTTP/3, so no UDP socket; cloudflared speaks HTTP/1.1
-		// TLS ends at Cloudflare's edge; the worker holds no certificates
-		"automatic_https":     obj{"disable": true},
-		"max_header_bytes":    s.MaxHeaderBytes,
-		"read_header_timeout": seconds(s.ReadHeaderTimeoutSeconds),
-		"read_timeout":        seconds(s.ReadTimeoutSeconds),
-		"idle_timeout":        seconds(s.IdleTimeoutSeconds),
-		// S-05: only cloudflared on loopback talks to the worker, and the
-		// client address it vouches for is CF-Connecting-IP
-		"trusted_proxies":   obj{"source": "static", "ranges": []string{"127.0.0.1/32", "::1/128"}},
-		"client_ip_headers": []string{"Cf-Connecting-Ip"},
-		"routes":            routes,
-		"errors":            obj{"routes": errRoutes},
-		"logs":              obj{"default_logger_name": "access"},
-	}
+	routes = append(routes, notFoundRoute())
+	errRoutes = append(errRoutes, defaultErrRoute())
+	servers[serverName] = httpServer(cfg.Listen, s, routes, errRoutes)
 
 	apps := obj{
-		"http": obj{"servers": obj{serverName: server}},
+		"http": obj{"servers": servers},
 		// the TLS app is always loaded by the HTTP app; stop it writing
 		// instance.uuid and lock files to the service profile
 		"tls": obj{"disable_storage_clean": true, "disable_storage_check": true},
@@ -164,6 +131,93 @@ func BuildCaddyJSON(cfg config.Config, opts Options) ([]byte, error) {
 }
 
 type obj = map[string]any
+
+// quickServerName is the Caddy server key of a site's quick share listener.
+func quickServerName(siteID string) string { return "quick-" + siteID }
+
+// siteRoutes builds a site's route and error route for the given hostnames.
+func siteRoutes(site config.Site, hostnames []string, fsName string) (route, errRoute obj) {
+	match := []any{obj{"host": hostnames}}
+	headers := headerHandlers(site.EffectiveHeaders())
+
+	chain := append([]any{}, headers...)
+	chain = append(chain,
+		obj{"handler": "soireehost_ratelimit", "per_minute": site.RateLimitPerMinute},
+		obj{"handler": "soireehost_guard", "mode": site.Type, "allow_well_known": site.AllowWellKnown},
+		obj{"handler": "request_body", "max_size": site.MaxBodyBytes},
+	)
+	switch site.Type {
+	case config.TypeStatic:
+		fileServer := obj{
+			"handler":     "file_server",
+			"fs":          fsName,
+			"root":        ".",
+			"index_names": []string{"index.html", "index.htm"},
+		}
+		if site.Static.DirectoryListing {
+			fileServer["browse"] = obj{}
+		}
+		chain = append(chain, fileServer)
+	case config.TypeProxy:
+		chain = append(chain, obj{
+			"handler":   "reverse_proxy",
+			"upstreams": []any{obj{"dial": site.Proxy.Target}},
+			"headers": obj{"request": obj{
+				// after StripForwarded removed any forged values, tell the
+				// app the real client address (S-05)
+				"set": obj{
+					"X-Forwarded-For":  []string{"{http.vars.client_ip}"},
+					"X-Forwarded-Host": []string{"{http.request.host}"},
+				},
+				"delete": []string{"Via"},
+			}},
+		})
+	}
+	route = obj{
+		"match":    match,
+		"handle":   []any{obj{"handler": "subroute", "routes": []any{obj{"handle": chain}}}},
+		"terminal": true,
+	}
+	errRoute = obj{
+		"match":    match,
+		"handle":   append(append([]any{}, headers...), errorResponse()),
+		"terminal": true,
+	}
+	return route, errRoute
+}
+
+// notFoundRoute answers every request that matched no site with 404 (S-06).
+func notFoundRoute() obj {
+	return obj{"handle": append(headerHandlers(config.DefaultHeaders()),
+		obj{"handler": "static_response", "status_code": 404, "body": "404 Not Found\n",
+			"headers": obj{"Content-Type": []string{"text/plain; charset=utf-8"}}})}
+}
+
+func defaultErrRoute() obj {
+	return obj{"handle": append(headerHandlers(config.DefaultHeaders()), errorResponse())}
+}
+
+// httpServer is one loopback HTTP server with the shared limits (S-01, S-05,
+// S-15).
+func httpServer(listen string, s config.ServerLimits, routes, errRoutes []any) obj {
+	return obj{
+		"listen":    []string{listen},
+		"protocols": []string{"h1"}, // no HTTP/3, so no UDP socket; cloudflared speaks HTTP/1.1
+		// TLS ends at Cloudflare's edge; the worker holds no certificates
+		"automatic_https":     obj{"disable": true},
+		"max_header_bytes":    s.MaxHeaderBytes,
+		"read_header_timeout": seconds(s.ReadHeaderTimeoutSeconds),
+		"read_timeout":        seconds(s.ReadTimeoutSeconds),
+		"idle_timeout":        seconds(s.IdleTimeoutSeconds),
+		// S-05: only cloudflared on loopback talks to the worker, and the
+		// client address it vouches for is CF-Connecting-IP
+		"trusted_proxies":   obj{"source": "static", "ranges": []string{"127.0.0.1/32", "::1/128"}},
+		"client_ip_headers": []string{"Cf-Connecting-Ip"},
+		"routes":            routes,
+		"errors":            obj{"routes": errRoutes},
+		"logs":              obj{"default_logger_name": "access"},
+	}
+}
 
 func seconds(n int) string { return strconv.Itoa(n) + "s" }
 

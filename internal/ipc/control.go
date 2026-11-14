@@ -24,6 +24,10 @@ const (
 	MethodSecretSet      = "secret.set"
 	MethodSecretStatus   = "secret.status"
 	MethodAuditList      = "audit.list"
+	// Phase 3 (ADR-0007)
+	MethodQuickShareStart = "quickshare.start"
+	MethodQuickShareStop  = "quickshare.stop"
+	MethodTunnelOffline   = "tunnel.set_offline"
 )
 
 // Request is one control call.
@@ -79,6 +83,54 @@ type StatusResult struct {
 	AuditOK    bool           `json:"audit_ok"`
 	StartedAt  time.Time      `json:"started_at"`
 	ConfigNote string         `json:"config_note,omitempty"`
+	Tunnel     TunnelStatus   `json:"tunnel"`
+}
+
+// TunnelStatus is the state of the tunnels as status.get reports it. It never
+// holds a secret.
+type TunnelStatus struct {
+	// Offline is the offline switch.
+	Offline bool `json:"offline"`
+	// TokenSet says whether a tunnel token is stored.
+	TokenSet bool `json:"token_set"`
+	// ServiceURL is what to enter as the service of every public hostname
+	// in the Cloudflare dashboard (tunnel-token mode).
+	ServiceURL string `json:"service_url"`
+	// RepairNeeded is set when cloudflared.exe is missing or changed; the
+	// control panel then offers Repair (S-23).
+	RepairNeeded bool `json:"repair_needed"`
+	// Tunnels lists each tunnel the launcher runs or should run.
+	Tunnels []TunnelView `json:"tunnels"`
+	// Warnings are plain sentences about the tunnels.
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// TunnelView is one tunnel as the control panel shows it.
+type TunnelView struct {
+	Kind        string `json:"kind"`
+	SiteID      string `json:"site_id,omitempty"`
+	State       string `json:"state"`
+	Connections int    `json:"connections"`
+	// URL is a quick share's link, once cloudflared has been given one.
+	URL string `json:"url,omitempty"`
+	// Temporary marks a quick share link, and Label says what that means
+	// (S-51).
+	Temporary bool      `json:"temporary"`
+	Label     string    `json:"label,omitempty"`
+	Since     time.Time `json:"since,omitzero"`
+}
+
+// QuickShareLabel is shown beside every quick share link (S-51).
+const QuickShareLabel = "Temporary link for testing. It changes whenever the tunnel restarts."
+
+// QuickShareParams names the site to share or stop sharing.
+type QuickShareParams struct {
+	SiteID string `json:"site_id"`
+}
+
+// OfflineParams sets the offline switch.
+type OfflineParams struct {
+	Offline bool `json:"offline"`
 }
 
 // WorkerStatus is one worker's state as the supervisor sees it.
@@ -138,7 +190,8 @@ type SecretSetParams struct {
 
 // SecretStatusResult lists which secrets are set and when, never their values.
 type SecretStatusResult struct {
-	Secrets []SecretStatus `json:"secrets"`
+	Secrets  []SecretStatus `json:"secrets"`
+	Warnings []string       `json:"warnings,omitempty"`
 }
 
 // SecretStatus is one secret's state.
@@ -165,16 +218,19 @@ type AuditListResult struct {
 
 // paramTypes maps each method to a constructor for its params.
 var paramTypes = map[string]func() any{
-	MethodStatus:         func() any { return &None{} },
-	MethodConfigGet:      func() any { return &None{} },
-	MethodConfigHistory:  func() any { return &None{} },
-	MethodConfigRollback: func() any { return &RollbackParams{} },
-	MethodSitePut:        func() any { return &SitePutParams{} },
-	MethodSiteRemove:     func() any { return &SiteIDParams{} },
-	MethodSiteSetEnabled: func() any { return &SiteEnabledParams{} },
-	MethodSecretSet:      func() any { return &SecretSetParams{} },
-	MethodSecretStatus:   func() any { return &None{} },
-	MethodAuditList:      func() any { return &AuditListParams{} },
+	MethodStatus:          func() any { return &None{} },
+	MethodConfigGet:       func() any { return &None{} },
+	MethodConfigHistory:   func() any { return &None{} },
+	MethodConfigRollback:  func() any { return &RollbackParams{} },
+	MethodSitePut:         func() any { return &SitePutParams{} },
+	MethodSiteRemove:      func() any { return &SiteIDParams{} },
+	MethodSiteSetEnabled:  func() any { return &SiteEnabledParams{} },
+	MethodSecretSet:       func() any { return &SecretSetParams{} },
+	MethodSecretStatus:    func() any { return &None{} },
+	MethodAuditList:       func() any { return &AuditListParams{} },
+	MethodQuickShareStart: func() any { return &QuickShareParams{} },
+	MethodQuickShareStop:  func() any { return &QuickShareParams{} },
+	MethodTunnelOffline:   func() any { return &OfflineParams{} },
 }
 
 // Methods lists every control method.

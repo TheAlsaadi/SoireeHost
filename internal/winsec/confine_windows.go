@@ -125,10 +125,32 @@ func tokenPrivileges(tok windows.Token) ([]windows.LUID, error) {
 }
 
 func joinJob(l Limits) error {
+	job, err := newJob(l)
+	if err != nil {
+		return err
+	}
+	if err := windows.AssignProcessToJobObject(job, windows.CurrentProcess()); err != nil {
+		return fmt.Errorf("joining job object: %w", err)
+	}
+	return nil
+}
+
+// newJob creates a kill-on-close job object with the process, memory and UI
+// limits of l. The caller owns the handle; closing it ends every process in
+// the job.
+func newJob(l Limits) (windows.Handle, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
-		return fmt.Errorf("creating job object: %w", err)
+		return 0, fmt.Errorf("creating job object: %w", err)
 	}
+	if err := limitJob(job, l); err != nil {
+		_ = windows.CloseHandle(job)
+		return 0, err
+	}
+	return job, nil
+}
+
+func limitJob(job windows.Handle, l Limits) error {
 	ext := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	ext.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
 		windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS | windows.JOB_OBJECT_LIMIT_PROCESS_MEMORY |
@@ -149,9 +171,6 @@ func joinJob(l Limits) error {
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectBasicUIRestrictions,
 		uintptr(unsafe.Pointer(&ui)), uint32(unsafe.Sizeof(ui))); err != nil {
 		return fmt.Errorf("setting job UI limits: %w", err)
-	}
-	if err := windows.AssignProcessToJobObject(job, windows.CurrentProcess()); err != nil {
-		return fmt.Errorf("joining job object: %w", err)
 	}
 	return nil
 }

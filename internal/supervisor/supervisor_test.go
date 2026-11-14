@@ -3,7 +3,9 @@ package supervisor
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +41,21 @@ func TestMain(m *testing.M) {
 
 const canary = "CANARY-TUNNEL-TOKEN-7f3a9c"
 
+// canaryToken is a well-formed tunnel token (S-50) whose secret carries the
+// canary, so a sweep finds it wherever the token or its secret leaks.
+func canaryToken(t testing.TB, n int) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]string{
+		"a": "0123456789abcdef0123456789abcdef",
+		"t": "6ff42ae2-765d-4adf-8112-31c55c1551ef",
+		"s": base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s-%d-0123456789abcdef", canary, n))),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(b)
+}
+
 // fakeServices runs the workers in-process: the web worker with real Caddy,
 // the tunnel launcher as a stand-in that records the token it receives.
 type fakeServices struct {
@@ -48,7 +66,14 @@ type fakeServices struct {
 	cancels map[string]context.CancelFunc
 	exited  map[string]chan struct{}
 	starts  map[string]int
-	tokens  chan string
+
+	// plans records every tunnel plan the stand-in launcher received.
+	plansMu sync.Mutex
+	plans   []ipc.TunnelPlan
+	// tunnelLoad, if set, answers a tunnel plan instead of accepting it.
+	tunnelLoad func(m ipc.WorkerMsg) error
+	// notify carries status reports from the stand-in launcher.
+	notify chan ipc.WorkerMsg
 
 	// webLoad, if set, replaces the web worker's Load; die ends the worker
 	// as if its process died (the pipe closes without an answer).
@@ -92,7 +117,17 @@ func (f *fakeServices) Start(name string) error {
 		}
 	case winsec.TunnelService:
 		o.Pipe, o.Role = f.pipes.Tunnel, ipc.RoleTunnel
-		o.Load = func(m ipc.WorkerMsg) error { f.tokens <- m.Token; return nil }
+		o.Notify = f.notify
+		tl := f.tunnelLoad
+		o.Load = func(m ipc.WorkerMsg) error {
+			f.plansMu.Lock()
+			f.plans = append(f.plans, *m.Tunnel)
+			f.plansMu.Unlock()
+			if tl != nil {
+				return tl(m)
+			}
+			return nil
+		}
 	default:
 		return fmt.Errorf("unknown service %s", name)
 	}
@@ -205,7 +240,7 @@ func startWith(t *testing.T, svc *fakeServices, checkRoot func(string) (string, 
 	}
 	svc.t, svc.pipes, svc.sup = t, pipes, me.SID
 	svc.cancels, svc.exited = map[string]context.CancelFunc{}, map[string]chan struct{}{}
-	svc.starts, svc.tokens = map[string]int{}, make(chan string, 10)
+	svc.starts, svc.notify = map[string]int{}, make(chan ipc.WorkerMsg)
 	if checkRoot == nil {
 		loc, err := sitecheck.DefaultLocations()
 		if err != nil {
@@ -292,6 +327,24 @@ func (h *harness) waitWorkers(want string) {
 		}
 		if time.Now().After(deadline) {
 			h.t.Fatalf("workers never reached %s", want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// waitPlan waits for a tunnel plan for which ok is true.
+func (h *harness) waitPlan(what string, ok func(ipc.TunnelPlan) bool) ipc.TunnelPlan {
+	h.t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		h.svc.plansMu.Lock()
+		plans := slices.Clone(h.svc.plans)
+		h.svc.plansMu.Unlock()
+		if n := len(plans); n > 0 && ok(plans[n-1]) {
+			return plans[n-1]
+		}
+		if time.Now().After(deadline) {
+			h.t.Fatalf("no tunnel plan with %s; %d plans", what, len(plans))
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -478,34 +531,33 @@ func TestRefusedConfigIsRolledBack(t *testing.T) {
 func TestTunnelTokenWriteOnly(t *testing.T) {
 	h := start(t, nil)
 	var st ipc.SecretStatusResult
-	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: canary}, &st); err != nil {
+	tok := canaryToken(t, 1)
+	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok}, &st); err != nil {
 		t.Fatal(err)
 	}
-	if !st.Secrets[0].Set {
-		t.Fatal("not set")
+	if !st.Secrets[0].Set || len(st.Warnings) != 0 {
+		t.Fatalf("set: %+v", st)
 	}
-	select {
-	case tok := <-h.svc.tokens:
-		if tok != canary {
-			t.Fatalf("tunnel worker got %q", tok)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("tunnel worker never got the token")
-	}
+	// GO-6: the token was handed over before secret.set returned
+	h.waitPlan("the token", func(p ipc.TunnelPlan) bool { return p.Token == tok })
 	var e *ipc.Error
-	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: canary + "2"}, nil); !errors.As(err, &e) || e.Code != ipc.CodeConfirmationRequired {
+	tok2 := canaryToken(t, 2)
+	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok2}, nil); !errors.As(err, &e) || e.Code != ipc.CodeConfirmationRequired {
 		t.Fatalf("replacing without confirm: %v", err)
 	}
-	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: canary + "2", Confirm: true}, nil); err != nil {
+	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok2, Confirm: true}, nil); err != nil {
 		t.Fatal(err)
 	}
+	h.waitPlan("the new token", func(p ipc.TunnelPlan) bool { return p.Token == tok2 })
 	var status ipc.SecretStatusResult
 	if err := h.call(ipc.MethodSecretStatus, ipc.None{}, &status); err != nil || !status.Secrets[0].Set {
 		t.Fatalf("status %+v %v", status, err)
 	}
 	// canary sweep (plan section 10): nothing on disk holds the token in
 	// clear, and the sweep read the secrets, config and audit files (GOE-12)
-	seen := testutil.SweepFiles(t, h.paths.Root, []byte("CANARY-TUNNEL"), nil)
+	// the tokens are base64 text, so the sweep looks for each token itself
+	testutil.SweepFiles(t, h.paths.Root, []byte(tok), nil)
+	seen := testutil.SweepFiles(t, h.paths.Root, []byte(tok2), nil)
 	for _, dir := range []string{h.paths.Secrets(), h.paths.Config(), h.paths.Audit()} {
 		if testutil.Under(seen, dir) == 0 {
 			t.Errorf("the canary sweep read nothing in %s", dir)

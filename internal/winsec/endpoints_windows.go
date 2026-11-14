@@ -1,4 +1,4 @@
-package worker
+package winsec
 
 import (
 	"encoding/binary"
@@ -53,10 +53,10 @@ var tableKinds = []tableKind{
 	{procGetExtendedUdpTable, afInet6, udpTableOwnerPID, 28, "udp", 0, 16, 20, 24},
 }
 
-// OwnEndpoints lists every listening TCP socket and bound UDP socket owned by
-// this process.
-func OwnEndpoints() ([]Endpoint, error) {
-	pid := windows.GetCurrentProcessId()
+// EndpointsOf lists every listening TCP socket and bound UDP socket owned by
+// process pid (S-01: the web worker checks itself, the tunnel launcher checks
+// each cloudflared it starts).
+func EndpointsOf(pid uint32) ([]Endpoint, error) {
 	var out []Endpoint
 	for _, k := range tableKinds {
 		buf, err := readTable(k)
@@ -116,4 +116,18 @@ func parseTable(buf []byte, k tableKind, pid uint32) ([]Endpoint, error) {
 		out = append(out, Endpoint{Proto: k.proto, Addr: netip.AddrPortFrom(addr, port)})
 	}
 	return out, nil
+}
+
+// CheckLoopbackOnly fails if any endpoint is on an address other than
+// 127.0.0.1 or ::1 (S-01). IPv4-mapped forms and other 127/8 addresses count
+// as not loopback.
+func CheckLoopbackOnly(eps []Endpoint) error {
+	var bad []error
+	for _, ep := range eps {
+		a := ep.Addr.Addr()
+		if a.Zone() != "" || (a != netip.AddrFrom4([4]byte{127, 0, 0, 1}) && a != netip.IPv6Loopback()) {
+			bad = append(bad, fmt.Errorf("%s socket on %s is not loopback", ep.Proto, ep.Addr))
+		}
+	}
+	return errors.Join(bad...)
 }

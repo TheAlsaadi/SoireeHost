@@ -65,8 +65,8 @@ From Phase 2. Each attempt must fail:
 
 ### Exposure (from Phase 3)
 
-- `Get-NetTCPConnection` and `Get-NetUDPEndpoint` for every SoiréeHost process: only `127.0.0.1` or `::1`.
-- Port scan of the PC from a second machine on the LAN: no open port belonging to SoiréeHost.
+- The socket table of every SoiréeHost process and every cloudflared: only TCP listeners on `127.0.0.1` or `::1` (`internal/e2e` `TestQuickShareOverInternet`, while a real quick share runs).
+- Port scan of the PC from a second machine on the LAN: no open port belonging to SoiréeHost. Until a second machine is available, CI scans every TCP port on the runner's own non-loopback addresses instead (owner decision, 14 Nov 2026); the second-machine scan stays open for a release check.
 - Traffic capture (Phase 6): only Cloudflare tunnel endpoints and the GitHub update URL.
 
 ### Updates (Phase 6)
@@ -80,6 +80,22 @@ Plant canary tokens as the tunnel token and in site config, run the app through 
 ### Soak (before release)
 
 72 hours serving a static site and a proxied app under steady load, with tunnel drops and service restarts injected every few hours. Pass: no crash, memory and handle counts flat after warm-up, every request served or cleanly failed.
+
+## Phase 3 plan (tunnel, ADR-0007)
+
+| Area | Type | What |
+| --- | --- | --- |
+| Config: tunnel block, quick shares, own ports (S-10, R-06) | Unit, fuzz | Ports SoiréeHost owns never repeat and are never a loopback proxy target; at most four shares; old configs get defaults (`TestSiteValidation`, `TestTooManyQuickShares`, `TestOldConfigGetsTunnelDefaults`, `FuzzDecode`) |
+| Tunnel token format (S-50) | Unit, fuzz | Only cloudflared's token format; API keys, API tokens and other text refused without echo (`TestTunnelTokenFormat`, `FuzzTunnelToken`) |
+| Worker messages per role (SE-21) | Unit, fuzz | Each pipe accepts only its role's payloads; tunnel plans and reports validated against closed sets (`TestWorkerMsgValidate`, `TestDecodeIsRoleAware`, `FuzzDecodeWorkerMsg`) |
+| cloudflared output (R-21, S-06) | Unit, fuzz | Recorded 2026.11.0 lines: quick share hostname only from the first table row before any connection, connection counts, dashboard ingress check, token scrubbing (`TestQuickShareHostnameFromOutput`, `TestScrubber`, `TestIngressCheck`, `FuzzOutput`) |
+| Launcher (S-21, S-23, S-01) | Integration, in-process | The test binary plays cloudflared: quick share, token in the environment only, scrubbed log, tampered or missing binary refused, restart after exit, a UDP socket stops it, offline stops everything (`tunnel` launcher tests); `winsec` `TestStartConfinedChild` |
+| Quick share host gate (S-06) | Integration, real Caddy | A share's port answers 404 until the hostname is known, then serves only it (`TestQuickShareHostGate`) |
+| Supervisor (GO-6, R-21, S-32) | Integration, real pipes | Token handed over before `secret.set` returns; concurrent first sets serialised; launcher text never echoed; quick share flow end to end; offline switch; Repair in status (`supervisor` tunnel tests) |
+| Setup (S-02) | Unit, then e2e | netsh command lines block inbound only; rules present after install, none allowing inbound, gone after uninstall |
+| Installed system (CI only) | e2e | Real cloudflared: quick share fetched over the internet, socket table and port scan, canary token in process list and logs, tampered binary refused and recovered, firewall rules (`internal/e2e/tunnel_test.go`) |
+| Phone over mobile data | Manual, owner | A hand-started CI run (`phone_minutes` input) prints a quick share link as a notice and keeps it up; the owner opens it on a phone |
+| Tunnel token with a real hostname | Manual | Not yet verified: the owner has no domain (owner decision, 14 Nov 2026); the release notes say so |
 
 ## Current coverage (end of Phase 2)
 

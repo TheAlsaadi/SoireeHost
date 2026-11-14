@@ -10,6 +10,11 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      phone_minutes:
+        description: "Phase 3 phone check: keep a quick share link up for this many minutes (0 = off, at most 30). The link is printed as a notice on the run page."
+        required: false
+        default: "0"
 
 permissions:
   contents: read
@@ -116,9 +121,9 @@ jobs:
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
         env:
           GOFLAGS: ""
-      - name: Build
+      - name: Build (with the pinned cloudflared, S-71)
         shell: pwsh
-        run: ./build/build.ps1 -SkipChecks
+        run: ./build/build.ps1 -SkipChecks -Cloudflared
       - name: Committed bindings match the Go code
         run: git diff --exit-code -- frontend/bindings
       - name: Binary has ASLR, DEP and high-entropy VA (S-24)
@@ -177,10 +182,13 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Fetch and verify cloudflared (S-71)
+        shell: pwsh
+        run: ./build/fetch-cloudflared.ps1
       - name: Build release binary
         env:
           CGO_ENABLED: "0"
-        run: go build -trimpath -tags production -o bin/soireehost.exe ./cmd/soireehost
+        run: go build -trimpath -tags production,cloudflared -o bin/soireehost.exe ./cmd/soireehost
       - name: Copy the binary to a folder only administrators can change
         # setup refuses to install from a folder another account could change
         # (DR-9), and the checkout folder's permissions are the runner's
@@ -192,12 +200,14 @@ jobs:
           Copy-Item bin\soireehost.exe C:\soireehost-ci\soireehost.exe
       - name: setup install
         run: C:\soireehost-ci\soireehost.exe setup install
-      - name: Isolation tests
+      - name: Isolation and tunnel tests
         env:
           SOIREEHOST_E2E: "1"
+          # Phase 3 phone check, only when a run is started by hand for it
+          SOIREEHOST_PHONE_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.phone_minutes || '0' }}
         shell: pwsh
         run: |
-          $out = go test -tags e2e -count=1 -v -timeout 25m ./internal/e2e/ 2>&1 | Out-String
+          $out = go test -tags e2e -count=1 -v -timeout 60m ./internal/e2e/ 2>&1 | Out-String
           $code = $LASTEXITCODE
           Write-Output $out
           if ($code -ne 0) {
@@ -247,6 +257,8 @@ jobs:
           if (Get-Service SoireeHost* -ErrorAction SilentlyContinue) { $left += "services" }
           if (Test-Path "$env:ProgramFiles\SoireeHost") { $left += "program folder" }
           if (Test-Path "$env:ProgramData\SoireeHost") { $left += "data folder" }
+          if (Get-NetFirewallRule -DisplayName "SoireeHost block inbound *" -ErrorAction SilentlyContinue) { $left += "firewall rules" }
+          if (Get-Process cloudflared -ErrorAction SilentlyContinue) { $left += "cloudflared process" }
           if ($left) { Write-Output "::error title=uninstall left::$($left -join ', ')"; exit 1 }
 
   fuzz:

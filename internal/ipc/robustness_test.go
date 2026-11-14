@@ -212,8 +212,8 @@ func TestCutReason(t *testing.T) {
 			t.Fatal(err)
 		}
 		var m WorkerMsg
-		if err := json.Unmarshal(b, &m); err != nil || m.Validate() != nil || m.Reason != out {
-			t.Errorf("%s: did not survive the pipe: %v %v", name, err, m.Validate())
+		if err := json.Unmarshal(b, &m); err != nil || m.ValidateFor(RoleWeb) != nil || m.Reason != out {
+			t.Errorf("%s: did not survive the pipe: %v %v", name, err, m.ValidateFor(RoleWeb))
 		}
 	}
 }
@@ -242,7 +242,7 @@ func TestFailedReasonReachesSupervisor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sup := NewWorkerConn(c)
+	sup := NewWorkerConn(c, RoleWeb)
 	defer func() { _ = sup.Close() }()
 	if m, err := sup.Recv(); err != nil || m.Type != MsgHello {
 		t.Fatalf("hello: %v %v", m, err)
@@ -284,7 +284,7 @@ func TestAgentExitsAfterFatalLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sup := NewWorkerConn(c)
+	sup := NewWorkerConn(c, RoleWeb)
 	defer func() { _ = sup.Close() }()
 	if m, err := sup.Recv(); err != nil || m.Type != MsgHello {
 		t.Fatalf("hello: %v %v", m, err)

@@ -117,6 +117,9 @@ type Options struct {
 	WorkerStartTimeout time.Duration
 	// LoadTimeout bounds the wait for a worker to apply a load.
 	LoadTimeout time.Duration
+	// PortFree reports whether a loopback port is free for a new quick
+	// share (LoopbackPortFree when nil).
+	PortFree func(port int) bool
 }
 
 // Supervisor is one running supervisor.
@@ -131,8 +134,12 @@ type Supervisor struct {
 	started  time.Time
 
 	changeMu sync.Mutex // serialises config changes and their application
+	tunnelMu sync.Mutex // serialises tunnel plans and secret.set (GO-6); taken after changeMu
 	web      *workerMgr
 	tunnel   *workerMgr
+
+	tmu    sync.Mutex // guards tstate
+	tstate tunnelState
 }
 
 // New checks the folders (S-22), opens the stores and verifies the audit log.
@@ -142,6 +149,9 @@ func New(opts Options) (*Supervisor, error) {
 	}
 	if opts.LoadTimeout == 0 {
 		opts.LoadTimeout = 30 * time.Second
+	}
+	if opts.PortFree == nil {
+		opts.PortFree = LoopbackPortFree
 	}
 	if opts.CheckACLs {
 		// the check reads writers only, so the control users do not matter
