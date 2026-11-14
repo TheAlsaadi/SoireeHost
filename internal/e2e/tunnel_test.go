@@ -224,15 +224,52 @@ func TestQuickShareOverInternet(t *testing.T) {
 	}
 
 	checkListeners(t)
+}
 
-	if n, _ := strconv.Atoi(os.Getenv("SOIREEHOST_PHONE_MINUTES")); n > 0 {
-		n = min(n, 30)
-		// a GitHub annotation, shown on the run's page, so the owner can open
-		// the link on a phone over mobile data (plan Phase 3)
-		fmt.Printf("::notice title=Quick share link for the phone check::Open %s on a phone over mobile data. It shows %s and stays up for %d minutes.\n", v.URL, page, n)
-		t.Logf("phone check: %s for %d minutes", v.URL, n)
-		time.Sleep(time.Duration(n) * time.Minute)
+// phonePage is what the phone check's quick share shows.
+const phonePage = "SOIREEHOST-PHASE3-QUICK-SHARE"
+
+// TestPhoneCheck is the Phase 3 check "a site opens from a phone on mobile
+// data through a quick share link". It runs only in its own CI step, when a
+// run was started by hand with phone_minutes: it shares a site, checks the
+// link over the internet, prints it, and returns with the share still up.
+// The next CI step keeps the runner alive for that many minutes. Printing
+// the link and then waiting inside one step hid the link until the share
+// had ended, because the step's output appears only when the step finishes.
+func TestPhoneCheck(t *testing.T) {
+	n, _ := strconv.Atoi(os.Getenv("SOIREEHOST_PHONE_MINUTES"))
+	if n <= 0 {
+		t.Skip("set SOIREEHOST_PHONE_MINUTES for the phone check")
 	}
+	waitAllRunning(t)
+	c := control(t)
+	if err := call(t, c, ipc.MethodTunnelOffline, ipc.OfflineParams{Offline: false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	id := publishTestSite(t, c, phonePage)
+	if err := call(t, c, ipc.MethodQuickShareStart, ipc.QuickShareParams{SiteID: id}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := waitTunnel(t, c, 3*time.Minute, "a quick share link", func(ts ipc.TunnelStatus) bool {
+		v, ok := quickView(ts, id)
+		return ok && v.URL != "" && v.State == ipc.TunnelConnected
+	})
+	v, _ := quickView(ts, id)
+	deadline := time.Now().Add(3 * time.Minute)
+	for {
+		code, body, err := fetch(t, v.URL)
+		if err == nil && code == 200 && body == phonePage {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the quick share link never served the site: %d %q %v", code, body, err)
+		}
+		time.Sleep(3 * time.Second)
+	}
+	n = min(n, 30)
+	// a GitHub annotation on the run's page, and a plain line in the step log
+	fmt.Printf("::notice title=Quick share link for the phone check::Open %s on a phone over mobile data. It shows %s for the next %d minutes.\n", v.URL, phonePage, n)
+	fmt.Printf("PHONE-CHECK-LINK %s\n", v.URL)
 }
 
 func fetch(t *testing.T, url string) (int, string, error) {

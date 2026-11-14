@@ -203,8 +203,6 @@ jobs:
       - name: Isolation and tunnel tests
         env:
           SOIREEHOST_E2E: "1"
-          # Phase 3 phone check, only when a run is started by hand for it
-          SOIREEHOST_PHONE_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.phone_minutes || '0' }}
         shell: pwsh
         run: |
           $out = go test -tags e2e -count=1 -v -timeout 60m ./internal/e2e/ 2>&1 | Out-String
@@ -216,6 +214,23 @@ jobs:
             Write-Output "::error title=isolation tests failed::$msg"
             exit $code
           }
+      - name: Phone check, open the quick share (only when started by hand with phone_minutes)
+        # Phase 3: the link is printed when this step ends, while the share
+        # is still up; the next step keeps it up
+        if: github.event_name == 'workflow_dispatch' && inputs.phone_minutes != '0'
+        env:
+          SOIREEHOST_E2E: "1"
+          SOIREEHOST_PHONE_MINUTES: ${{ inputs.phone_minutes }}
+        run: go test -tags e2e -count=1 -v -timeout 10m -run '^TestPhoneCheck$' ./internal/e2e/
+      - name: Phone check, keep the quick share up
+        if: github.event_name == 'workflow_dispatch' && inputs.phone_minutes != '0'
+        env:
+          MINUTES: ${{ inputs.phone_minutes }}
+        shell: pwsh
+        run: |
+          $m = [Math]::Min([Math]::Max([int]$env:MINUTES, 1), 30)
+          Write-Output "Keeping the quick share up for $m minutes"
+          Start-Sleep -Seconds (60 * $m)
       - name: setup install again over the running install (repair)
         shell: pwsh
         run: |
