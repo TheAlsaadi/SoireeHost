@@ -246,6 +246,15 @@ jobs:
           Write-Output ($all -join "`n")
           $msg = (($all | ForEach-Object { $_ -replace "`r?`n", ' ' }) -join '%0A') -replace '::', ': :'
           if ($msg) { Write-Output "::error title=service events::$msg" }
+          # the tunnel launcher's log (scrubbed of the token before it was
+          # written; the test token is a made-up one in any case)
+          $tl = "$env:ProgramData\SoireeHost\logs\tunnel\cloudflared.log"
+          if (Test-Path $tl) {
+            $tail = Get-Content $tl -Tail 40
+            Write-Output ($tail -join "`n")
+            $tmsg = (($tail | Select-Object -Last 15) -join '%0A') -replace '::', ': :'
+            Write-Output "::error title=tunnel log::$tmsg"
+          }
       - name: setup uninstall --purge
         if: always()
         run: C:\soireehost-ci\soireehost.exe setup uninstall --purge

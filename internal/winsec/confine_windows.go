@@ -125,7 +125,7 @@ func tokenPrivileges(tok windows.Token) ([]windows.LUID, error) {
 }
 
 func joinJob(l Limits) error {
-	job, err := newJob(l)
+	job, err := newJob(l, true)
 	if err != nil {
 		return err
 	}
@@ -135,22 +135,22 @@ func joinJob(l Limits) error {
 	return nil
 }
 
-// newJob creates a kill-on-close job object with the process, memory and UI
-// limits of l. The caller owns the handle; closing it ends every process in
-// the job.
-func newJob(l Limits) (windows.Handle, error) {
+// newJob creates a kill-on-close job object with the process and memory
+// limits of l and, if ui, the UI restrictions. The caller owns the handle;
+// closing it ends every process in the job.
+func newJob(l Limits, ui bool) (windows.Handle, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return 0, fmt.Errorf("creating job object: %w", err)
 	}
-	if err := limitJob(job, l); err != nil {
+	if err := limitJob(job, l, ui); err != nil {
 		_ = windows.CloseHandle(job)
 		return 0, err
 	}
 	return job, nil
 }
 
-func limitJob(job windows.Handle, l Limits) error {
+func limitJob(job windows.Handle, l Limits, ui bool) error {
 	ext := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	ext.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
 		windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS | windows.JOB_OBJECT_LIMIT_PROCESS_MEMORY |
@@ -162,14 +162,17 @@ func limitJob(job windows.Handle, l Limits) error {
 		uintptr(unsafe.Pointer(&ext)), uint32(unsafe.Sizeof(ext))); err != nil {
 		return fmt.Errorf("setting job limits: %w", err)
 	}
-	ui := windows.JOBOBJECT_BASIC_UI_RESTRICTIONS{UIRestrictionsClass: windows.JOB_OBJECT_UILIMIT_DESKTOP |
+	if !ui {
+		return nil
+	}
+	uiLimits := windows.JOBOBJECT_BASIC_UI_RESTRICTIONS{UIRestrictionsClass: windows.JOB_OBJECT_UILIMIT_DESKTOP |
 		windows.JOB_OBJECT_UILIMIT_DISPLAYSETTINGS | windows.JOB_OBJECT_UILIMIT_EXITWINDOWS |
 		windows.JOB_OBJECT_UILIMIT_GLOBALATOMS | windows.JOB_OBJECT_UILIMIT_HANDLES |
 		windows.JOB_OBJECT_UILIMIT_READCLIPBOARD | windows.JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS |
 		windows.JOB_OBJECT_UILIMIT_WRITECLIPBOARD}
 	// #nosec G103 -- as above
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectBasicUIRestrictions,
-		uintptr(unsafe.Pointer(&ui)), uint32(unsafe.Sizeof(ui))); err != nil {
+		uintptr(unsafe.Pointer(&uiLimits)), uint32(unsafe.Sizeof(uiLimits))); err != nil {
 		return fmt.Errorf("setting job UI limits: %w", err)
 	}
 	return nil
@@ -178,7 +181,18 @@ func limitJob(job windows.Handle, l Limits) error {
 var (
 	kernel32                       = windows.NewLazySystemDLL("kernel32.dll")
 	procSetProcessMitigationPolicy = kernel32.NewProc("SetProcessMitigationPolicy")
+	procIsProcessInJob             = kernel32.NewProc("IsProcessInJob")
 )
+
+// inAnyJob reports whether this process already belongs to a job object.
+// If it cannot tell, it says yes, so a caller never asks Windows for UI
+// restrictions on a job it may refuse to nest.
+func inAnyJob() bool {
+	var in int32
+	// #nosec G103 -- passing a BOOL pointer to a Windows API, as its documentation requires
+	r, _, _ := procIsProcessInJob.Call(uintptr(windows.CurrentProcess()), 0, uintptr(unsafe.Pointer(&in)))
+	return r == 0 || in != 0
+}
 
 // processChildProcessPolicy is PROCESS_MITIGATION_POLICY value 13.
 const processChildProcessPolicy = 13

@@ -498,7 +498,9 @@ func TestTunnelTokenCanary(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Minute)
 	for {
 		b, _ := os.ReadFile(logFile) //nolint:gosec // G304: the tunnel log of this install
-		if bytes.Count(b, []byte("[token] ")) >= 3 {
+		// lines cloudflared itself wrote are JSON; SoiréeHost's own notes
+		// (for example a failed start) are not
+		if bytes.Count(b, []byte("[token] {")) >= 3 {
 			break
 		}
 		if time.Now().After(deadline) {

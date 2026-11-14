@@ -57,7 +57,7 @@ Facts checked on 14 Nov 2026 against the cloudflared source at tag 2026.11.0 and
 
 The tunnel launcher starts every cloudflared itself, with `CreateProcess`:
 
-- **Creation.** The process is created suspended. It goes into a job object of its own, nested inside the launcher's, with kill-on-close, one active process (cloudflared can start nothing), a 256 MB memory cap and the UI restrictions, and only then is it resumed.
+- **Creation.** The process is created suspended. It goes into a job object of its own, nested inside the launcher's, with kill-on-close, one active process (cloudflared can start nothing) and a 256 MB memory cap, and only then is it resumed. The UI restrictions come from the launcher's own job, whose limits cover every job nested inside it: Windows refuses to add a process to a nested job that sets UI restrictions of its own ("The request is not supported", found by the CI isolation job on pull request 7).
 - **Child-process policy.** It is also applied at creation through `PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY` (`PROCESS_CREATION_CHILD_PROCESS_RESTRICTED`). If Windows refuses it, cloudflared is not started (fail closed). The child gets no console at all (`DETACHED_PROCESS`): with `CREATE_NO_WINDOW` Windows still starts a hidden conhost.exe for it, which the policy refuses, and the child then dies in DLL start-up (0xC0000142, found while building, 14 Nov 2026).
 - **Token.** cloudflared inherits the launcher's token, which already holds only `SeChangeNotifyPrivilege`.
 - **Handles.** Only the stdout and stderr pipe handles are inherited.

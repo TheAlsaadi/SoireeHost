@@ -55,6 +55,13 @@ const procThreadAttributeChildProcessPolicy = 0x0002000E
 // job), forbidden from creating processes by the child-process policy, and
 // only then resumed, so it never runs a single instruction outside its
 // limits. If any step fails the child is killed and an error returned.
+//
+// UI restrictions: Windows refuses to add a process to a nested job that
+// sets them ("The request is not supported"), and a job's UI restrictions
+// already apply to every process in the jobs nested inside it. So the
+// child's own job sets them only when this process is in no job; the tunnel
+// launcher is always in its own confined job (found in the CI isolation
+// job, pull request 7).
 func StartConfined(spec ProcessSpec) (*ConfinedProcess, error) {
 	if spec.Limits.ActiveProcesses == 0 || spec.Limits.MemoryBytes == 0 {
 		return nil, errors.New("start confined: limits must be set")
@@ -152,7 +159,7 @@ func StartConfined(spec ProcessSpec) (*ConfinedProcess, error) {
 		_ = output.Close()
 		return nil, err
 	}
-	job, err := newJob(spec.Limits)
+	job, err := newJob(spec.Limits, !inAnyJob())
 	if err != nil {
 		return fail(err)
 	}
