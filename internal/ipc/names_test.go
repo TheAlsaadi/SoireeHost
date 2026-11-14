@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/fsutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
@@ -35,8 +36,12 @@ func TestNewPipeNameIsRandom(t *testing.T) {
 // runner.
 func writeNameFile(t *testing.T, content string) (file, owner string) {
 	t.Helper()
-	file = filepath.Join(t.TempDir(), WebPipeFile)
-	if err := winsec.WriteFileSDDL(file, winsec.PipeNameFileSDDL(me(t), me(t)), []byte(content)); err != nil {
+	root := t.TempDir()
+	if err := winsec.SetFolderSDDL(PipeFileFolder(root, WebPipeFile), winsec.PipeNameFolderSDDL(me(t), me(t))); err != nil {
+		t.Fatal(err)
+	}
+	file = PipeFilePath(root, WebPipeFile)
+	if err := fsutil.WriteAtomic(file, []byte(content)); err != nil {
 		t.Fatal(err)
 	}
 	sd, err := windows.GetNamedSecurityInfo(file, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)

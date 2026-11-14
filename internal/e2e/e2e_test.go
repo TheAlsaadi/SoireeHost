@@ -345,6 +345,10 @@ func TestSecondUserLockedOut(t *testing.T) {
 		r["stop tunnel launcher"] = serviceAccess(winsec.TunnelService, windows.SERVICE_STOP)
 		r["read secrets"] = readDir(p.Secrets())
 		r["read config"] = readDir(p.Config())
+		for _, f := range []string{ipc.ControlPipeFile, ipc.WebPipeFile, ipc.TunnelPipeFile} {
+			_, err := os.ReadFile(ipc.PipeFilePath(l.DataRoot, f)) // #nosec G304 -- fixed SoiréeHost path
+			r["read "+f+" pipe-name file"] = err
+		}
 		r["read audit log"] = readDir(p.Audit())
 		return r
 	})

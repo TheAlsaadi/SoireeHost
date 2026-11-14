@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 	"github.com/TheAlsaadi/SoireeHost/internal/supervisor"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
@@ -171,6 +172,12 @@ func makeFolders(root, caller string) error {
 	steps := []struct{ path, sddl string }{
 		{root, ba + winsec.DataRootSDDL(sup, web, tun)},
 		{p.Config(), ba + winsec.ConfigFolderSDDL(sup)},
+		// one folder per pipe-name file, readable by that pipe's clients
+		// (DR-1); the control pipe's client is the user named in
+		// control-users.json, which writeControlUsers sets to caller
+		{ipc.PipeFileFolder(root, ipc.ControlPipeFile), ba + winsec.PipeNameFolderSDDL(sup, caller)},
+		{ipc.PipeFileFolder(root, ipc.WebPipeFile), ba + winsec.PipeNameFolderSDDL(sup, web)},
+		{ipc.PipeFileFolder(root, ipc.TunnelPipeFile), ba + winsec.PipeNameFolderSDDL(sup, tun)},
 		{p.Secrets(), sy + winsec.SecretsFolderSDDL(sup)},
 		{p.Logs(), ba + winsec.LogsFolderSDDL(sup)},
 		{p.Audit(), ba + winsec.AuditFolderSDDL(sup)},

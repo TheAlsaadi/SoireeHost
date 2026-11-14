@@ -60,7 +60,14 @@ func DataRoot() (string, error) {
 
 // PipeFilePath is the path of a pipe-name file under a data root.
 func PipeFilePath(dataRoot, name string) string {
-	return filepath.Join(dataRoot, "config", name)
+	return filepath.Join(PipeFileFolder(dataRoot, name), name)
+}
+
+// PipeFileFolder is the folder that holds one pipe-name file, such as
+// config\pipe-web for web.pipe. Each file has a folder of its own, whose
+// inheritable permissions admit that pipe's clients (winsec.PipeNameFolderSDDL).
+func PipeFileFolder(dataRoot, name string) string {
+	return filepath.Join(dataRoot, "config", "pipe-"+strings.TrimSuffix(name, ".pipe"))
 }
 
 // ReadPipeName reads a pipe name from a pipe-name file owned by wantOwner and

@@ -40,20 +40,23 @@ func ControlPipeSDDL(owner string, users ...string) string {
 	return sddl
 }
 
-// PipeNameFileSDDL is the access list of a pipe-name file (DR-1): writable
-// by the supervisor, readable by SYSTEM, Administrators and the given readers
-// (the pipe's intended clients). The config folder admits no one else, but
-// every account may open a known path inside it because
-// SeChangeNotifyPrivilege bypasses traverse checks. It names no owner: the
-// supervisor's restricted service token is refused when it names one at
-// creation, and the file it creates is owned by its service account anyway,
-// which is what clients check.
-func PipeNameFileSDDL(supervisor string, readers ...string) string {
-	s := "D:P(A;;FA;;;SY)(A;;FA;;;" + supervisor + ")(A;;FR;;;BA)"
+// PipeNameFolderSDDL is the descriptor of the folder that holds one
+// pipe-name file (DR-1): SYSTEM and Administrators full, the supervisor
+// modify, and the given readers (the pipe's intended clients) read. Setup
+// creates the folder; the supervisor writes the file as a plain new file,
+// which inherits these permissions and is owned by its service account,
+// which is what clients check. The supervisor cannot give a file a
+// descriptor of its own: the OWNER RIGHTS entry, which stops a file's
+// creator from granting itself more, also refuses any descriptor passed at
+// creation. The config folder admits no one else, but every account may
+// open a known path inside it because SeChangeNotifyPrivilege bypasses
+// traverse checks.
+func PipeNameFolderSDDL(supervisor string, readers ...string) string {
+	s := fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FA;;;%s)(A;OICI;%s;;;%s)", SIDSystem, SIDAdministrators, fileModify, supervisor)
 	for _, r := range readers {
-		s += "(A;;FR;;;" + r + ")"
+		s += "(A;OICI;FR;;;" + r + ")"
 	}
-	return s
+	return s + "(A;OICI;RC;;;" + SIDOwnerRights + ")"
 }
 
 // WorkerPipeSDDL is the security descriptor of a worker pipe: only the

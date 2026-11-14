@@ -159,6 +159,19 @@ func start(t *testing.T, checkRoot func(string) (string, error)) *harness {
 			t.Fatal(err)
 		}
 	}
+	// The pipe-name folders and config get their installed descriptors, so
+	// publishing runs under config's OWNER RIGHTS entry as in the service
+	// (it refused descriptors passed at creation; isolation job, PR 3).
+	// Config is locked last: OWNER RIGHTS would keep the test account from
+	// setting the descriptors of folders it then creates inside it.
+	for _, f := range []string{ipc.ControlPipeFile, ipc.WebPipeFile, ipc.TunnelPipeFile} {
+		if err := winsec.CreateFolderSDDL(ipc.PipeFileFolder(paths.Root, f), winsec.PipeNameFolderSDDL(me.SID, me.SID)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := winsec.ForceSDDL(paths.Config(), winsec.ConfigFolderSDDL(me.SID)); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(paths.ControlUsersFile(), []byte(`{"users":["`+me.SID+`"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

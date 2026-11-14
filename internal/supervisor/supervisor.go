@@ -265,17 +265,20 @@ func (s *Supervisor) Run(ctx context.Context) error {
 
 // publishPipes writes each pipe's random name to its pipe-name file, readable
 // only by that pipe's clients (DR-1). It runs after the pipes exist and
-// before any worker is started.
+// before any worker is started. Each file goes in the folder setup made for
+// it and takes that folder's permissions (winsec.PipeNameFolderSDDL); the
+// supervisor never creates the folders, so a missing one stops it rather
+// than publishing a name its clients cannot read.
 func (s *Supervisor) publishPipes() error {
-	sup, id, p := s.opts.Identity.Supervisor, s.opts.Identity, s.opts.Paths
-	files := []struct{ name, pipe, sddl string }{
-		{ipc.WebPipeFile, s.opts.Pipes.Web, winsec.PipeNameFileSDDL(sup, id.Web)},
-		{ipc.TunnelPipeFile, s.opts.Pipes.Tunnel, winsec.PipeNameFileSDDL(sup, id.Tunnel)},
-		{ipc.ControlPipeFile, s.opts.Pipes.Control, winsec.PipeNameFileSDDL(sup, s.users...)},
+	root := s.opts.Paths.Root
+	files := []struct{ name, pipe string }{
+		{ipc.WebPipeFile, s.opts.Pipes.Web},
+		{ipc.TunnelPipeFile, s.opts.Pipes.Tunnel},
+		{ipc.ControlPipeFile, s.opts.Pipes.Control},
 	}
 	for _, f := range files {
-		if err := winsec.WriteFileSDDL(ipc.PipeFilePath(p.Root, f.name), f.sddl, []byte(f.pipe)); err != nil {
-			return fmt.Errorf("publishing the %s pipe name: %w", f.name, err)
+		if err := fsutil.WriteAtomic(ipc.PipeFilePath(root, f.name), []byte(f.pipe)); err != nil {
+			return fmt.Errorf("publishing the %s pipe name (run setup again if its folder is missing): %w", f.name, err)
 		}
 	}
 	return nil
