@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 )
 
 func newStore(t *testing.T) *Store {
@@ -31,12 +34,17 @@ func TestSetGetEncrypted(t *testing.T) {
 	if err != nil || !bytes.Equal(got, value) {
 		t.Fatalf("Get = %q, %v", got, err)
 	}
-	entries, _ := os.ReadDir(s.dir)
+	// canary sweep: errors fail the test and the blob must have been read
+	// (review finding GOE-12)
+	seen := testutil.SweepFiles(t, s.dir, value, nil)
+	if !slices.Contains(seen, s.blobPath(TunnelToken)) {
+		t.Errorf("the sweep did not read the secret's blob; it read %v", seen)
+	}
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, e := range entries {
-		b, _ := os.ReadFile(filepath.Join(s.dir, e.Name()))
-		if bytes.Contains(b, value) || bytes.Contains(b, []byte("CANARY")) {
-			t.Errorf("%s contains the secret in clear", e.Name())
-		}
 		if strings.HasPrefix(e.Name(), ".tmp-") {
 			t.Errorf("temporary file left: %s", e.Name())
 		}

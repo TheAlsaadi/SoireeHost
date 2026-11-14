@@ -18,6 +18,10 @@ import (
 // IdleTimeout closes a control connection that sends nothing for this long.
 const IdleTimeout = 5 * time.Minute
 
+// MaxControlConns bounds the control connections served at once; further
+// connections are closed at once (review finding DR-3).
+const MaxControlConns = 16
+
 // handleOf returns the Windows handle of a go-winio pipe connection.
 func handleOf(c net.Conn) (windows.Handle, error) {
 	f, ok := c.(interface{ Fd() uintptr })
@@ -32,6 +36,11 @@ func handleOf(c net.Conn) (windows.Handle, error) {
 // exists, so a squatter makes the supervisor refuse to start rather than
 // share the name) and rejects remote clients.
 func Listen(path, sddl string) (net.Listener, error) {
+	// An empty descriptor would fall back to the default pipe ACL, which
+	// lets Everyone and Anonymous read (review finding SE-35).
+	if sddl == "" {
+		return nil, fmt.Errorf("creating pipe %s: no security descriptor given", path)
+	}
 	l, err := winio.ListenPipe(path, &winio.PipeConfig{SecurityDescriptor: sddl, InputBufferSize: 64 << 10, OutputBufferSize: 64 << 10})
 	if err != nil {
 		return nil, fmt.Errorf("creating pipe %s (is another program using the name?): %w", path, err)
@@ -80,6 +89,7 @@ func ServeControl(ctx context.Context, ln net.Listener, auth Authorizer, h Handl
 		<-ctx.Done()
 		_ = ln.Close()
 	}()
+	slots := make(chan struct{}, MaxControlConns)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -88,9 +98,16 @@ func ServeControl(ctx context.Context, ln net.Listener, auth Authorizer, h Handl
 			}
 			return err
 		}
+		select {
+		case slots <- struct{}{}:
+		default:
+			_ = conn.Close()
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() { <-slots }()
 			serveConn(ctx, conn, auth, h)
 		}()
 	}
@@ -98,6 +115,9 @@ func ServeControl(ctx context.Context, ln net.Listener, auth Authorizer, h Handl
 
 func serveConn(ctx context.Context, conn net.Conn, auth Authorizer, h Handler) {
 	defer conn.Close() //nolint:errcheck // the client sees the close either way
+	// When the supervisor stops, open connections close at once instead of
+	// holding its exit for up to IdleTimeout (review finding R-24).
+	defer context.AfterFunc(ctx, func() { _ = conn.Close() })()
 	handle, err := handleOf(conn)
 	if err != nil {
 		return
@@ -106,13 +126,13 @@ func serveConn(ctx context.Context, conn net.Conn, auth Authorizer, h Handler) {
 	identified := false
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(IdleTimeout))
-		frame, err := ReadFrame(conn)
+		n, err := readFrameHeader(conn)
 		if err != nil {
 			return
 		}
 		// Windows lets a pipe server identify its client only after it has
-		// read from the pipe, so the check runs after the first frame and
-		// before that frame is acted on.
+		// read from the pipe, so the check runs after the first frame's
+		// header, before any of its payload is read or acted on (DR-3).
 		if !identified {
 			caller, err = winsec.PipeCaller(handle)
 			if err != nil || !auth(caller) {
@@ -120,6 +140,10 @@ func serveConn(ctx context.Context, conn net.Conn, auth Authorizer, h Handler) {
 				return
 			}
 			identified = true
+		}
+		frame, err := readFramePayload(conn, n)
+		if err != nil {
+			return
 		}
 		req, params, derr := DecodeRequest(frame)
 		var resp Response
@@ -130,7 +154,7 @@ func serveConn(ctx context.Context, conn net.Conn, auth Authorizer, h Handler) {
 			_ = writeResponse(conn, resp)
 			return
 		}
-		result, herr := h(ctx, caller, req.Method, params)
+		result, herr := callHandler(ctx, h, caller, req.Method, params)
 		if herr != nil {
 			resp.Error = herr
 		} else {
@@ -145,6 +169,19 @@ func serveConn(ctx context.Context, conn net.Conn, auth Authorizer, h Handler) {
 			return
 		}
 	}
+}
+
+// callHandler runs one control handler and turns a panic into an internal
+// error for that call, so one faulty handler cannot end the supervisor and,
+// with it, both workers (review finding GO-15). The panic value is not
+// returned: it could carry anything the handler held.
+func callHandler(ctx context.Context, h Handler, caller winsec.Caller, method string, params any) (result any, herr *Error) {
+	defer func() {
+		if r := recover(); r != nil {
+			result, herr = nil, Errorf(CodeInternal, "internal error while handling %s", method)
+		}
+	}()
+	return h(ctx, caller, method, params)
 }
 
 func writeResponse(conn net.Conn, resp Response) error {

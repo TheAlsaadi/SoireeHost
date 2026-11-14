@@ -47,7 +47,7 @@ Header size and the read, header and idle timeouts are set on the listener, beca
 
 ### Security headers do not overwrite the app's own
 
-Each default header is set only when the response does not already carry it, so a proxied app with a stricter `Content-Security-Policy` keeps it. The `Server` header is always removed. Per-site overrides can change or remove the four managed headers.
+Each default header is set only when the response does not already carry it, so a proxied app with a stricter `Content-Security-Policy` keeps it. The `Server` header is always removed. Per-site overrides can change or remove the four managed headers. Responses that Go's `net/http` writes itself before any handler runs (400 for a malformed request or a missing Host, 431 for oversized headers, 501 for an unknown Transfer-Encoding) carry none of the four headers and no `Server` header; they are short fixed `text/plain` messages, and no Caddy setting reaches them (review finding R-16, accepted by the owner on 13 Nov 2026).
 
 ### Logs keep an allow-list of headers
 

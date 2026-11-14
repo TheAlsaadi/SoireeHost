@@ -103,9 +103,12 @@ type HistoryResult struct {
 	LastGood  uint64          `json:"last_good"`
 }
 
-// RollbackParams selects a revision to restore.
+// RollbackParams selects a revision to restore. Confirm must be true when
+// that revision forwards to a device on the local network that the current
+// settings do not (S-32).
 type RollbackParams struct {
 	Revision uint64 `json:"revision"`
+	Confirm  bool   `json:"confirm"`
 }
 
 // SitePutParams adds or replaces a site. Confirm must be true for a change

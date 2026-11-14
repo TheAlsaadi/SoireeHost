@@ -123,7 +123,12 @@ func (s *Store) save(cfg Config, actor, summary string) (Record, error) {
 		// own name rather than overwritten silently; numbering carries on
 		// past it so no two configs ever share a revision number
 		damagedRev := s.damagedRevision()
-		_ = os.Rename(s.currentPath(), filepath.Join(s.dir, "history", "damaged-"+strconv.FormatInt(s.now().Unix(), 10)+".json"))
+		keep := filepath.Join(s.dir, "history", "damaged-"+strconv.FormatInt(s.now().Unix(), 10)+".json")
+		if rerr := os.Rename(s.currentPath(), keep); rerr != nil {
+			// not saving is better than overwriting the damaged file
+			// unkept (review finding GOE-9)
+			return Record{}, fmt.Errorf("the saved settings are damaged (%w) and could not be set aside: %w", err, rerr)
+		}
 		cur = Record{Revision: max(s.newestRevision(), damagedRev)}
 	default:
 		data, err := os.ReadFile(s.currentPath())
@@ -264,9 +269,14 @@ func (s *Store) newestRevision() uint64 {
 // prune keeps the newest HistoryKept history files, and never the one the
 // worker last loaded if that is older (it is the rollback target).
 func (s *Store) prune() {
+	// An unreadable or damaged last-good marker reads as 0, which keeps no
+	// extra revision; a failed removal leaves one more history file than
+	// needed, which the next prune tries again. Neither stops a save.
 	good := uint64(0)
 	if b, err := os.ReadFile(s.goodPath()); err == nil {
-		good, _ = strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64)
+		if rev, perr := strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64); perr == nil {
+			good = rev
+		}
 	}
 	for i, rev := range s.historyRevisions() {
 		if i >= HistoryKept && rev != good {

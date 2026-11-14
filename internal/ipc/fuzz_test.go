@@ -3,7 +3,9 @@ package ipc
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // FuzzDecodeRequest: decoding never panics; anything accepted names a known
@@ -60,6 +62,29 @@ func FuzzDecodeWorkerMsg(f *testing.F) {
 		}
 		if err := m.Validate(); err != nil {
 			t.Fatalf("accepted invalid message: %v", err)
+		}
+	})
+}
+
+// GO-1: whatever a worker's error says, CutReason turns it into a reason
+// that survives JSON and the supervisor's Validate unchanged.
+func FuzzCutReason(f *testing.F) {
+	f.Add("failed")
+	f.Add("")
+	f.Add(strings.Repeat("a", MaxReasonLen-1) + "é")
+	f.Add("\xff\xfe" + strings.Repeat("語", 1000))
+	f.Fuzz(func(t *testing.T, s string) {
+		out := CutReason(s)
+		if out == "" || len(out) > MaxReasonLen || !utf8.ValidString(out) {
+			t.Fatalf("%d bytes, valid %v", len(out), utf8.ValidString(out))
+		}
+		b, err := json.Marshal(WorkerMsg{Type: MsgFailed, Revision: 1, Reason: out})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := DecodeWorkerMsg(b)
+		if err != nil || m.Reason != out {
+			t.Fatalf("did not survive the pipe: %v", err)
 		}
 	})
 }

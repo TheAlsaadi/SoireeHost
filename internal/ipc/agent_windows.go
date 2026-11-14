@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// ErrAgentExit, wrapped in an error from Load, makes RunAgent report the
+// failure and then return it, so the worker process ends (S-01: a worker
+// whose listener self-check fails must exit).
+var ErrAgentExit = errors.New("the worker must exit")
+
 // AgentOptions configure a worker's side of its pipe.
 type AgentOptions struct {
 	// Pipe is the supervisor's pipe. If it is empty, the agent reads the
@@ -75,12 +80,12 @@ func RunAgent(ctx context.Context, o AgentOptions) error {
 			return nil
 		case MsgLoad:
 			if lerr := o.Load(m); lerr != nil {
-				reason := lerr.Error()
-				if len(reason) > MaxReasonLen {
-					reason = reason[:MaxReasonLen]
-				}
+				reason := CutReason(lerr.Error())
 				if err := wc.Send(WorkerMsg{Type: MsgFailed, Revision: m.Revision, Reason: reason}); err != nil {
 					return err
+				}
+				if errors.Is(lerr, ErrAgentExit) {
+					return lerr
 				}
 				continue
 			}

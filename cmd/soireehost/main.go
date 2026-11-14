@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/dllsearch"
 	"github.com/TheAlsaadi/SoireeHost/internal/gui"
 	"github.com/TheAlsaadi/SoireeHost/internal/setup"
 	"github.com/TheAlsaadi/SoireeHost/internal/supervisor"
@@ -63,7 +64,13 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "soireehost:", err)
 		return 2
 	}
-	// S-24: every role loads DLLs from System32 only.
+	// S-24: every role loads DLLs from System32 only. The restriction is
+	// already in force from dllsearch's package init (R-20); applying it
+	// again here keeps main's guarantee independent of init order.
+	if dllsearch.Err != nil {
+		fmt.Fprintln(os.Stderr, "soireehost: restricting DLL search to System32:", dllsearch.Err)
+		return 1
+	}
 	if err := winsec.RestrictDLLSearch(); err != nil {
 		fmt.Fprintln(os.Stderr, "soireehost:", err)
 		return 1

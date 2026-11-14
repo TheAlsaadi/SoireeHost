@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
 // Worker states as status.get reports them.
@@ -23,8 +25,23 @@ const (
 // when it next connects.
 var errWorkerDown = errors.New("worker is not running")
 
-// loadError is a worker's own refusal of a load.
-type loadError struct{ reason string }
+// stableRun is how long a worker must stay connected before its restart
+// delay goes back to one second (ADR-0006: 1, 2, 4 ... 60 s). Resetting on
+// hello let a worker that connects and then dies restart every second for
+// ever (review finding R-24).
+const stableRun = time.Minute
+
+// stopSendTimeout bounds the wait to hand a worker its stop message.
+const stopSendTimeout = 2 * time.Second
+
+// loadError means a load did not take effect: the worker refused it
+// (refused), or it went away or did not answer in time while loading. A
+// change that ends in any of these is undone (S-41, review finding R-22);
+// at reconnect only a refusal makes the supervisor roll back.
+type loadError struct {
+	reason  string
+	refused bool
+}
 
 func (e *loadError) Error() string { return e.reason }
 
@@ -94,15 +111,29 @@ func (w *workerMgr) run(ctx context.Context, ln net.Listener) {
 		if err := w.sup.opts.Services.Start(w.service); err != nil {
 			w.setState(StateDown, "could not start the service: "+err.Error())
 		} else if c, ok := w.await(ctx, accepted); ok {
-			backoff = time.Second
+			began := time.Now()
 			w.serve(ctx, c)
+			if time.Since(began) >= stableRun {
+				backoff = time.Second
+			}
 		}
 		if ctx.Err() != nil {
 			return
 		}
 		w.mu.Lock()
 		w.restarts++
+		n := w.restarts
 		w.mu.Unlock()
+		// Restarts go to the audit log (the supervisor cannot write the
+		// worker's own log folder). The worker's reason is left out: it is
+		// the worker's text, and the tunnel's could echo its token (R-21).
+		// Once the delay is at its cap, only every 60th restart (about one
+		// an hour) is recorded, so a worker that can never start does not
+		// grow the audit log without bound; the count shows the gap.
+		if backoff < time.Minute || n%60 == 0 {
+			w.sup.record(winsec.SIDSystem, "worker.restart", map[string]string{
+				"role": w.role, "restarts": strconv.Itoa(n), "delay": backoff.String()})
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -170,7 +201,7 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 				continue
 			}
 			if m.Type == ipc.MsgFailed {
-				ch <- &loadError{m.Reason}
+				ch <- &loadError{reason: m.Reason, refused: true}
 			} else {
 				ch <- nil
 			}
@@ -180,13 +211,24 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 
 	select {
 	case <-ctx.Done():
+		// ADR-0006 lifecycle: the worker is told to stop before its pipe
+		// closes (R-24); the close alone would also end it.
+		_ = wc.Conn().SetWriteDeadline(time.Now().Add(stopSendTimeout))
+		_ = wc.Send(ipc.WorkerMsg{Type: ipc.MsgStop})
 	case <-done:
 		w.setState(StateDown, "the worker stopped")
+	}
+	// A load still waiting when the worker goes away counts as refused, so
+	// the change is undone (R-22); when the supervisor itself is stopping,
+	// it applies at the next start instead.
+	lost := error(&loadError{reason: "the " + w.role + " worker stopped while applying the change"})
+	if ctx.Err() != nil {
+		lost = errWorkerDown
 	}
 	w.mu.Lock()
 	w.conn = nil
 	for rev, ch := range w.pending {
-		ch <- errWorkerDown
+		ch <- lost
 		delete(w.pending, rev)
 	}
 	w.mu.Unlock()
@@ -222,7 +264,9 @@ func (w *workerMgr) load(m ipc.WorkerMsg) error {
 		w.mu.Lock()
 		delete(w.pending, m.Revision)
 		w.mu.Unlock()
-		return fmt.Errorf("the %s worker did not answer in time", w.role)
+		// counted as refused, so the change is undone (R-22); the worker
+		// handles loads in order, so a restore sent next lands after it
+		return &loadError{reason: fmt.Sprintf("the %s worker did not answer in time", w.role)}
 	}
 }
 

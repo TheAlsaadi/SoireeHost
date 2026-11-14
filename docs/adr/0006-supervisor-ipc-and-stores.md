@@ -105,11 +105,12 @@ A worker that cannot apply a limit exits instead of running unconfined.
 `soireehost.exe setup install`, run elevated:
 
 - Copies itself to `%ProgramFiles%\SoireeHost\soireehost.exe`.
-- Creates `%ProgramData%\SoireeHost\{config,secrets,logs\audit,logs\web,logs\tunnel,updates}` with protected (non-inherited) DACLs:
+- Creates `%ProgramData%\SoireeHost\{config,config\pipe-control,config\pipe-web,config\pipe-tunnel,secrets,logs,logs\audit,logs\web,logs\tunnel,updates}` with protected (non-inherited) DACLs, from the folder table in `internal/supervisor` (`Paths.Folders`), which the supervisor also checks at every start:
 
   | Folder | Access |
   | --- | --- |
   | `config` | SYSTEM full, Administrators full, supervisor modify |
+  | `config\pipe-control`, `config\pipe-web`, `config\pipe-tunnel` | SYSTEM full, Administrators full, supervisor modify, and read for that pipe's clients (the control users, the web worker, the tunnel launcher). The supervisor writes each pipe-name file as a plain file that takes these permissions: the OWNER RIGHTS entry refuses any descriptor a creator passes (DR-1) |
   | `secrets` | SYSTEM full and owner, supervisor modify; no one else (the S-22 check allows only these two) |
   | `logs\audit` | SYSTEM full, Administrators read, supervisor append and read |
   | `logs\web` | SYSTEM full, Administrators read, supervisor read, web worker modify |
@@ -143,15 +144,15 @@ Phase 6 adds:
 ### Lifecycle
 
 1. **Supervisor start.**
-   1. Verify the folder ACLs; refuse to run if config or secrets are writable by anyone but SYSTEM, Administrators and itself (S-22).
+   1. Verify every folder of the table: it must exist, must not be a link or junction, must be owned by SYSTEM, Administrators or the supervisor, and only the accounts the table names may change it; otherwise refuse to run (S-22; every folder, not only config and secrets, owner decision of 13 Nov 2026, review findings R-03 and R-25).
    2. Verify the audit chain.
    3. Load the config.
    4. Create the three pipes.
    5. Start both worker services through the service control manager.
    6. Wait up to 30 seconds for each to say `hello`.
    7. Send each its `load`.
-2. **A worker's pipe closes, or the worker service stops.** Mark it down, restart it with backoff (1, 2, 4 … 60 seconds), and record each restart in the worker log.
-3. **Supervisor stop or pre-shutdown.** Send `stop` to both workers, stop both services, wait up to 10 seconds, then exit.
+2. **A worker's pipe closes, or the worker service stops.** Mark it down, restart it with backoff (1, 2, 4 … 60 seconds; the delay goes back to 1 second only after the worker has stayed connected for a minute), and record each restart in the audit log as `worker.restart`, because the supervisor may only read the worker's own log folder (review finding R-24, 14 Nov 2026). A load that is waiting when the worker goes away, or that gets no answer in time, counts as refused, so the change is undone (S-41, review finding R-22).
+3. **Supervisor stop or pre-shutdown.** Send `stop` to both workers, close open control connections, stop both services, wait up to 10 seconds, then exit.
 4. **Supervisor crash or kill.** The pipes close, both workers see end-of-file and exit; Windows recovery restarts the supervisor, which starts them again.
 
 ## Trade-offs

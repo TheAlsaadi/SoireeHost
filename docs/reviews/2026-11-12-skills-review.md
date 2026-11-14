@@ -365,3 +365,30 @@ The CI isolation job, the first run of the elevated paths, found two faults, fix
 | The supervisor service could not start: creating a pipe-name file with its own descriptor was refused in `config`. The folder's OWNER RIGHTS entry, which keeps a file's creator from granting itself more, also refuses any descriptor passed at creation, whether or not the token is restricted. | Setup creates one folder per pipe-name file (`config\pipe-control`, `config\pipe-web`, `config\pipe-tunnel`) with the pipe's clients as inheritable readers; the supervisor writes plain files that take those permissions. The supervisor tests now build these folders with their installed descriptors and fail on the old write path. Recorded as rule 13 of the conventions skill. |
 
 Every CI job then passed, the isolation job included (run 43571470671), and pull request 3 was merged into `main` on 14 Nov 2026.
+
+## Cleanup round before Phase 3 (14 Nov 2026)
+
+The owner chose to clear the Phase 1 and 2 backlog before Phase 3. Fixed, each with regression tests (the fp-check proof tests restored where they existed):
+
+| ID | Fix | Regression tests |
+| --- | --- | --- |
+| SE-20 | `worker.LoadJSON` refuses any config that does not disable the admin API and config persistence, and any other `admin` or `admin.config` key (Caddy starts `admin.remote` even when the admin API is disabled), checking every duplicate the decoder would merge. | `TestLoadJSONRefusesAdminAPI`, `TestCheckAdminOffAcceptsBuiltConfig` |
+| SE-05 | Control users must be one user account's SID in canonical form (`winsec.UserSID`). | `TestReadControlUsers` |
+| SE-35 | `ipc.Listen` refuses an empty descriptor. | `TestListenRefusesEmptySDDL` |
+| DR-3 | The control pipe identifies its caller after the frame header, before any payload is read; payloads are read as they arrive; at most 16 connections are served at once. | `TestRefusedCallerHoldsNoMemory`, `TestReadFramePayloadGrowsWithData`, `TestControlConnectionLimit` |
+| GO-15 | A handler panic fails only its call; the dispatcher's type assertions are checked. | `TestHandlerPanicIsContained` |
+| GO-1 | Failure reasons are made valid UTF-8 and cut on a character boundary. | `TestCutReason`, `TestFailedReasonReachesSupervisor`, `FuzzCutReason` |
+| R-22 | A load the worker dies on or does not answer counts as refused and the change is undone; if the last good revision cannot be read, the settings in force before the change are restored; at reconnect only an explicit refusal rolls back, and a failed restore is reported and audited. Rollback now restores the current settings, not the defaults, if it is refused. | `TestRefusedChangeIsUndone`, `TestWorkerCrashOnChangeIsUndone`, `TestWorkerTimeoutOnChangeIsUndone`, `TestRefusedChangeRestoresWhenLastGoodUnreadable` |
+| R-24 | The restart delay resets only after a minute connected; restarts are audited (`worker.restart`, hourly once at the cap); `stop` is sent; control connections close when the supervisor stops. ADR-0006 updated. | `TestRestartBackoffSurvivesHello`, `TestWorkerRestartIsRecorded`, `TestStopIsSentToWorkers`, `TestIdleControlConnectionDoesNotStallExit` |
+| R-05 | The release worker exits after a failed self-check and repeats the check every minute. | `TestAgentExitsAfterFatalLoad`, `TestWatchListenersEndsWithContext`, `TestWatchListenersStopsOnPublicSocket` (CI) |
+| R-20 | `internal/dllsearch` restricts DLL search from a package init that runs before Wails' init. | `TestPlantedDLLNotLoadedBeforeMain` (fails with the init disabled) |
+| R-07 | A failed web-worker read check refuses the site. | covered by the `site.put` tests |
+| GOE-9 | `Owner()` errors are handled; the store refuses to save when a damaged current file cannot be set aside. | existing store and ACL tests |
+| GOE-12 | Canary sweeps fail on anything they cannot read and must read the secrets, config and audit files; the e2e sweep reads with backup semantics. | the sweeps in `TestTunnelTokenWriteOnly`, `TestSetGetEncrypted`, `TestTunnelTokenCanary` |
+| R-04 | Rolling back to a revision with a LAN target the current settings lack, or pointing a site at a new LAN device, needs confirmation and is audited (owner decision 2). | `TestRollbackToLANNeedsConfirmation`, `TestWeakeningNeedsConfirmation` |
+| R-03, R-25 | The supervisor checks every folder of one shared table at start (exists, not a link, owner, writers); setup builds the folders from the same table (owner decision 4). | `TestFolderCheck*` (4), `TestNewRefusesWritableFolders` |
+| R-10, R-15, R-16, R-12 | `docs/PLAN.md` and `docs/SECURITY_CHECKLIST.md` wording for S-12, S-13, S-15, S-16 and S-22, and the plan's log folder row (owner decisions 3 and 4); ADR-0005 records the net/http responses. | — |
+
+Reviews: the pre-merge code review (`code-review` at high) found seven issues in this round's own changes; six were fixed before commit (the admin guard's `remote`/`identity` gap and duplicate merging, a 10-second first-frame timeout that would have broken early-dialling clients, LAN retargeting of an existing site, reconnect rollback on a slow first load, unbounded restart auditing, duplicated privilege code). The seventh is accepted: the folder tests leave folders the non-elevated test account cannot delete under `%TEMP%`. The security review (a security-focused subagent, which also covered the earlier unreviewed pipe-name folder commits `0c81582` and `2d09803`) found nothing at its reporting bar. `FuzzCutReason`, `FuzzDecodeRequest` and `FuzzDecodeWorkerMsg` ran 10 minutes each with no failure.
+
+Still open: SE-21, GO-6, R-06 and R-21 belong to Phase 3 code; `docs/PLAN.md` still names fixed pipe names and the old S-18 masking (the owner's call); the remaining lower-priority items stay in their tables.

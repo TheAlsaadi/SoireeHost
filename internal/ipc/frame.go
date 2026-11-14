@@ -33,19 +33,39 @@ func WriteFrame(w io.Writer, payload []byte) error {
 // ReadFrame reads one frame. A length over MaxFrame is refused before any of
 // the payload is read.
 func ReadFrame(r io.Reader) ([]byte, error) {
+	n, err := readFrameHeader(r)
+	if err != nil {
+		return nil, err
+	}
+	return readFramePayload(r, n)
+}
+
+// readFrameHeader reads a frame's 4-byte length and refuses one over
+// MaxFrame.
+func readFrameHeader(r io.Reader) (uint32, error) {
 	var hdr [4]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
-		return nil, err
+		return 0, err
 	}
 	n := binary.BigEndian.Uint32(hdr[:])
 	if n > MaxFrame {
-		return nil, ErrFrameTooLarge
+		return 0, ErrFrameTooLarge
 	}
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(r, buf); err != nil {
+	return n, nil
+}
+
+// readFramePayload reads n bytes. The buffer grows as the bytes arrive, so a
+// peer that declares a large frame and sends nothing holds no memory (review
+// finding DR-3).
+func readFramePayload(r io.Reader, n uint32) ([]byte, error) {
+	var buf bytes.Buffer
+	if _, err := io.CopyN(&buf, r, int64(n)); err != nil {
+		if errors.Is(err, io.EOF) {
+			err = io.ErrUnexpectedEOF
+		}
 		return nil, fmt.Errorf("short message: %w", err)
 	}
-	return buf, nil
+	return buf.Bytes(), nil
 }
 
 // decodeStrict decodes exactly one JSON value into v, refusing unknown
