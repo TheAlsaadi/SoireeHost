@@ -43,25 +43,38 @@ func FuzzDecodeRequest(f *testing.F) {
 	})
 }
 
-// FuzzDecodeWorkerMsg: decoding never panics and every accepted message
-// passes Validate.
+// FuzzDecodeWorkerMsg: decoding never panics, every accepted message passes
+// ValidateFor its pipe's role, and no payload of one role is accepted on the
+// other's pipe (SE-21).
 func FuzzDecodeWorkerMsg(f *testing.F) {
 	for _, s := range []string{
 		`{"type":"hello","role":"web","version":"1.0.0"}`,
 		`{"type":"load","revision":1,"caddy":{"apps":{}}}`,
-		`{"type":"load","token":"x"}`,
+		`{"type":"load","tunnel":{"offline":false,"listen_port":8787,"metrics_port":20241,"shares":[{"site_id":"a","port":8788,"metrics_port":20242}]}}`,
+		`{"type":"status","report":{"tunnels":[{"kind":"quick","site_id":"a","state":"connected","connections":4,"hostname":"x.trycloudflare.com","since":"2026-11-14T00:00:00Z"}]}}`,
 		`{"type":"failed","reason":"x"}`,
 		`{"type":"stop"}`,
 	} {
 		f.Add([]byte(s))
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
-		m, err := DecodeWorkerMsg(data)
-		if err != nil {
-			return
+		web, werr := DecodeWorkerMsg(data, RoleWeb)
+		tun, terr := DecodeWorkerMsg(data, RoleTunnel)
+		if werr == nil {
+			if err := web.ValidateFor(RoleWeb); err != nil {
+				t.Fatalf("accepted invalid message: %v", err)
+			}
+			if web.Tunnel != nil || web.Report != nil {
+				t.Fatal("a tunnel payload accepted on the web pipe")
+			}
 		}
-		if err := m.Validate(); err != nil {
-			t.Fatalf("accepted invalid message: %v", err)
+		if terr == nil {
+			if err := tun.ValidateFor(RoleTunnel); err != nil {
+				t.Fatalf("accepted invalid message: %v", err)
+			}
+			if tun.Caddy != nil {
+				t.Fatal("a Caddy payload accepted on the tunnel pipe")
+			}
 		}
 	})
 }
@@ -82,7 +95,7 @@ func FuzzCutReason(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		m, err := DecodeWorkerMsg(b)
+		m, err := DecodeWorkerMsg(b, RoleWeb)
 		if err != nil || m.Reason != out {
 			t.Fatalf("did not survive the pipe: %v", err)
 		}

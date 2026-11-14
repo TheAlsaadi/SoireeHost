@@ -83,9 +83,10 @@ func splitHostPort(t string) (host, port string, err error) {
 // ParseTarget validates a proxy target. Allowed: 127.0.0.1 or ::1, or, with
 // allowLAN, a private LAN address (10/8, 172.16/12, 192.168/16, fc00::/7).
 // Always refused: link-local, unspecified, multicast, broadcast, public
-// addresses, other loopback addresses, host names, and the worker's own
-// listen port.
-func ParseTarget(t string, allowLAN bool, ownPort uint16) (netip.AddrPort, error) {
+// addresses, other loopback addresses, host names, and any of SoiréeHost's
+// own loopback ports (the listener, quick-share listeners and cloudflared
+// metrics servers; S-10, R-06).
+func ParseTarget(t string, allowLAN bool, own ...uint16) (netip.AddrPort, error) {
 	host, portStr, err := splitHostPort(t)
 	if err != nil || host == "" || portStr == "" {
 		return netip.AddrPort{}, errors.New("must be IP:PORT, for example 127.0.0.1:3000")
@@ -114,8 +115,8 @@ func ParseTarget(t string, allowLAN bool, ownPort uint16) (netip.AddrPort, error
 		if !isStrictLoopback(a) {
 			return netip.AddrPort{}, errors.New("use 127.0.0.1 or ::1 for this PC")
 		}
-		if ownPort != 0 && ap.Port() == ownPort {
-			return netip.AddrPort{}, errors.New("that is SoiréeHost's own port")
+		if slices.Contains(own, ap.Port()) {
+			return netip.AddrPort{}, errors.New("that is one of SoiréeHost's own ports")
 		}
 	case a.IsPrivate():
 		if !allowLAN {

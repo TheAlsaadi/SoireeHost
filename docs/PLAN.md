@@ -56,12 +56,12 @@ One Go codebase compiles to one binary, `soireehost.exe`, and that binary is the
 | [Wails v3](https://github.com/wailsapp/wails/releases/tag/v3.1.0) | Desktop shell: window, tray, Go-to-UI bindings, updater | v3.1.0 (fallback v2.17.1) | MIT | Compiled in |
 | [Caddy](https://github.com/caddyserver/caddy/releases) | Web server and reverse proxy | v2.11.9 | Apache-2.0 | Compiled in as a library |
 | [Coraza for Caddy](https://github.com/corazawaf/coraza-caddy) with the OWASP Core Rule Set | Web application firewall | `coraza-caddy/v2` v2.6.2, which brings `coraza-coreruleset/v4` v4.25 (the rule set's long-term-support line) | Apache-2.0 | Compiled in as a Caddy module |
-| [cloudflared](https://github.com/cloudflare/cloudflared/releases) | Cloudflare Tunnel connector | 2026.10.7 | Apache-2.0 | Official binary embedded in `soireehost.exe`, unpacked by the setup role, run as a child process |
+| [cloudflared](https://github.com/cloudflare/cloudflared/releases) | Cloudflare Tunnel connector | 2026.11.0 (moved from 2026.10.7 on 14 Nov 2026 for VULN-170057, ADR-0007) | Apache-2.0 | Official binary embedded in `soireehost.exe`, unpacked by the setup role, run as a child process |
 | Svelte 5, TypeScript, Vite | Control-panel UI | Svelte 5.57.3, Vite 8.3.8, TypeScript as supported by `svelte-check`; exact versions in `frontend/package-lock.json`. Node.js 26 LTS for builds | MIT, Apache-2.0 | Bundled into the binary |
 | WebView2 | Renders the UI | Evergreen runtime in Windows | Microsoft | System component |
 | `Microsoft/go-winio`, `golang.org/x/sys/windows` | Named pipes with ACLs, service API, DPAPI, job objects, tokens | go-winio v0.6.4; x/sys newest, pinned in `go.sum` | MIT, BSD-3 | Compiled in |
 
-The cloudflared Windows binary for 2026.10.7 is `cloudflared-windows-amd64.exe`, SHA-256 `2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343`, as published in the release notes. It is recorded in `build/cloudflared.lock`.
+The cloudflared Windows binary for 2026.11.0 is `cloudflared-windows-amd64.exe`, SHA-256 `d5c1d82031da6253dcdcff64c944cd0fe063016edeb2e4fd088075fc9bd52d0a`, as published in the release notes. It is recorded in `build/cloudflared.lock`.
 
 Points Claude Code must respect:
 

@@ -182,7 +182,7 @@ func TestStopIsSentToWorkers(t *testing.T) {
 		if err != nil {
 			return
 		}
-		wc := ipc.NewWorkerConn(conn)
+		wc := ipc.NewWorkerConn(conn, ipc.RoleWeb)
 		defer func() { _ = wc.Close() }()
 		if wc.Send(ipc.WorkerMsg{Type: ipc.MsgHello, Role: ipc.RoleWeb}) != nil {
 			return

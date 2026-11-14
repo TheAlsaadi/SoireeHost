@@ -44,6 +44,10 @@ Read the reference that matches the task:
 12. **Never write a secret where it can be printed.** Types that carry one (`ipc.WorkerMsg`, `ipc.SecretSetParams`) implement `String`/`GoString` that redact it; keep that true for any new one, and keep canary sweeps in tests.
 13. **A service cannot give its own new files a descriptor in an OWNER RIGHTS folder.** Every SoiréeHost folder grants OWNER RIGHTS only read-control, and Windows then refuses any descriptor passed at creation (owner, DACL or both) and any later DACL change, with "Access is denied", whether or not the token is restricted. When a file the supervisor writes needs other readers, setup creates a folder for it with those readers inheritable (see `winsec.PipeNameFolderSDDL`) and the supervisor writes a plain file (`fsutil.WriteAtomic`). Only elevated setup, through Administrators' full control, may write files with explicit descriptors.
 
+14. **Start child processes only with `winsec.StartConfined`** (suspended, own kill-on-close job, child-process policy, explicit environment, handle list). It uses `DETACHED_PROCESS`: with `CREATE_NO_WINDOW` Windows still starts a hidden conhost.exe, which the child-process policy refuses, and the child dies in DLL start-up with 0xC0000142. A nested job may not set UI restrictions (AssignProcessToJobObject fails with "The request is not supported"), so `StartConfined` sets them only when the caller is in no job; inside the launcher they come from its own job. Local tests run unconfined and miss this: `TestStartConfinedFromConfinedLauncher` confines first.
+15. **Never pass cloudflared's text to the supervisor.** The tunnel launcher reports closed-set problem codes; its log lines go through the scrubber first and lines over 64 KB are dropped whole, so a token split by a cut cannot escape it (R-21).
+16. **Canary sweeps must look for the secret as stored.** A tunnel token is base64 text, so a marker inside its secret never appears verbatim; sweep for the token string itself.
+
 ## How a phase runs
 
 1. Read the phase in `docs/PLAN.md` and the plan's section 12 decisions it needs; ask the owner those, and anything that needs administrator rights on their PC (machine rule), with `AskUserQuestion` before designing.
@@ -61,4 +65,7 @@ Read the reference that matches the task:
 
 - Go source with backslash escapes (`\u003e`, `\\`) gets mangled when it passes through shell heredocs or `sed`, and the Edit tool turns `\u003e` into `>`. Write such files with the Write tool, or build the string at run time.
 - `gofmt` re-aligns table-driven test maps after an edit, so the next exact-match replacement on those lines fails; anchor on a regular expression or re-read the file.
+- Bash heredocs whose text contains an apostrophe fail in this environment ("unexpected EOF while looking for matching `'`"). Write edit scripts with the Write tool into the scratchpad and run them from there.
+- Python on Windows writes CRLF in text mode; open files with `newline=''` when editing them from Python.
+- `encoding/json` matches keys case-insensitively; where the exact spelling matters (the tunnel token), check the keys with a second decode into a map.
 - The owner's PC runs PowerShell 5.1 and Git Bash; Go is at `%LOCALAPPDATA%\Programs\go\bin`, tools at `%USERPROFILE%\go\bin`. Prefix commands with `export PATH="$LOCALAPPDATA/Programs/go/bin:$USERPROFILE/go/bin:$PATH"` in Bash.

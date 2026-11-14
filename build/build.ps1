@@ -7,12 +7,16 @@
   Build without the "production" tag (developer tools on). Never use for releases.
 .PARAMETER SkipChecks
   Skip frontend type check, lint and tests (for quick local rebuilds only).
+.PARAMETER Cloudflared
+  Download the pinned cloudflared, check its SHA-256 and embed it (S-71).
+  CI and release builds always use it; without it the binary has no tunnel.
 #>
 [CmdletBinding()]
 param(
   [string]$Version = "0.0.0-dev",
   [switch]$Dev,
-  [switch]$SkipChecks
+  [switch]$SkipChecks,
+  [switch]$Cloudflared
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,7 +55,13 @@ finally {
 
 $env:CGO_ENABLED = "0"
 $env:GOFLAGS = "-mod=readonly"
-$tags = if ($Dev) { "" } else { "production" }
+$tagList = @()
+if (-not $Dev) { $tagList += "production" }
+if ($Cloudflared) {
+  Invoke-Step "Fetch and verify cloudflared" { & powershell -NoProfile -File (Join-Path $PSScriptRoot "fetch-cloudflared.ps1") }
+  $tagList += "cloudflared"
+}
+$tags = $tagList -join ","
 $ldflags = "-s -w -H windowsgui -X github.com/TheAlsaadi/SoireeHost/internal/version.Version=$Version"
 
 New-Item -ItemType Directory -Force -Path bin | Out-Null

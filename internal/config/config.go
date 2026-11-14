@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"strings"
 )
 
@@ -33,6 +34,23 @@ const (
 	DefaultReadHeaderTimeout        = 10       // seconds
 	DefaultReadTimeout              = 300      // seconds, whole request including body
 	DefaultIdleTimeout              = 120      // seconds between requests on a kept-alive connection
+	// DefaultMetricsPort is the loopback port of the token tunnel's
+	// cloudflared metrics server, which cannot be turned off (ADR-0007). It
+	// is clear of 20241-20245, which a cloudflared the user runs on their
+	// own takes by default; sharing one would stop ours from starting.
+	DefaultMetricsPort = 20300
+)
+
+// Quick share limits and the port ranges quickshare.start picks from
+// (ADR-0007). The ranges are only where new ports are chosen; validation
+// accepts any port SoiréeHost does not already use.
+const (
+	MaxQuickShares       = 4
+	QuickSharePortMin    = 8788
+	QuickSharePortMax    = 8887
+	QuickShareMetricsMin = 20301
+	QuickShareMetricsMax = 20400
+	minAppPort           = 1024
 )
 
 // Site types.
@@ -47,7 +65,27 @@ type Config struct {
 	Version int          `json:"version"`
 	Listen  string       `json:"listen"`
 	Server  ServerLimits `json:"server"`
+	Tunnel  Tunnel       `json:"tunnel"`
 	Sites   []Site       `json:"sites"`
+}
+
+// Tunnel holds the settings of the Cloudflare tunnels (ADR-0007). The tunnel
+// token itself is a secret and never part of the config (S-40).
+type Tunnel struct {
+	// Offline is the switch that takes everything off the internet: while it
+	// is on, no cloudflared runs.
+	Offline bool `json:"offline"`
+	// MetricsPort is the loopback port of the token tunnel's metrics server.
+	MetricsPort int `json:"metrics_port"`
+}
+
+// QuickShare marks a site as shared through a temporary trycloudflare.com
+// link. Port is the loopback listener the web worker opens for this share
+// only; MetricsPort is that cloudflared's metrics server. Both are always on
+// 127.0.0.1 (S-01, S-04).
+type QuickShare struct {
+	Port        int `json:"port"`
+	MetricsPort int `json:"metrics_port"`
 }
 
 // ServerLimits are per listener, not per site: every site in tunnel-token
@@ -82,6 +120,9 @@ type Site struct {
 	// ResponseHeaders overrides the default security headers (S-16). Keys must
 	// be one of ManagedHeaders; an empty value means the header is not sent.
 	ResponseHeaders map[string]string `json:"response_headers,omitempty"`
+	// QuickShare, when set, shares the site through a temporary link
+	// (ADR-0007, S-51).
+	QuickShare *QuickShare `json:"quick_share,omitempty"`
 }
 
 // Static serves files from a folder.
@@ -114,7 +155,8 @@ func Default() Config {
 			ReadTimeoutSeconds:       DefaultReadTimeout,
 			IdleTimeoutSeconds:       DefaultIdleTimeout,
 		},
-		Sites: []Site{},
+		Tunnel: Tunnel{MetricsPort: DefaultMetricsPort},
+		Sites:  []Site{},
 	}
 }
 
@@ -168,6 +210,9 @@ func (c *Config) Normalize() {
 	}
 	if s.IdleTimeoutSeconds == 0 {
 		s.IdleTimeoutSeconds = DefaultIdleTimeout
+	}
+	if c.Tunnel.MetricsPort == 0 {
+		c.Tunnel.MetricsPort = DefaultMetricsPort
 	}
 	if c.Sites == nil {
 		c.Sites = []Site{}
@@ -228,6 +273,7 @@ func (c Config) Validate() error {
 		p.add("listen", "%v", err)
 	}
 	c.Server.validate(&p)
+	own := c.ownPorts(&p, listen)
 
 	if len(c.Sites) > MaxSites {
 		p.add("sites", "at most %d sites", MaxSites)
@@ -236,7 +282,7 @@ func (c Config) Validate() error {
 	hosts := map[string]int{} // hostname -> index of the first site using it
 	for i, s := range c.Sites {
 		field := fmt.Sprintf("sites[%d]", i)
-		s.validate(field, &p, listen.Port())
+		s.validate(field, &p, own)
 		if s.ID != "" {
 			if ids[s.ID] {
 				p.add(field+".id", "duplicate site id %q", s.ID)
@@ -278,7 +324,60 @@ func (s ServerLimits) validate(p *problems) {
 	}
 }
 
-func (s Site) validate(field string, p *problems, listenPort uint16) {
+// OwnPorts lists the loopback ports SoiréeHost itself uses in this config
+// (see ownPorts). Call it on a validated config.
+func (c Config) OwnPorts() []uint16 {
+	var p problems
+	listen, _ := ParseListen(c.Listen)
+	return c.ownPorts(&p, listen)
+}
+
+// ownPorts collects the loopback ports SoiréeHost itself listens on: the
+// main listener, the token tunnel's metrics server, and each quick share's
+// listener and metrics server. They must all differ, and no proxy target on
+// this PC may use one (S-10, review finding R-06).
+func (c Config) ownPorts(p *problems, listen netip.AddrPort) []uint16 {
+	type use struct {
+		field string
+		port  int
+	}
+	uses := []use{{"tunnel.metrics_port", c.Tunnel.MetricsPort}}
+	shares := 0
+	for i, s := range c.Sites {
+		if s.QuickShare == nil {
+			continue
+		}
+		shares++
+		f := fmt.Sprintf("sites[%d].quick_share", i)
+		uses = append(uses, use{f + ".port", s.QuickShare.Port}, use{f + ".metrics_port", s.QuickShare.MetricsPort})
+	}
+	if shares > MaxQuickShares {
+		p.add("sites", "at most %d sites can be shared through a quick share link at once", MaxQuickShares)
+	}
+	seen := map[int]string{}
+	if listen.IsValid() {
+		seen[int(listen.Port())] = "listen"
+	}
+	own := []uint16{}
+	if listen.IsValid() {
+		own = append(own, listen.Port())
+	}
+	for _, u := range uses {
+		if u.port < minAppPort || u.port > 65535 {
+			p.add(u.field, "must be a port between %d and 65535", minAppPort)
+			continue
+		}
+		if other, dup := seen[u.port]; dup {
+			p.add(u.field, "port %d is already used by %s", u.port, other)
+			continue
+		}
+		seen[u.port] = u.field
+		own = append(own, uint16(u.port)) // #nosec G115 -- checked to be at most 65535 above
+	}
+	return own
+}
+
+func (s Site) validate(field string, p *problems, own []uint16) {
 	if !validID(s.ID) {
 		p.add(field+".id", "must be 1 to %d characters from a-z, 0-9 and '-', starting with a letter or digit", maxIDLen)
 	}
@@ -313,7 +412,7 @@ func (s Site) validate(field string, p *problems, listenPort uint16) {
 	case TypeProxy:
 		if s.Proxy == nil {
 			p.add(field+".proxy", "required for a proxy site")
-		} else if _, err := ParseTarget(s.Proxy.Target, s.Proxy.AllowLAN, listenPort); err != nil {
+		} else if _, err := ParseTarget(s.Proxy.Target, s.Proxy.AllowLAN, own...); err != nil {
 			p.add(field+".proxy.target", "%v", err)
 		}
 		if s.Static != nil {
@@ -349,13 +448,17 @@ func (c Config) Warnings() []string {
 		if s.Type != TypeProxy || s.Proxy == nil || !s.Proxy.AllowLAN {
 			continue
 		}
-		t, err := ParseTarget(s.Proxy.Target, true, 0)
+		t, err := ParseTarget(s.Proxy.Target, true)
 		if err == nil && !t.Addr().IsLoopback() {
 			w = append(w, fmt.Sprintf("Site %q forwards to %s on your local network. Anything that site exposes is reachable from the internet.", s.ID, s.Proxy.Target))
 		}
 	}
 	return w
 }
+
+// ValidSiteID reports whether id is a valid site id (1 to 32 characters
+// from a-z, 0-9 and '-', not starting with '-').
+func ValidSiteID(id string) bool { return validID(id) }
 
 func validID(id string) bool {
 	if id == "" || len(id) > maxIDLen || id[0] == '-' {

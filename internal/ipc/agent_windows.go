@@ -29,6 +29,10 @@ type AgentOptions struct {
 	Stop func()
 	// DialTimeout bounds the wait for the supervisor's pipe.
 	DialTimeout time.Duration
+	// Notify carries messages the worker sends on its own (the tunnel
+	// launcher's status reports). Each is validated for the role before it
+	// is sent.
+	Notify <-chan WorkerMsg
 }
 
 // RunAgent is the whole life of a worker: connect to the supervisor (checking
@@ -58,7 +62,7 @@ func RunAgent(ctx context.Context, o AgentOptions) error {
 	if err != nil {
 		return fmt.Errorf("connecting to the supervisor: %w", err)
 	}
-	wc := NewWorkerConn(conn)
+	wc := NewWorkerConn(conn, o.Role)
 	defer wc.Close() //nolint:errcheck // closing is the signal either way
 	go func() {
 		<-ctx.Done()
@@ -66,6 +70,22 @@ func RunAgent(ctx context.Context, o AgentOptions) error {
 	}()
 	if err := wc.Send(WorkerMsg{Type: MsgHello, Role: o.Role, Version: o.Version}); err != nil {
 		return err
+	}
+	if o.Notify != nil {
+		nctx, ncancel := context.WithCancel(ctx)
+		defer ncancel()
+		go func() {
+			for {
+				select {
+				case <-nctx.Done():
+					return
+				case m := <-o.Notify:
+					// a failed send means the pipe is closing; the receive
+					// loop below sees that and returns
+					_ = wc.Send(m)
+				}
+			}
+		}()
 	}
 	for {
 		m, err := wc.Recv()

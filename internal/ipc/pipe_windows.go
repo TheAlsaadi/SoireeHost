@@ -256,18 +256,21 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 	return json.Unmarshal(resp.Result, out)
 }
 
-// WorkerConn is one end of a worker pipe.
+// WorkerConn is one end of a worker pipe. It knows the pipe's role and
+// refuses, in both directions, any message that does not belong on it
+// (review finding SE-21).
 type WorkerConn struct {
 	conn net.Conn
+	role string
 	wmu  sync.Mutex
 }
 
-// NewWorkerConn wraps an established pipe connection.
-func NewWorkerConn(c net.Conn) *WorkerConn { return &WorkerConn{conn: c} }
+// NewWorkerConn wraps an established pipe connection of the given role.
+func NewWorkerConn(c net.Conn, role string) *WorkerConn { return &WorkerConn{conn: c, role: role} }
 
 // Send validates and writes one message.
 func (w *WorkerConn) Send(m WorkerMsg) error {
-	if err := m.Validate(); err != nil {
+	if err := m.ValidateFor(w.role); err != nil {
 		return err
 	}
 	b, err := json.Marshal(m)
@@ -285,7 +288,7 @@ func (w *WorkerConn) Recv() (WorkerMsg, error) {
 	if err != nil {
 		return WorkerMsg{}, err
 	}
-	return DecodeWorkerMsg(b)
+	return DecodeWorkerMsg(b, w.role)
 }
 
 // Close closes the pipe.

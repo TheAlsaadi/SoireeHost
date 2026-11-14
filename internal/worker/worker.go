@@ -27,8 +27,10 @@ import (
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy"
 	_ "github.com/caddyserver/caddy/v2/modules/caddytls"
 	_ "github.com/caddyserver/caddy/v2/modules/logging"
+	"golang.org/x/sys/windows"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
 var mu sync.Mutex
@@ -212,15 +214,14 @@ func CheckOwnListeners() error {
 	return checkEndpoints(eps)
 }
 
-func checkEndpoints(eps []Endpoint) error {
-	var bad []error
-	for _, ep := range eps {
-		if !config.IsStrictLoopback(ep.Addr.Addr()) {
-			bad = append(bad, fmt.Errorf("%s socket on %s is not loopback", ep.Proto, ep.Addr))
-		}
-	}
-	return errors.Join(bad...)
-}
+// Endpoint is one socket this process has bound for receiving.
+type Endpoint = winsec.Endpoint
+
+// OwnEndpoints lists every listening TCP socket and bound UDP socket owned by
+// this process.
+func OwnEndpoints() ([]Endpoint, error) { return winsec.EndpointsOf(windows.GetCurrentProcessId()) }
+
+func checkEndpoints(eps []Endpoint) error { return winsec.CheckLoopbackOnly(eps) }
 
 // SelfCheckInterval is how often Run repeats the listener self-check.
 const SelfCheckInterval = time.Minute

@@ -17,6 +17,7 @@ func FuzzDecode(f *testing.F) {
 	f.Add([]byte(`{"version":1,"listen":"[::1]:9000","sites":[{"id":"x","name":"x","enabled":true,"hostnames":["a.b"],"type":"proxy","proxy":{"target":"localhost:80"}}]}`))
 	f.Add([]byte(`{"version":1,"sites":[{"id":"x","name":"x","type":"static","static":{"root":"C:\\a"},"response_headers":{"Referrer-Policy":""}}]}`))
 	f.Add([]byte(`{"version":1,"listen":"0.0.0.0:80"}`))
+	f.Add([]byte(`{"version":1,"tunnel":{"offline":true,"metrics_port":20241},"sites":[{"id":"x","name":"x","enabled":true,"hostnames":["a.b"],"type":"proxy","proxy":{"target":"127.0.0.1:8788"},"quick_share":{"port":8789,"metrics_port":20242}}]}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		c, err := Decode(bytes.NewReader(data))
 		if err != nil {
@@ -26,14 +27,25 @@ func FuzzDecode(f *testing.F) {
 		if err != nil || !IsStrictLoopback(ap.Addr()) {
 			t.Fatalf("accepted non-loopback listen %q", c.Listen)
 		}
+		own := c.OwnPorts()
+		seen := map[uint16]bool{}
+		for _, p := range own {
+			if seen[p] || p < 1024 {
+				t.Fatalf("own ports overlap or are low: %v", own)
+			}
+			seen[p] = true
+		}
 		for _, s := range c.Sites {
 			if s.Type == TypeProxy {
-				tp, err := ParseTarget(s.Proxy.Target, s.Proxy.AllowLAN, ap.Port())
+				tp, err := ParseTarget(s.Proxy.Target, s.Proxy.AllowLAN, own...)
 				if err != nil {
 					t.Fatalf("accepted bad target %q: %v", s.Proxy.Target, err)
 				}
 				if a := tp.Addr(); a.IsLinkLocalUnicast() || a.IsUnspecified() || (!a.IsLoopback() && !s.Proxy.AllowLAN) {
 					t.Fatalf("target %q breaks S-10", s.Proxy.Target)
+				}
+				if tp.Addr().IsLoopback() && seen[tp.Port()] {
+					t.Fatalf("target %q is one of SoiréeHost's own ports (R-06)", s.Proxy.Target)
 				}
 			}
 			for _, h := range s.Hostnames {

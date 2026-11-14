@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -267,11 +268,31 @@ func TestSiteValidation(t *testing.T) {
 		"proxy without proxy":   mut(func(c *Config) { c.Sites[1].Proxy = nil }),
 		"proxy to own port":     mut(func(c *Config) { c.Sites[1].Proxy.Target = "127.0.0.1:8787" }),
 		"proxy to LAN no optin": mut(func(c *Config) { c.Sites[1].Proxy.Target = "192.168.0.2:80" }),
-		"body too small":        mut(func(c *Config) { c.Sites[0].MaxBodyBytes = 1 }),
-		"body negative":         mut(func(c *Config) { c.Sites[0].MaxBodyBytes = -1 }),
-		"rate negative":         mut(func(c *Config) { c.Sites[0].RateLimitPerMinute = -1 }),
-		"rate huge":             mut(func(c *Config) { c.Sites[0].RateLimitPerMinute = 1 << 30 }),
-		"unknown header":        mut(func(c *Config) { c.Sites[0].ResponseHeaders = map[string]string{"Server": "x"} }),
+		// R-06: every port SoiréeHost listens on is refused as a target
+		"proxy to metrics port": mut(func(c *Config) { c.Sites[1].Proxy.Target = "127.0.0.1:20300" }),
+		"proxy to share port": mut(func(c *Config) {
+			c.Sites[0].QuickShare = &QuickShare{Port: 8788, MetricsPort: 20242}
+			c.Sites[1].Proxy.Target = "[::1]:8788"
+		}),
+		"proxy to share metrics": mut(func(c *Config) {
+			c.Sites[0].QuickShare = &QuickShare{Port: 8788, MetricsPort: 20242}
+			c.Sites[1].Proxy.Target = "127.0.0.1:20242"
+		}),
+		"share on listen port":   mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: 8787, MetricsPort: 20242} }),
+		"share on metrics port":  mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: DefaultMetricsPort, MetricsPort: 20242} }),
+		"share ports equal":      mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: 9000, MetricsPort: 9000} }),
+		"share low port":         mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: 80, MetricsPort: 20242} }),
+		"share port too big":     mut(func(c *Config) { c.Sites[0].QuickShare = &QuickShare{Port: 70000, MetricsPort: 20242} }),
+		"metrics port zero left": mut(func(c *Config) { c.Tunnel.MetricsPort = 80 }),
+		"two shares same port": mut(func(c *Config) {
+			c.Sites[0].QuickShare = &QuickShare{Port: 8788, MetricsPort: 20242}
+			c.Sites[1].QuickShare = &QuickShare{Port: 8788, MetricsPort: 20243}
+		}),
+		"body too small": mut(func(c *Config) { c.Sites[0].MaxBodyBytes = 1 }),
+		"body negative":  mut(func(c *Config) { c.Sites[0].MaxBodyBytes = -1 }),
+		"rate negative":  mut(func(c *Config) { c.Sites[0].RateLimitPerMinute = -1 }),
+		"rate huge":      mut(func(c *Config) { c.Sites[0].RateLimitPerMinute = 1 << 30 }),
+		"unknown header": mut(func(c *Config) { c.Sites[0].ResponseHeaders = map[string]string{"Server": "x"} }),
 		"header CRLF": mut(func(c *Config) {
 			c.Sites[0].ResponseHeaders = map[string]string{"Referrer-Policy": "a\r\nSet-Cookie: x"}
 		}),
@@ -292,6 +313,41 @@ func TestSiteValidation(t *testing.T) {
 				t.Fatalf("error has no field path: %v", err)
 			}
 		})
+	}
+}
+
+// TestTooManyQuickShares: at most MaxQuickShares sites are shared at once,
+// because the tunnel launcher's job allows only that many cloudflared
+// processes (ADR-0007).
+func TestTooManyQuickShares(t *testing.T) {
+	c := validConfig()
+	for i := range MaxQuickShares + 1 {
+		c.Sites = append(c.Sites, Site{ID: fmt.Sprintf("s%d", i), Name: "s", Type: TypeProxy,
+			Proxy:        &Proxy{Target: fmt.Sprintf("127.0.0.1:%d", 3000+i)},
+			QuickShare:   &QuickShare{Port: QuickSharePortMin + i, MetricsPort: QuickShareMetricsMin + i},
+			MaxBodyBytes: DefaultMaxBodyBytes, RateLimitPerMinute: 1})
+	}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "at most") {
+		t.Fatalf("five shares accepted: %v", err)
+	}
+	c.Sites = c.Sites[:len(c.Sites)-1]
+	if err := c.Validate(); err != nil {
+		t.Fatalf("four shares refused: %v", err)
+	}
+	if got := len(c.OwnPorts()); got != 2+2*MaxQuickShares {
+		t.Fatalf("OwnPorts has %d ports, want %d", got, 2+2*MaxQuickShares)
+	}
+}
+
+// TestOldConfigGetsTunnelDefaults: a config saved before Phase 3 has no
+// tunnel block; it decodes with the default metrics port and online.
+func TestOldConfigGetsTunnelDefaults(t *testing.T) {
+	c, err := Decode(strings.NewReader(`{"version":1,"listen":"127.0.0.1:8787","sites":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Tunnel.MetricsPort != DefaultMetricsPort || c.Tunnel.Offline {
+		t.Fatalf("tunnel = %+v", c.Tunnel)
 	}
 }
 
