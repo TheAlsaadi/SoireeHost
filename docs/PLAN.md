@@ -380,13 +380,13 @@ Build the tunnel role: cloudflared embedded in `soireehost.exe` and unpacked by 
 
 Done when:
 
-- [ ] A site opens from a phone on mobile data through a quick share link.
-- [ ] The same works with a tunnel token and a real hostname, if the owner has a domain. If not, mark this check as not yet verified in the release notes.
-- [ ] `netstat` shows no non-loopback listener from either binary, and a port scan from a second machine finds nothing from the app.
-- [ ] A canary token never appears in the process list, logs or config.
-- [ ] A quick share port returns 404 for any hostname other than the one cloudflared assigned.
-- [ ] A modified `cloudflared.exe` in the install folder is refused and the control panel offers Repair.
-- [ ] Tests pass for S-02, S-03, S-23, S-50 and S-51.
+- [ ] A site opens from a phone on mobile data through a quick share link. (Waiting for the owner: a hand-started CI run with the `phone_minutes` input prints the link. The same link was fetched over the internet by the isolation job on 14 Nov 2026, `TestQuickShareOverInternet`, pull request 7, run 43620617955)
+- [ ] The same works with a tunnel token and a real hostname, if the owner has a domain. If not, mark this check as not yet verified in the release notes. (Not yet verified: the owner has no domain, owner decision of 14 Nov 2026. Tunnel-token mode is tested against a stand-in for cloudflared; the release notes must say so)
+- [x] `netstat` shows no non-loopback listener from either binary, and a port scan from a second machine finds nothing from the app. (14 Nov 2026, pull request 7, run 43620617955: every socket of the three services and both cloudflared processes is TCP on 127.0.0.1, and a scan of every TCP port on the runner's own address found none of them. Owner decision of 14 Nov 2026: the CI scan stands in for the second-machine scan, which stays open for a release check)
+- [x] A canary token never appears in the process list, logs or config. (14 Nov 2026, `TestTunnelTokenCanary` while the real cloudflared ran with it, pull request 7, run 43620617955)
+- [x] A quick share port returns 404 for any hostname other than the one cloudflared assigned. (14 Nov 2026, `TestQuickShareOverInternet` on the installed system and `TestQuickShareHostGate`, pull request 7, run 43620617955)
+- [x] A modified `cloudflared.exe` in the install folder is refused and the control panel offers Repair. (14 Nov 2026, `TestTamperedCloudflaredRefused`, pull request 7, run 43620617955: refused at the next launch and `status.get` reports `repair_needed` with "Run Repair"; the control panel's button that shows it arrives in Phase 5)
+- [x] Tests pass for S-02, S-03, S-23, S-50 and S-51. (14 Nov 2026, pull request 7, run 43620617955)
 
 ### Phase 4: Protection
 
