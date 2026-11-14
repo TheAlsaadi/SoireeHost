@@ -321,7 +321,7 @@ The gate rule counts a bug as a true positive only when it gives code execution,
 | DR-7 | New `winsec.WalkTree` opens every entry relative to its parent's handle without following reparse points; `takeBack` sets descriptors on those handles. Uninstall keeps the data folder unless every service process has exited. | `TestTakeBackWalkIgnoresSwappedJunction`, `TestTakeBackWalkStaysInsideRoot`, `TestTakeBackWalkIgnoresExistingJunction`; the elevated purge runs in the CI isolation job |
 | DR-8 | Creating the data root decides whether it existed; an existing root is walked and refused if any entry is a link, a hard-linked file, or owned by anyone but Administrators, SYSTEM or a SoiréeHost service. | `TestCheckContents*` (4) |
 | DR-9 | Setup refuses a folder that anyone but the person running it, Administrators, SYSTEM or TrustedInstaller can change, holds the program open without write or delete sharing from the start, and copies from that handle. The CI isolation job runs setup from a folder only SYSTEM and Administrators can change. | `TestOpenSelfHoldsTheProgram`, `TestOpenSelfRefusesFolderOthersCanChange` |
-| DR-1 | The supervisor names its three pipes with 128 random bits at every start and writes each name to a pipe-name file in `config` that it owns and only the pipe's clients (plus SYSTEM and Administrators) may read; workers and the control panel read the file, check its owner and dial that exact name. | `TestNewPipeNameIsRandom`, `TestDialFileConnects`, `TestReadPipeNameRefuses`; the e2e tests and workers use the files in CI |
+| DR-1 | The supervisor names its three pipes with 128 random bits at every start and writes each name to a pipe-name file that it owns, in a folder of its own under `config` that setup creates so that only the pipe's clients (plus SYSTEM and Administrators) may read it; workers and the control panel read the file, check its owner and dial that exact name. | `TestNewPipeNameIsRandom`, `TestDialFileConnects`, `TestReadPipeNameRefuses`; the supervisor tests publish under the installed descriptors; `TestSecondUserLockedOut` (a second user cannot read the files); the e2e tests and workers use the files in CI |
 
 Also: gosec now skips `.semgrep` (the rule fixtures are deliberately bad code), in CI, `CLAUDE.md` and the testing reference.
 
@@ -354,3 +354,14 @@ One focused review agent read the whole diff for correctness and security (in pl
 Checked and found sound by the review: the directory-listing parser, `WalkTree` handle use, service-owned files passing the contents check, the web worker reading `ProfileList` (Users may read the key), DR-2, the removed pipe constants.
 
 After the fixes: `go vet` (default, `production`, `e2e`), `go test ./...`, golangci-lint (with `e2e`), staticcheck, gosec, govulncheck, gitleaks and the project Semgrep rules are clean; `FuzzCheckStatic`, `FuzzCheckProxy` and `FuzzDecode` ran 10 minutes each with no failure. The elevated paths (install, reinstall, purge, pipe-name files read by the real service accounts) are exercised only by the CI isolation job.
+
+## CI and merge (14 Nov 2026)
+
+The CI isolation job, the first run of the elevated paths, found two faults, fixed on the pull request before the merge:
+
+| Fault | Fix |
+| --- | --- |
+| `TestCheckContentsRefusesOtherOwner` passed nothing to refuse on the elevated runner, where new entries are owned by Administrators. | The test sets the planted entry's owner to the test account explicitly. |
+| The supervisor service could not start: creating a pipe-name file with its own descriptor was refused in `config`. The folder's OWNER RIGHTS entry, which keeps a file's creator from granting itself more, also refuses any descriptor passed at creation, whether or not the token is restricted. | Setup creates one folder per pipe-name file (`config\pipe-control`, `config\pipe-web`, `config\pipe-tunnel`) with the pipe's clients as inheritable readers; the supervisor writes plain files that take those permissions. The supervisor tests now build these folders with their installed descriptors and fail on the old write path. Recorded as rule 13 of the conventions skill. |
+
+Every CI job then passed, the isolation job included (run 43571470671), and pull request 3 was merged into `main` on 14 Nov 2026.
