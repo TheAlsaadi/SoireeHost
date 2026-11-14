@@ -14,8 +14,13 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 )
 
-// MaxLineBytes caps one line of cloudflared output; longer lines are cut.
+// MaxLineBytes caps one line of cloudflared output; longer lines are dropped.
 const MaxLineBytes = 64 << 10
+
+// droppedLine replaces a line longer than MaxLineBytes. Keeping its first
+// part instead could keep half of a token that the cut split, which the
+// scrubber would then not recognise (R-21; security review, 14 Nov 2026).
+var droppedLine = []byte(`{"level":"warn","message":"SoiréeHost dropped a cloudflared line longer than 64 KB"}`)
 
 // cloudflared's JSON log line (zerolog with --output json; field names
 // checked against cloudflared 2026.11.0).
@@ -187,15 +192,15 @@ func (s scrubber) scrub(line []byte) []byte {
 	return line
 }
 
-// readLines calls fn for each line of r, without its line ending. Lines
-// longer than MaxLineBytes are cut to that length; the rest of such a line
-// is skipped. It returns when r ends or fails.
+// readLines calls fn for each line of r, without its line ending. A line
+// longer than MaxLineBytes is replaced by droppedLine as a whole. It returns
+// when r ends or fails.
 func readLines(r io.Reader, fn func([]byte)) error {
 	br := bufio.NewReaderSize(r, MaxLineBytes)
 	for {
 		line, err := br.ReadSlice('\n')
 		if errors.Is(err, bufio.ErrBufferFull) {
-			fn(bytes.TrimRight(line, "\r\n"))
+			fn(droppedLine)
 			for errors.Is(err, bufio.ErrBufferFull) {
 				_, err = br.ReadSlice('\n')
 			}

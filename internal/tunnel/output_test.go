@@ -182,6 +182,22 @@ func TestScrubber(t *testing.T) {
 	}
 }
 
+// TestLongLineNeverKeepsPartOfAToken (R-21): a token split by the line cap
+// would escape the scrubber, so an overlong line is dropped whole.
+func TestLongLineNeverKeepsPartOfAToken(t *testing.T) {
+	tok := testToken(t)
+	line := strings.Repeat("x", MaxLineBytes-len(tok)/2) + tok + "\n"
+	var got []string
+	if err := readLines(strings.NewReader(line), func(b []byte) { got = append(got, string(b)) }); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range got {
+		if strings.Contains(l, tok[:len(tok)/2]) {
+			t.Fatal("part of the token survived the line cap")
+		}
+	}
+}
+
 func TestReadLines(t *testing.T) {
 	long := strings.Repeat("x", MaxLineBytes+100)
 	in := "a\r\nb\n" + long + "\nc"
@@ -189,7 +205,7 @@ func TestReadLines(t *testing.T) {
 	if err := readLines(strings.NewReader(in), func(b []byte) { got = append(got, string(b)) }); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 4 || got[0] != "a" || got[1] != "b" || len(got[2]) > MaxLineBytes || got[3] != "c" {
+	if len(got) != 4 || got[0] != "a" || got[1] != "b" || got[2] != string(droppedLine) || got[3] != "c" {
 		t.Fatalf("got %d lines: %q %q len=%d %q", len(got), got[0], got[1], len(got[2]), got[len(got)-1])
 	}
 }
