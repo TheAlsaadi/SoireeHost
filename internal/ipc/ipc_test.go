@@ -244,6 +244,15 @@ func TestListenExclusive(t *testing.T) {
 	}
 }
 
+// SE-35: an empty descriptor would mean the default pipe ACL, so Listen
+// refuses it.
+func TestListenRefusesEmptySDDL(t *testing.T) {
+	if ln, err := Listen(pipeName(t), ""); err == nil {
+		_ = ln.Close()
+		t.Fatal("pipe created with the default ACL")
+	}
+}
+
 func TestMalformedRequestEndsConnection(t *testing.T) {
 	s := serve(t, func(winsec.Caller) bool { return true })
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)

@@ -3,6 +3,8 @@ package ipc
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 )
 
 // Worker message types, a closed set (ADR-0006).
@@ -36,6 +38,27 @@ type WorkerMsg struct {
 
 // MaxReasonLen bounds a worker's failure reason.
 const MaxReasonLen = 2048
+
+// CutReason makes an error text a valid failure reason: valid UTF-8, at
+// most MaxReasonLen bytes, cut on a character boundary, never empty. JSON
+// turns an invalid or split byte into a three-byte replacement character,
+// which pushed a reason cut at a byte count over the limit; the supervisor
+// then refused the worker's failed message, treated the worker as down and
+// restored nothing (review finding GO-1).
+func CutReason(s string) string {
+	s = strings.ToValidUTF8(s, string(utf8.RuneError))
+	if len(s) > MaxReasonLen {
+		end := MaxReasonLen
+		for end > 0 && !utf8.RuneStart(s[end]) {
+			end--
+		}
+		s = s[:end]
+	}
+	if s == "" {
+		s = "unknown error"
+	}
+	return s
+}
 
 // Validate checks that the message has the fields its type needs and none
 // it should not carry.

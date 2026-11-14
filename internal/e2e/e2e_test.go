@@ -34,6 +34,7 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/setup"
 	"github.com/TheAlsaadi/SoireeHost/internal/supervisor"
+	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
@@ -489,15 +490,19 @@ func TestTunnelTokenCanary(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 	l := layout(t)
-	_ = filepath.WalkDir(l.DataRoot, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		if b, err := os.ReadFile(p); err == nil && bytes.Contains(b, []byte(canary)) { //nolint:gosec // G304: sweeping SoiréeHost's own data folder
-			t.Errorf("%s contains the token in clear", p)
-		}
-		return nil
+	// The secrets folder grants Administrators nothing, so the sweep reads
+	// with backup semantics; any file or folder it still cannot read fails
+	// the test, and it must have read the stored token (GOE-12).
+	var seen []string
+	asBackupOperator(t, func() {
+		seen = testutil.SweepFiles(t, l.DataRoot, []byte(canary), backupRead)
 	})
+	p := supervisor.Paths{Root: l.DataRoot}
+	for _, dir := range []string{p.Secrets(), p.Config(), p.Audit()} {
+		if testutil.Under(seen, dir) == 0 {
+			t.Errorf("the canary sweep read nothing in %s", dir)
+		}
+	}
 	out, err := exec.CommandContext(t.Context(), "powershell", "-NoProfile", "-Command",
 		"Get-CimInstance Win32_Process | ForEach-Object { $_.CommandLine }").Output()
 	if err != nil {
@@ -577,19 +582,7 @@ func TestACLDriftRefused(t *testing.T) {
 
 func enablePrivilege(t *testing.T, name string) {
 	t.Helper()
-	var tok windows.Token
-	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &tok); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = tok.Close() }()
-	var luid windows.LUID
-	n, _ := windows.UTF16PtrFromString(name)
-	if err := windows.LookupPrivilegeValue(nil, n, &luid); err != nil {
-		t.Fatal(err)
-	}
-	tp := windows.Tokenprivileges{PrivilegeCount: 1}
-	tp.Privileges[0] = windows.LUIDAndAttributes{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}
-	if err := windows.AdjustTokenPrivileges(tok, false, &tp, 0, nil, nil); err != nil {
+	if err := winsec.EnablePrivileges(name); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -601,4 +594,62 @@ func setDACL(t *testing.T, path, sddl string) {
 	if err := winsec.ForceSDDL(path, sddl); err != nil {
 		t.Fatalf("setting DACL of %s: %v", path, err)
 	}
+}
+
+// asBackupOperator runs fn on a thread that impersonates this process's own
+// token with SeBackupPrivilege enabled (the elevated runner holds it), so
+// reads opened with backup semantics pass folders that grant Administrators
+// nothing, such as secrets. Only that thread gains the privilege.
+func asBackupOperator(t *testing.T, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		var proc windows.Token
+		if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_DUPLICATE|windows.TOKEN_QUERY, &proc); err != nil {
+			t.Errorf("opening the process token: %v", err)
+			return
+		}
+		defer func() { _ = proc.Close() }()
+		var imp windows.Token
+		if err := windows.DuplicateTokenEx(proc, windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY|windows.TOKEN_IMPERSONATE,
+			nil, windows.SecurityImpersonation, windows.TokenImpersonation, &imp); err != nil {
+			t.Errorf("duplicating the token: %v", err)
+			return
+		}
+		defer func() { _ = imp.Close() }()
+		if err := winsec.EnableTokenPrivileges(imp, "SeBackupPrivilege"); err != nil {
+			t.Errorf("enabling SeBackupPrivilege: %v", err)
+			return
+		}
+		if err := windows.SetThreadToken(nil, imp); err != nil {
+			t.Errorf("impersonating: %v", err)
+			return
+		}
+		defer func() {
+			if err := windows.RevertToSelf(); err != nil {
+				panic(err)
+			}
+		}()
+		fn()
+	}()
+	<-done
+}
+
+// backupRead reads a whole file through a backup-semantics handle.
+func backupRead(path string) ([]byte, error) {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, err
+	}
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	f := os.NewFile(uintptr(h), path)
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
 }

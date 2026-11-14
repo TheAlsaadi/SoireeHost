@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
 	"golang.org/x/sys/windows"
 
@@ -38,16 +39,35 @@ func (s *Supervisor) handle(_ context.Context, c winsec.Caller, method string, p
 		}
 		return ipc.HistoryResult{Revisions: h, LastGood: s.store.LastGood()}, nil
 	case ipc.MethodConfigRollback:
-		return s.rollback(c, params.(*ipc.RollbackParams).Revision)
+		p, perr := paramsAs[ipc.RollbackParams](params)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.rollback(c, p)
 	case ipc.MethodSitePut:
-		return s.sitePut(c, params.(*ipc.SitePutParams))
+		p, perr := paramsAs[ipc.SitePutParams](params)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.sitePut(c, p)
 	case ipc.MethodSiteRemove:
-		return s.siteRemove(c, params.(*ipc.SiteIDParams).ID)
+		p, perr := paramsAs[ipc.SiteIDParams](params)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.siteRemove(c, p.ID)
 	case ipc.MethodSiteSetEnabled:
-		p := params.(*ipc.SiteEnabledParams)
+		p, perr := paramsAs[ipc.SiteEnabledParams](params)
+		if perr != nil {
+			return nil, perr
+		}
 		return s.siteSetEnabled(c, p.ID, p.Enabled)
 	case ipc.MethodSecretSet:
-		return s.secretSet(c, params.(*ipc.SecretSetParams))
+		p, perr := paramsAs[ipc.SecretSetParams](params)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.secretSet(c, p)
 	case ipc.MethodSecretStatus:
 		st, err := s.secrets.Status(secrets.TunnelToken)
 		if err != nil {
@@ -55,9 +75,23 @@ func (s *Supervisor) handle(_ context.Context, c winsec.Caller, method string, p
 		}
 		return ipc.SecretStatusResult{Secrets: []ipc.SecretStatus{{Name: st.Name, Set: st.Set, SetAt: st.SetAt}}}, nil
 	case ipc.MethodAuditList:
-		return s.auditList(params.(*ipc.AuditListParams))
+		p, perr := paramsAs[ipc.AuditListParams](params)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.auditList(p)
 	}
 	return nil, ipc.Errorf(ipc.CodeInvalid, "Unknown request.")
+}
+
+// paramsAs returns a request's decoded details as *T, or an error if they are
+// missing or of another type, instead of panicking (review finding GO-15).
+func paramsAs[T any](params any) (*T, *ipc.Error) {
+	p, ok := params.(*T)
+	if !ok || p == nil {
+		return nil, ipc.Errorf(ipc.CodeInvalid, "The request's details are missing or not valid.")
+	}
+	return p, nil
 }
 
 func (s *Supervisor) status() ipc.StatusResult {
@@ -125,11 +159,14 @@ func (s *Supervisor) applyOrRestore(rec config.Record, prev config.Config) (any,
 			return nil, ipc.Errorf(ipc.CodeInvalid, "The web server could not use these settings: %s", le.reason)
 		}
 		var back config.Record
-		var rerr error
-		if good == 0 {
-			back, rerr = s.store.Save(prev, winsec.SIDSystem, "Restored the settings before a change the web server refused")
-		} else {
+		rerr := errors.New("no revision the web server loaded is known")
+		if good != 0 {
 			back, rerr = s.store.Rollback(good, winsec.SIDSystem)
+		}
+		if rerr != nil {
+			// the last good revision is unknown or cannot be read: restore
+			// the settings in force before this change (R-22)
+			back, rerr = s.store.Save(prev, winsec.SIDSystem, "Restored the settings before a change the web server refused")
 		}
 		if rerr != nil {
 			return nil, ipc.Errorf(ipc.CodeInternal, "The web server could not use these settings (%s), and restoring revision %d failed: %v", le.reason, good, rerr)
@@ -148,7 +185,7 @@ func (s *Supervisor) applyOrRestore(rec config.Record, prev config.Config) (any,
 func (s *Supervisor) applyWeb(rec config.Record) error {
 	j, err := worker.BuildCaddyJSON(rec.Config, worker.Options{LogDir: s.opts.Paths.WebLogs()})
 	if err != nil {
-		return &loadError{err.Error()}
+		return &loadError{reason: err.Error(), refused: true}
 	}
 	if err := s.web.load(ipc.WorkerMsg{Type: ipc.MsgLoad, Caddy: j}); err != nil {
 		return err
@@ -172,16 +209,30 @@ func (s *Supervisor) workerConnected(_ context.Context, role string) {
 		if !errors.As(err, &le) {
 			return
 		}
+		if !le.refused {
+			// a slow or dying worker says nothing about the settings: report
+			// it and keep them, so a change saved while the worker was down
+			// is not undone by a slow first load
+			s.web.setState(StateRunning, "The web server did not finish loading the saved settings: "+le.reason)
+			return
+		}
 		// At connect time only a known-good revision is restored; with none,
 		// the saved settings stay as they are and the reason is reported, so
 		// a folder that is missing at boot never wipes the user's sites.
 		s.web.setState(StateRunning, "The web server could not use the saved settings: "+le.reason)
 		if good := s.store.LastGood(); good != 0 && good != rec.Revision {
-			if back, err := s.store.Rollback(good, winsec.SIDSystem); err == nil {
-				s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
-					"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10)})
-				_ = s.applyWeb(back)
+			back, err := s.store.Rollback(good, winsec.SIDSystem)
+			if err != nil {
+				// reported, not hidden (R-22): the saved settings stay as
+				// they are until someone fixes or replaces them
+				s.web.setState(StateRunning, fmt.Sprintf("The web server could not use the saved settings (%s), and restoring revision %d failed: %v", le.reason, good, err))
+				s.record(winsec.SIDSystem, "config.restore_failed", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+					"restored_revision": strconv.FormatUint(good, 10)})
+				return
 			}
+			s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+				"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10)})
+			_ = s.applyWeb(back)
 		}
 	case ipc.RoleTunnel:
 		s.sendTunnelToken()
@@ -200,15 +251,58 @@ func (s *Supervisor) sendTunnelToken() {
 	clear(tok)
 }
 
-func (s *Supervisor) rollback(c winsec.Caller, rev uint64) (any, *ipc.Error) {
+func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc.Error) {
 	s.changeMu.Lock()
 	defer s.changeMu.Unlock()
-	rec, err := s.store.Rollback(rev, c.SID)
+	target, err := s.store.Get(p.Revision)
 	if err != nil {
 		return nil, ipc.Errorf(ipc.CodeNotFound, "%v", err)
 	}
-	s.record(c.SID, "config.rollback", map[string]string{"to_revision": strconv.FormatUint(rev, 10), "revision": strconv.FormatUint(rec.Revision, 10)})
-	return s.applyOrRestore(rec, config.Default())
+	// The settings in force now are what a refused rollback restores. If
+	// they cannot be read, every LAN target counts as new.
+	cur, cerr := s.current()
+	detail := map[string]string{"to_revision": strconv.FormatUint(p.Revision, 10)}
+	// S-32 (owner decision of 13 Nov 2026, review finding R-04): going back
+	// to settings that forward to a device on the local network the current
+	// ones do not needs the same confirmation as adding one, and is audited
+	if added := newLANTargets(cur.Config, target.Config); len(added) > 0 {
+		if !p.Confirm {
+			return nil, ipc.Errorf(ipc.CodeConfirmationRequired,
+				"Revision %d forwards to a device on your local network (%s), which makes that device reachable from the internet. Confirm to continue.",
+				p.Revision, strings.Join(added, ", "))
+		}
+		detail["weakening"] = "allow_lan"
+	}
+	rec, err := s.store.Rollback(p.Revision, c.SID)
+	if err != nil {
+		return nil, ipc.Errorf(ipc.CodeNotFound, "%v", err)
+	}
+	detail["revision"] = strconv.FormatUint(rec.Revision, 10)
+	s.record(c.SID, "config.rollback", detail)
+	prev := cur.Config
+	if cerr != nil {
+		prev = config.Default()
+	}
+	return s.applyOrRestore(rec, prev)
+}
+
+// newLANTargets lists the local-network addresses next forwards to that cur
+// does not.
+func newLANTargets(cur, next config.Config) []string {
+	have := map[string]bool{}
+	for _, site := range cur.Sites {
+		if site.Proxy != nil && site.Proxy.AllowLAN {
+			have[site.Proxy.Target] = true
+		}
+	}
+	var added []string
+	for _, site := range next.Sites {
+		if site.Proxy != nil && site.Proxy.AllowLAN && !have[site.Proxy.Target] {
+			added = append(added, site.Proxy.Target)
+			have[site.Proxy.Target] = true
+		}
+	}
+	return added
 }
 
 func (s *Supervisor) sitePut(c winsec.Caller, p *ipc.SitePutParams) (any, *ipc.Error) {
@@ -223,7 +317,13 @@ func (s *Supervisor) sitePut(c winsec.Caller, p *ipc.SitePutParams) (any, *ipc.E
 			return nil, ipc.Errorf(ipc.CodeInvalid, "That folder cannot be published: %v", err)
 		}
 		if s.opts.WorkerCanRead != nil {
-			if ok, err := s.opts.WorkerCanRead(canon); err == nil && !ok {
+			ok, err := s.opts.WorkerCanRead(canon)
+			if err != nil {
+				// fail closed: a folder whose permissions cannot be read is
+				// refused, not published unchecked (review finding R-07)
+				return nil, ipc.Errorf(ipc.CodeInvalid, "Could not check whether the web server may read %s: %v", canon, err)
+			}
+			if !ok {
 				return nil, ipc.Errorf(ipc.CodeInvalid, "The web server is not allowed to read %s. Add the site from the control panel, which grants read access, or give NT SERVICE\\%s read access to the folder.", canon, winsec.WebService)
 			}
 		}
@@ -235,9 +335,10 @@ func (s *Supervisor) sitePut(c winsec.Caller, p *ipc.SitePutParams) (any, *ipc.E
 	}
 	return s.change(c, "site.put", detail, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == site.ID })
-		hadLAN := i >= 0 && cfg.Sites[i].Proxy != nil && cfg.Sites[i].Proxy.AllowLAN
-		if site.Proxy != nil && site.Proxy.AllowLAN && !hadLAN {
-			// S-32: a LAN target is a weakening change
+		// S-32: forwarding to a LAN device not already reachable through the
+		// current settings is a weakening change, including pointing a site
+		// that already allows the LAN at another device (review finding R-04)
+		if len(newLANTargets(*cfg, config.Config{Sites: []config.Site{site}})) > 0 {
 			if !p.Confirm {
 				return ipc.Errorf(ipc.CodeConfirmationRequired,
 					"Forwarding to a device on your local network makes that device reachable from the internet through this site. Confirm to continue.")

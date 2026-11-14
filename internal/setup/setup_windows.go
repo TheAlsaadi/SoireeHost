@@ -20,7 +20,6 @@ import (
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 
-	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 	"github.com/TheAlsaadi/SoireeHost/internal/supervisor"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
@@ -168,22 +167,12 @@ func makeFolders(root, caller string) error {
 	// Every folder gets an explicit owner, so nothing created earlier by
 	// another account keeps an owner's rights. Secrets are owned by SYSTEM:
 	// the supervisor's S-22 check allows no one else there.
-	ba, sy := "O:"+winsec.SIDAdministrators, "O:"+winsec.SIDSystem
-	steps := []struct{ path, sddl string }{
-		{root, ba + winsec.DataRootSDDL(sup, web, tun)},
-		{p.Config(), ba + winsec.ConfigFolderSDDL(sup)},
-		// one folder per pipe-name file, readable by that pipe's clients
-		// (DR-1); the control pipe's client is the user named in
-		// control-users.json, which writeControlUsers sets to caller
-		{ipc.PipeFileFolder(root, ipc.ControlPipeFile), ba + winsec.PipeNameFolderSDDL(sup, caller)},
-		{ipc.PipeFileFolder(root, ipc.WebPipeFile), ba + winsec.PipeNameFolderSDDL(sup, web)},
-		{ipc.PipeFileFolder(root, ipc.TunnelPipeFile), ba + winsec.PipeNameFolderSDDL(sup, tun)},
-		{p.Secrets(), sy + winsec.SecretsFolderSDDL(sup)},
-		{p.Logs(), ba + winsec.LogsFolderSDDL(sup)},
-		{p.Audit(), ba + winsec.AuditFolderSDDL(sup)},
-		{p.WebLogs(), ba + winsec.WorkerLogFolderSDDL(sup, web)},
-		{p.TunnelLogs(), ba + winsec.WorkerLogFolderSDDL(sup, tun)},
-		{p.Updates(), ba + winsec.UpdatesFolderSDDL(sup)},
+	// The table is the supervisor's, which checks the same folders at every
+	// start. The control pipe's name may be read by the user named in
+	// control-users.json, which writeControlUsers sets to caller.
+	var steps []struct{ path, sddl string }
+	for _, f := range p.Folders(supervisor.Identity{Supervisor: sup, Web: web, Tunnel: tun}, []string{caller}) {
+		steps = append(steps, struct{ path, sddl string }{f.Path, "O:" + f.Owner + f.SDDL})
 	}
 	// Whether the root already exists is decided by creating it: a separate
 	// check and create would leave a gap in which a standard user could

@@ -1,14 +1,12 @@
 package supervisor
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -51,6 +49,18 @@ type fakeServices struct {
 	exited  map[string]chan struct{}
 	starts  map[string]int
 	tokens  chan string
+
+	// webLoad, if set, replaces the web worker's Load; die ends the worker
+	// as if its process died (the pipe closes without an answer).
+	webLoad func(die func(), m ipc.WorkerMsg) error
+	// rawWeb, if set, replaces the whole web agent.
+	rawWeb func(ctx context.Context, pipe, sid string)
+}
+
+func (f *fakeServices) startCount(name string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.starts[name]
 }
 
 func (f *fakeServices) Start(name string) error {
@@ -64,11 +74,22 @@ func (f *fakeServices) Start(name string) error {
 	f.cancels[name], f.exited[name] = cancel, done
 	f.starts[name]++
 	o := ipc.AgentOptions{SupervisorSID: f.sup, Version: "test", DialTimeout: 10 * time.Second}
+	body := func() { _ = ipc.RunAgent(ctx, o) }
 	switch name {
 	case winsec.WebService:
 		o.Pipe, o.Role = f.pipes.Web, ipc.RoleWeb
-		o.Load = func(m ipc.WorkerMsg) error { return worker.LoadJSON(m.Caddy) }
+		load, raw := f.webLoad, f.rawWeb
+		die := func() { cancel(); time.Sleep(200 * time.Millisecond) }
+		o.Load = func(m ipc.WorkerMsg) error {
+			if load != nil {
+				return load(die, m)
+			}
+			return worker.LoadJSON(m.Caddy)
+		}
 		o.Stop = func() { _ = worker.Stop() }
+		if raw != nil {
+			body = func() { raw(ctx, f.pipes.Web, f.sup) }
+		}
 	case winsec.TunnelService:
 		o.Pipe, o.Role = f.pipes.Tunnel, ipc.RoleTunnel
 		o.Load = func(m ipc.WorkerMsg) error { f.tokens <- m.Token; return nil }
@@ -77,7 +98,7 @@ func (f *fakeServices) Start(name string) error {
 	}
 	go func() {
 		defer close(done)
-		_ = ipc.RunAgent(ctx, o)
+		body()
 		f.mu.Lock()
 		delete(f.cancels, name)
 		f.mu.Unlock()
@@ -143,6 +164,13 @@ func freePort(t *testing.T) int {
 
 func start(t *testing.T, checkRoot func(string) (string, error)) *harness {
 	t.Helper()
+	return startWith(t, &fakeServices{}, checkRoot, 20*time.Second)
+}
+
+// startWith starts a supervisor whose workers are svc (its hooks set by the
+// caller) and whose loads time out after loadTimeout.
+func startWith(t *testing.T, svc *fakeServices, checkRoot func(string) (string, error), loadTimeout time.Duration) *harness {
+	t.Helper()
 	me, err := winsec.CurrentCaller()
 	if err != nil {
 		t.Fatal(err)
@@ -175,8 +203,9 @@ func start(t *testing.T, checkRoot func(string) (string, error)) *harness {
 	if err := os.WriteFile(paths.ControlUsersFile(), []byte(`{"users":["`+me.SID+`"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	svc := &fakeServices{t: t, pipes: pipes, sup: me.SID, cancels: map[string]context.CancelFunc{},
-		exited: map[string]chan struct{}{}, starts: map[string]int{}, tokens: make(chan string, 10)}
+	svc.t, svc.pipes, svc.sup = t, pipes, me.SID
+	svc.cancels, svc.exited = map[string]context.CancelFunc{}, map[string]chan struct{}{}
+	svc.starts, svc.tokens = map[string]int{}, make(chan string, 10)
 	if checkRoot == nil {
 		loc, err := sitecheck.DefaultLocations()
 		if err != nil {
@@ -187,7 +216,7 @@ func start(t *testing.T, checkRoot func(string) (string, error)) *harness {
 	sup, err := New(Options{
 		Paths: paths, Identity: Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID},
 		Pipes: pipes, Services: svc, Version: "test", CheckRoot: checkRoot,
-		WorkerStartTimeout: 10 * time.Second, LoadTimeout: 20 * time.Second,
+		WorkerStartTimeout: 10 * time.Second, LoadTimeout: loadTimeout,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -474,17 +503,14 @@ func TestTunnelTokenWriteOnly(t *testing.T) {
 	if err := h.call(ipc.MethodSecretStatus, ipc.None{}, &status); err != nil || !status.Secrets[0].Set {
 		t.Fatalf("status %+v %v", status, err)
 	}
-	// canary sweep (plan section 10): nothing on disk holds the token in clear
-	_ = filepath.WalkDir(h.paths.Root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
+	// canary sweep (plan section 10): nothing on disk holds the token in
+	// clear, and the sweep read the secrets, config and audit files (GOE-12)
+	seen := testutil.SweepFiles(t, h.paths.Root, []byte("CANARY-TUNNEL"), nil)
+	for _, dir := range []string{h.paths.Secrets(), h.paths.Config(), h.paths.Audit()} {
+		if testutil.Under(seen, dir) == 0 {
+			t.Errorf("the canary sweep read nothing in %s", dir)
 		}
-		b, _ := os.ReadFile(p) //nolint:gosec // G304: sweeping the test's own data folder
-		if bytes.Contains(b, []byte("CANARY-TUNNEL")) {
-			t.Errorf("%s contains the token in clear", p)
-		}
-		return nil
-	})
+	}
 }
 
 // ADR-0001: a dead worker is restarted and brought up to date.
@@ -554,43 +580,66 @@ func TestReadControlUsers(t *testing.T) {
 	if users, err := readControlUsers(p); err != nil || users != nil {
 		t.Fatalf("missing file: %v %v", users, err)
 	}
-	for _, bad := range []string{`{"users":["Everyone"]}`, `{"users":"x"}`, `not json`} {
+	// SE-05: entries go into the control pipe's descriptor, so only one
+	// user account's SID, in canonical form, is accepted
+	for _, bad := range []string{
+		`{"users":["Everyone"]}`, `{"users":"x"}`, `not json`,
+		`{"users":["S-1-5-18)(A;;GA;;;WD"]}`,
+		`{"users":["S-1-5-21-1-2-3-1001)(A;;GA;;;WD"]}`,
+		`{"users":["S-1-1-0"]}`, `{"users":["S-1-5-32-545"]}`, `{"users":["S-1-5-11"]}`, `{"users":["S-1-5-18"]}`,
+		`{"users":["s-1-5-21-1-2-3-1001"]}`, `{"users":["S-1-5-21-1-2-3-01001"]}`,
+	} {
 		_ = os.WriteFile(p, []byte(bad), 0o600)
 		if _, err := readControlUsers(p); err == nil {
 			t.Errorf("%s accepted", bad)
 		}
 	}
+	for _, good := range []string{"S-1-5-21-1-2-3-1001", "S-1-12-1-1-2-3-4"} {
+		_ = os.WriteFile(p, []byte(`{"users":["`+good+`"]}`), 0o600)
+		if users, err := readControlUsers(p); err != nil || len(users) != 1 || users[0] != good {
+			t.Errorf("%s: %v %v", good, users, err)
+		}
+	}
 }
 
-// S-22: the supervisor refuses to run when config or secrets can be written
-// by ordinary users, and runs when they cannot.
-func TestRefusesWritableFolders(t *testing.T) {
-	me, _ := winsec.CurrentCaller()
-	root := filepath.Join(dataRoot, "acl-"+randHex())
-	p := Paths{Root: root}
-	id := Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID}
-	if err := winsec.SetFolderSDDL(p.Config(), winsec.ConfigFolderSDDL(me.SID)); err != nil {
+// S-32 (owner decision of 13 Nov 2026, review finding R-04): rolling back
+// to a revision that forwards to a LAN device the current settings do not
+// needs the same confirmation, and is audited as weakening.
+func TestRollbackToLANNeedsConfirmation(t *testing.T) {
+	h := start(t, nil)
+	site := h.proxySite("nas", "192.168.1.20:5000")
+	site.Proxy.AllowLAN = true
+	var withLAN ipc.ConfigResult
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site, Confirm: true}, &withLAN); err != nil {
 		t.Fatal(err)
 	}
-	if err := winsec.SetFolderSDDL(p.Secrets(), winsec.SecretsFolderSDDL(me.SID)+"(A;OICI;0x1301bf;;;"+winsec.SIDUsers+")"); err != nil {
+	if err := h.call(ipc.MethodSiteRemove, ipc.SiteIDParams{ID: "nas"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	_, err := New(Options{Paths: p, Identity: id, CheckACLs: true})
-	if err == nil || !strings.Contains(err.Error(), "refusing to run") {
-		t.Fatalf("writable secrets folder: %v", err)
+	var e *ipc.Error
+	if err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: withLAN.Revision}, nil); !errors.As(err, &e) || e.Code != ipc.CodeConfirmationRequired {
+		t.Fatalf("unconfirmed rollback to a LAN target: %v", err)
 	}
-	// OWNER RIGHTS in these descriptors stops even the folder's creator from
-	// changing its permissions again, so the locked case uses fresh folders
-	ok := Paths{Root: filepath.Join(dataRoot, "acl-"+randHex())}
-	if err := winsec.SetFolderSDDL(ok.Config(), "O:"+me.SID+winsec.ConfigFolderSDDL(me.SID)); err != nil {
+	if _, ids := siteIDs(h); len(ids) != 0 {
+		t.Fatalf("the unconfirmed rollback was applied: %v", ids)
+	}
+	if err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: withLAN.Revision, Confirm: true}, nil); err != nil {
 		t.Fatal(err)
 	}
-	// an elevated test run (CI) would otherwise leave Administrators as the
-	// owner, which the secrets check rightly refuses
-	if err := winsec.SetFolderSDDL(ok.Secrets(), "O:"+me.SID+winsec.SecretsFolderSDDL(me.SID)); err != nil {
-		t.Fatal(err)
+	if _, ids := siteIDs(h); len(ids) != 1 || ids[0] != "nas" {
+		t.Fatalf("confirmed rollback not applied: %v", ids)
 	}
-	if _, err := New(Options{Paths: ok, Identity: id, CheckACLs: true}); err != nil {
-		t.Fatalf("locked folders refused: %v", err)
+	var al ipc.AuditListResult
+	_ = h.call(ipc.MethodAuditList, ipc.AuditListParams{}, &al)
+	found := false
+	for _, e := range al.Entries {
+		found = found || (e.Action == "config.rollback" && e.Detail["weakening"] == "allow_lan")
+	}
+	if !found {
+		t.Error("weakening rollback not audited")
+	}
+	// back to a revision whose LAN target is already in force: no question
+	if err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: withLAN.Revision}, nil); err != nil {
+		t.Fatalf("rollback with no new LAN target: %v", err)
 	}
 }

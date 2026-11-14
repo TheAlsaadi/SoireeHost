@@ -26,15 +26,27 @@ func CheckWriters(path string, allowed ...string) error {
 	if err != nil {
 		return fmt.Errorf("reading permissions of %s: %w", path, err)
 	}
-	return checkDescriptor(sd, path, allowed)
+	return checkDescriptor(sd, path, allowed, allowed)
 }
 
-func checkDescriptor(sd *windows.SECURITY_DESCRIPTOR, path string, allowed []string) error {
+// CheckOwnerAndWriters is CheckWriters with its own list of accepted owners:
+// the owner must be in owners, and every principal the DACL lets change path
+// must be in writers.
+func CheckOwnerAndWriters(path string, owners, writers []string) error {
+	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return fmt.Errorf("reading permissions of %s: %w", path, err)
+	}
+	return checkDescriptor(sd, path, owners, writers)
+}
+
+func checkDescriptor(sd *windows.SECURITY_DESCRIPTOR, path string, owners, allowed []string) error {
 	owner, _, err := sd.Owner()
 	if err != nil || owner == nil {
 		return fmt.Errorf("%s has no owner", path)
 	}
-	if !slices.Contains(allowed, owner.String()) {
+	if !slices.Contains(owners, owner.String()) {
 		return fmt.Errorf("%s is owned by %s, which may change its permissions", path, owner)
 	}
 	dacl, _, err := sd.DACL()
@@ -82,7 +94,10 @@ func SetFolderSDDL(path, sddl string) error {
 		return err
 	}
 	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION)
-	owner, _, _ := sd.Owner()
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return fmt.Errorf("security descriptor owner: %w", err)
+	}
 	if owner != nil {
 		info |= windows.OWNER_SECURITY_INFORMATION
 	}
@@ -102,6 +117,12 @@ func EnablePrivileges(names ...string) error {
 		return err
 	}
 	defer tok.Close() //nolint:errcheck // nothing to do on failure
+	return EnableTokenPrivileges(tok, names...)
+}
+
+// EnableTokenPrivileges turns on privileges tok already holds. tok needs
+// TOKEN_ADJUST_PRIVILEGES.
+func EnableTokenPrivileges(tok windows.Token, names ...string) error {
 	for _, n := range names {
 		var luid windows.LUID
 		p, err := windows.UTF16PtrFromString(n)
@@ -134,7 +155,10 @@ func ForceSDDL(path, sddl string) error {
 	if dacl, _, err := sd.DACL(); err != nil || dacl == nil {
 		return fmt.Errorf("descriptor for %s has no access list", path)
 	}
-	owner, _, _ := sd.Owner()
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return fmt.Errorf("descriptor for %s: owner: %w", path, err)
+	}
 	access := uint32(windows.WRITE_DAC)
 	// protection comes from the descriptor's own "D:P" control flag
 	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION)

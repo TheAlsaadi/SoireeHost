@@ -144,7 +144,8 @@ func New(opts Options) (*Supervisor, error) {
 		opts.LoadTimeout = 30 * time.Second
 	}
 	if opts.CheckACLs {
-		if err := checkFolders(opts.Paths, opts.Identity); err != nil {
+		// the check reads writers only, so the control users do not matter
+		if err := checkFolders(opts.Paths, opts.Identity, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -173,20 +174,6 @@ func New(opts Options) (*Supervisor, error) {
 	return s, nil
 }
 
-// checkFolders refuses to run if config can be written by anyone but SYSTEM,
-// Administrators and the supervisor, or secrets by anyone but SYSTEM and the
-// supervisor (S-22).
-func checkFolders(p Paths, id Identity) error {
-	if err := winsec.CheckWriters(p.Config(), winsec.SIDSystem, winsec.SIDAdministrators, id.Supervisor); err != nil {
-		return fmt.Errorf("refusing to run: %w", err)
-	}
-	// secrets belong to the supervisor alone (ADR-0006); SYSTEM owns the folder
-	if err := winsec.CheckWriters(p.Secrets(), winsec.SIDSystem, id.Supervisor); err != nil {
-		return fmt.Errorf("refusing to run: %w", err)
-	}
-	return nil
-}
-
 // ControlUsers is the file setup writes to name the accounts allowed on the
 // control pipe besides SYSTEM and elevated Administrators.
 type ControlUsers struct {
@@ -206,8 +193,8 @@ func readControlUsers(path string) ([]string, error) {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 	for _, u := range cu.Users {
-		if len(u) < 8 || u[:4] != "S-1-" {
-			return nil, fmt.Errorf("reading %s: %q is not a SID", path, u)
+		if _, err := winsec.UserSID(u); err != nil {
+			return nil, fmt.Errorf("reading %s: %w", path, err)
 		}
 	}
 	return cu.Users, nil
