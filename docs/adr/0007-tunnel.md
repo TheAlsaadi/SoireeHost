@@ -1,6 +1,6 @@
 # ADR-0007: Tunnel role, quick share and tunnel-token mode
 
-**Status:** Proposed
+**Status:** Accepted by the owner on 15 Nov 2026
 **Date:** 14 Nov 2026
 **Deciders:** Owner
 
@@ -205,13 +205,13 @@ Keeping shares in config makes the ports static, so S-10 and R-06 are pure valid
 
 ## Action items
 
-1. [ ] Owner: accept or amend this record.
-2. [ ] Lock and pin at 2026.11.0, fetch script, `cloudflared` build tag, embed, setup unpack, uninstall removal.
-3. [ ] Launcher: launch check, process start with nested job and mitigation, listener check, output parser and scrubber, restarts, health, quick-share hostname, ingress warning, log rotation.
-4. [ ] Typed per-role worker messages (SE-21); `pushTunnel` and the serialised `secret.set` (GO-6); token format check (S-50); scrubbing of reasons (R-21).
-5. [ ] Config: `tunnel` block and `quick_share`, the own-port set in validation (R-06), fuzz targets updated.
-6. [ ] Web worker: quick-share servers with the hostname gate (S-06).
-7. [ ] Control methods and status fields; audit entries.
-8. [ ] Setup: firewall block rules on install and repair, removed on uninstall (S-02).
-9. [ ] Tests: unit and fuzz (parser, token check, plan validation, ports), an in-process launcher test with a stand-in cloudflared (the test binary run again), worker tests for the quick-share 404, and e2e on CI: a real quick share fetched over the internet, the listener table and own-address port scan, a canary token swept from process command lines, logs and config, a tampered `cloudflared.exe` refused with `repair_needed`, and the firewall rules present with no allow rule.
-10. [ ] CI: fetch and embed in the build and isolation jobs; a `workflow_dispatch` input that holds a quick share open for the phone check.
+1. [x] Owner: accept or amend this record. Accepted 15 Nov 2026.
+2. [x] Lock and pin at 2026.11.0, fetch script, `cloudflared` build tag, embed, setup unpack, uninstall removal.
+3. [x] Launcher: launch check, process start with nested job and mitigation, listener check, output parser and scrubber, restarts, health, quick-share hostname, ingress warning, log rotation.
+4. [x] Typed per-role worker messages (SE-21); `pushTunnel` and the serialised `secret.set` (GO-6); token format check (S-50); scrubbing of reasons (R-21).
+5. [x] Config: `tunnel` block and `quick_share`, the own-port set in validation (R-06), fuzz targets updated.
+6. [x] Web worker: quick-share servers with the hostname gate (S-06).
+7. [x] Control methods and status fields; audit entries.
+8. [x] Setup: firewall block rules on install and repair, removed on uninstall (S-02).
+9. [x] Tests: unit and fuzz (parser, token check, plan validation, ports), an in-process launcher test with a stand-in cloudflared (the test binary run again), worker tests for the quick-share 404, and e2e on CI: a real quick share fetched over the internet, the listener table and own-address port scan, a canary token swept from process command lines, logs and config, a tampered `cloudflared.exe` refused with `repair_needed`, and the firewall rules present with no allow rule.
+10. [x] CI: fetch and embed in the build and isolation jobs; a `workflow_dispatch` input that holds a quick share open for the phone check. Items 2 to 10 done in pull request 7 (run 43620617955) and pull request 9 (phone-check steps), both merged 14 Nov 2026.
