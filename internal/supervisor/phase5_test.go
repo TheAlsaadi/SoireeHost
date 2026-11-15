@@ -316,3 +316,26 @@ func TestConfigImport(t *testing.T) {
 		t.Fatalf("legacy empty header not migrated: %+v", res.Config.Sites[0])
 	}
 }
+
+// SE-28, S-32: going back to a revision that sent fewer security headers
+// needs the same confirmation as removing one (security review, 16 Nov 2026).
+func TestRollbackToWeakerHeadersNeedsConfirmation(t *testing.T) {
+	h := start(t, nil)
+	site := h.proxySite("app", "127.0.0.1:3000")
+	site.RemoveHeaders = []string{"Referrer-Policy"}
+	var weak ipc.ConfigResult
+	if err := h.confirmed(ipc.MethodSitePut, &ipc.SitePutParams{Site: site}, &weak); err != nil {
+		t.Fatal(err)
+	}
+	site.RemoveHeaders = nil
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site}, nil); err != nil {
+		t.Fatal(err)
+	}
+	conf := confirmationOf(t, h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: weak.Revision}, nil))
+	if !strings.Contains(strings.Join(conf.Sentences, " "), "Referrer-Policy") {
+		t.Fatalf("sentences: %v", conf.Sentences)
+	}
+	if err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: weak.Revision, Confirmation: conf.Token}, nil); err != nil {
+		t.Fatal(err)
+	}
+}

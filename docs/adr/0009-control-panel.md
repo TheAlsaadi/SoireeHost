@@ -39,7 +39,7 @@ Owner decisions taken on 15 Nov 2026:
   - the few outside pages the app needs (the Cloudflare dashboard, the tunnel-token help page, the project page) open in the user's default browser through `OpenKnownLink(name)`, whose `name` comes from a closed set, so the UI never passes an address; a site's own address opens through `OpenSiteAddress`, which accepts only `https://` and a valid hostname.
 
   Known limit: a script running in the page could still navigate it. That needs a script to run, which the CSP and S-34 prevent. Revisit when Wails exposes the navigation events.
-- **Developer tools and dev server.** Release builds (`-tags production`, ADR-0003) turn off developer tools, the inspector, the default context menu and the `FRONTEND_DEVSERVER_URL` redirect. A Go test built with the production tag checks the window options. The CI isolation job checks that the running GUI role holds no TCP listener and opens no outbound connection.
+- **Developer tools and dev server.** Release builds (`-tags production`, ADR-0003) turn off developer tools, the inspector, the default context menu and the `FRONTEND_DEVSERVER_URL` redirect. Wails turns developer tools off in `production` builds whatever the window options say (checked in its v3.1.0 source). The CI isolation job starts the installed control panel and checks that it holds no listening socket (`TestControlPanelOpensNoPort`).
 - **One-binary rule.** Assets are embedded and served from memory by Wails' asset server, never from a port (ADR-0003).
 
 ### Untrusted text (S-34)

@@ -208,6 +208,7 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 			p.Revision, strings.Join(added, ", ")))
 	}
 	w.firewall(cur.Config, target.Config)
+	w.headers(cur.Config, target.Config)
 	q := *p
 	q.Confirmation = ""
 	if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodConfigRollback, params: q, token: p.Confirmation}, detail); e != nil {
