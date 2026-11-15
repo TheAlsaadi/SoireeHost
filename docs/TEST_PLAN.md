@@ -106,7 +106,7 @@ Plant canary tokens as the tunnel token and in site config, run the app through 
 | Event log (S-18, S-31) | Unit, fuzz | `fwevent` clean/validate/parse/read tables, `FuzzParseLine`, `FuzzClean`; `waf` `TestEventsHoldNoSecrets`; `redact` `FuzzURI` |
 | Weakening and exposure (S-32) | Integration, real pipes | `supervisor` `TestFirewallWeakeningNeedsConfirmation`, `TestExposureCheckBeforeLive`, `TestExposureCheckFailsClosed`, `TestFirewallEventsMethod`; `sitecheck` exposure scan tables |
 | Guard (R-13, R-19, SE-26) | Unit, fuzz | `worker` `TestGuardRefusesTargets`, `TestStripForwardedTable`, `FuzzStripForwarded` |
-| Memory (S-21) | Integration, then e2e | `worker` `TestFirewallMemory`; `e2e` `TestFirewallOnInstalledSystem` (installed worker's peak committed memory) |
+| Memory (S-21) | Integration, then e2e | `worker` `TestFirewallMemory`, `TestRefusalBeforeBodyIsAnswered` (a refused upload gets its answer, not a reset); `e2e` `TestFirewallOnInstalledSystem` (installed worker's peak committed memory) |
 
 Every Go command needs the `no_fs_access` tag; CI sets it in `GOFLAGS`.
 
