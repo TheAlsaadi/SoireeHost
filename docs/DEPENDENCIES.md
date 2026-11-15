@@ -55,6 +55,14 @@ Supply-chain-risk-auditor pass (S-75), 15 Nov 2026, over `go.mod` (7 direct depe
 - **The 13 modules Coraza brings.** None carries a known advisory. The audit checked advisories only at this depth.
 - **Advisories in the sweep.** All come from modules already on `main` at the same versions, not from this change: the accepted go-jose v3 advisories (below) and GHSA-q7gw-24fr-5p69 in OpenTelemetry, accepted at first and since cleared by the v1.47.0 upgrade (above).
 
+### Added in Phase 5: the control panel (ADR-0009), 16 Nov 2026
+
+| Module | Version | Licence | Why |
+| --- | --- | --- | --- |
+| `rsc.io/qr` | v0.2.0 | BSD-3-Clause | The QR code of a quick share address, made on this PC (plan section 6) so no address is sent to a QR service. Pure Go, no dependencies, about 1,500 lines; the input is a short `https://` address SoiréeHost itself checked. Supply-chain audit (16 Nov 2026, `supply-chain-risk-auditor` 2.0.4): no known advisory, repository not archived, no checked-in binaries; flagged only for no push since 2022, which is accepted for a finished encoder whose spec does not change. `govulncheck`: no vulnerabilities found |
+
+Also vendored as data: 26 icons of Fluent System Icons (Microsoft, MIT), path data only, from commit `67e6dec1ee956af3ab4c746a2b3bb6a2e5520a44` of `microsoft/fluentui-system-icons` (owner decision of 15 Nov 2026), in `docs/design/phase5-static/icons.svg` and `frontend/src/lib/icons/icons.ts`. No npm package.
+
 ### Vendored rule set (data, not code)
 
 | Data | Version | Licence | Why |
@@ -78,6 +86,8 @@ Supply-chain-risk-auditor pass (S-75), 15 Nov 2026, over `go.mod` (7 direct depe
 ## Build and test tools only (not shipped)
 
 Pinned exactly in `frontend/package.json` and `frontend/package-lock.json`: Vite 8.3.8, `@sveltejs/vite-plugin-svelte` 7.3.1, TypeScript 6.0.3, `svelte-check` 4.7.8, ESLint 10.14.0, `eslint-plugin-svelte` 3.24.1, `typescript-eslint` 8.72.2, Vitest 5.1.0, `globals` 17.14.0, `@eslint/js` 10.0.1. Licences across the lockfile: MIT, Apache-2.0, ISC, BSD-2/3-Clause, 0BSD, BlueOak-1.0.0 and MPL-2.0 (Vite's CSS tooling). None of these is shipped.
+
+Added in Phase 5 (16 Nov 2026): `happy-dom` 21.0.4 (MIT), a DOM for the Vitest component tests, including the Phase 5 acceptance check that attacker text shows as text in Activity. Chosen over `jsdom` 31.0.1 for its smaller tree (7 direct dependencies against 18); both had no known advisory and publish with provenance (`supply-chain-risk-auditor` 2.0.4). Development only, never in the bundle. `npm audit`: no new finding.
 
 TypeScript stays on 6.0.x because `svelte-check` 4.7.8 and `typescript-eslint` 8.72.2 do not yet support TypeScript 7.
 

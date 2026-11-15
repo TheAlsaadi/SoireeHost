@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -317,6 +318,28 @@ func (h *harness) call(method string, params, out any) error {
 	return h.client.Call(ctx, method, params, out)
 }
 
+// confirmed makes a weakening call the way the control panel does (S-32,
+// SE-27): params must point to a params struct with a Confirmation field.
+// The first call must answer confirmation_required with a token, unless it
+// fails for another reason, which is returned; the call is then sent again
+// with the token.
+func (h *harness) confirmed(method string, params, out any) error {
+	h.t.Helper()
+	err := h.call(method, params, out)
+	var e *ipc.Error
+	if !errors.As(err, &e) || e.Code != ipc.CodeConfirmationRequired {
+		if err == nil {
+			h.t.Fatalf("%s went through without confirmation", method)
+		}
+		return err
+	}
+	if e.Confirmation == nil || e.Confirmation.Token == "" {
+		h.t.Fatalf("%s: confirmation_required without a token", method)
+	}
+	reflect.ValueOf(params).Elem().FieldByName("Confirmation").SetString(e.Confirmation.Token)
+	return h.call(method, params, out)
+}
+
 func (h *harness) waitWorkers(want string) {
 	h.t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
@@ -480,7 +503,7 @@ func TestWeakeningNeedsConfirmation(t *testing.T) {
 		t.Fatalf("unconfirmed LAN target: %v", err)
 	}
 	var res ipc.ConfigResult
-	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site, Confirm: true}, &res); err != nil {
+	if err := h.confirmed(ipc.MethodSitePut, &ipc.SitePutParams{Site: site}, &res); err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Warnings) == 0 {
@@ -559,7 +582,7 @@ func TestTunnelTokenWriteOnly(t *testing.T) {
 	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok2}, nil); !errors.As(err, &e) || e.Code != ipc.CodeConfirmationRequired {
 		t.Fatalf("replacing without confirm: %v", err)
 	}
-	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok2, Confirm: true}, nil); err != nil {
+	if err := h.confirmed(ipc.MethodSecretSet, &ipc.SecretSetParams{Name: "tunnel_token", Value: tok2}, nil); err != nil {
 		t.Fatal(err)
 	}
 	h.waitPlan("the new token", func(p ipc.TunnelPlan) bool { return p.Token == tok2 })
@@ -676,7 +699,7 @@ func TestRollbackToLANNeedsConfirmation(t *testing.T) {
 	site := h.proxySite("nas", "192.168.1.20:5000")
 	site.Proxy.AllowLAN = true
 	var withLAN ipc.ConfigResult
-	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site, Confirm: true}, &withLAN); err != nil {
+	if err := h.confirmed(ipc.MethodSitePut, &ipc.SitePutParams{Site: site}, &withLAN); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.call(ipc.MethodSiteRemove, ipc.SiteIDParams{ID: "nas"}, nil); err != nil {
@@ -689,7 +712,7 @@ func TestRollbackToLANNeedsConfirmation(t *testing.T) {
 	if _, ids := siteIDs(h); len(ids) != 0 {
 		t.Fatalf("the unconfirmed rollback was applied: %v", ids)
 	}
-	if err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: withLAN.Revision, Confirm: true}, nil); err != nil {
+	if err := h.confirmed(ipc.MethodConfigRollback, &ipc.RollbackParams{Revision: withLAN.Revision}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, ids := siteIDs(h); len(ids) != 1 || ids[0] != "nas" {

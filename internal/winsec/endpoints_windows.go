@@ -15,6 +15,7 @@ import (
 type Endpoint struct {
 	Proto string // "tcp" or "udp"
 	Addr  netip.AddrPort
+	PID   uint32
 }
 
 // iphlpapi.dll is loaded from System32 only (S-24).
@@ -63,7 +64,7 @@ func EndpointsOf(pid uint32) ([]Endpoint, error) {
 		if err != nil {
 			return nil, err
 		}
-		eps, err := parseTable(buf, k, pid)
+		eps, err := parseTable(buf, k, pid, false)
 		if err != nil {
 			return nil, err
 		}
@@ -91,7 +92,30 @@ func readTable(k tableKind) ([]byte, error) {
 	return nil, errors.New("socket table kept growing")
 }
 
-func parseTable(buf []byte, k tableKind, pid uint32) ([]Endpoint, error) {
+// TCPListeners lists every listening TCP socket on the machine with the
+// process that owns it, for the control panel's port picker. It reads only
+// the system's socket table; it opens nothing.
+func TCPListeners() ([]Endpoint, error) {
+	var out []Endpoint
+	for _, k := range tableKinds {
+		if k.proto != "tcp" {
+			continue
+		}
+		buf, err := readTable(k)
+		if err != nil {
+			return nil, err
+		}
+		eps, err := parseTable(buf, k, 0, true)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, eps...)
+	}
+	return out, nil
+}
+
+// parseTable reads the rows of process pid, or of every process if all.
+func parseTable(buf []byte, k tableKind, pid uint32, all bool) ([]Endpoint, error) {
 	if len(buf) < 4 {
 		return nil, errors.New("short socket table")
 	}
@@ -102,7 +126,8 @@ func parseTable(buf []byte, k tableKind, pid uint32) ([]Endpoint, error) {
 	var out []Endpoint
 	for i := range n {
 		row := buf[4+i*k.rowSize : 4+(i+1)*k.rowSize]
-		if binary.LittleEndian.Uint32(row[k.pidOff:]) != pid {
+		owner := binary.LittleEndian.Uint32(row[k.pidOff:])
+		if !all && owner != pid {
 			continue
 		}
 		var addr netip.Addr
@@ -113,7 +138,7 @@ func parseTable(buf []byte, k tableKind, pid uint32) ([]Endpoint, error) {
 		}
 		// the port is in network byte order in the low 16 bits of the DWORD
 		port := uint16(row[k.portOff])<<8 | uint16(row[k.portOff+1])
-		out = append(out, Endpoint{Proto: k.proto, Addr: netip.AddrPortFrom(addr, port)})
+		out = append(out, Endpoint{Proto: k.proto, Addr: netip.AddrPortFrom(addr, port), PID: owner})
 	}
 	return out, nil
 }

@@ -1,0 +1,31 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "design-screens",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-I",
+        "-m",
+        "http.server",
+        "9246",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "docs/design/phase5-static"
+      ],
+      "port": 9246
+    },
+    {
+      "name": "ui-fake",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev:fake"
+      ],
+      "port": 9245
+    }
+  ]
+}

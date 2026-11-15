@@ -46,11 +46,11 @@ const maxScans = 2
 // scanReply runs one exposure check and builds its answer.
 func scanReply(scan func(ScanRequest) (sitecheck.ExposureReport, error), m WorkerMsg) WorkerMsg {
 	if scan == nil {
-		return WorkerMsg{Type: MsgFailed, Revision: m.Revision, Reason: "this worker does not check folders"}
+		return WorkerMsg{Type: MsgFailed, Revision: m.Revision, Code: FailOther, Reason: "this worker does not check folders"}
 	}
 	rep, err := scan(*m.Scan)
 	if err != nil {
-		return WorkerMsg{Type: MsgFailed, Revision: m.Revision, Reason: CutReason(err.Error())}
+		return WorkerMsg{Type: MsgFailed, Revision: m.Revision, Code: FailScan, Reason: CutReason(err.Error())}
 	}
 	return WorkerMsg{Type: MsgScanned, Revision: m.Revision, Exposure: &rep}
 }
@@ -122,7 +122,11 @@ func RunAgent(ctx context.Context, o AgentOptions) error {
 		case MsgLoad:
 			if lerr := o.Load(m); lerr != nil {
 				reason := CutReason(lerr.Error())
-				if err := wc.Send(WorkerMsg{Type: MsgFailed, Revision: m.Revision, Reason: reason}); err != nil {
+				code := FailureCode(lerr, FailConfigRejected)
+				if o.Role == RoleTunnel {
+					code = FailTunnelRefused
+				}
+				if err := wc.Send(WorkerMsg{Type: MsgFailed, Revision: m.Revision, Code: code, Reason: reason}); err != nil {
 					return err
 				}
 				if errors.Is(lerr, ErrAgentExit) {
@@ -146,7 +150,7 @@ func RunAgent(ctx context.Context, o AgentOptions) error {
 					_ = wc.Send(scanReply(o.Scan, m))
 				}(m)
 			default:
-				if err := wc.Send(WorkerMsg{Type: MsgFailed, Revision: m.Revision, Reason: "other folders are being checked; try again"}); err != nil {
+				if err := wc.Send(WorkerMsg{Type: MsgFailed, Revision: m.Revision, Code: FailBusy, Reason: "other folders are being checked; try again"}); err != nil {
 					return err
 				}
 			}

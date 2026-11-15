@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Security · SoiréeHost design</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="screens.css" />
+    <script src="theme.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="rail" aria-label="SoiréeHost">
+        <p class="rail-name">SoiréeHost</p>
+        <ul>
+          <li><a href="sites.html"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#sites" /></svg><span class="rail-label">Sites</span></a></li>
+          <li><a href="activity.html"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#activity" /></svg><span class="rail-label">Activity</span></a></li>
+          <li><a href="security.html" aria-current="page"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#security" /></svg><span class="rail-label">Security</span></a></li>
+          <li><a href="#backups"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#backups" /></svg><span class="rail-label">Backups</span></a></li>
+          <li><a href="#settings"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#settings" /></svg><span class="rail-label">Settings</span></a></li>
+        </ul>
+      </nav>
+
+      <div class="main">
+        <div class="statusline" role="status">
+          <p class="statusline-text">
+            <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg><strong>Online:</strong></span>
+            <span>2 of 4 sites served through Cloudflare Tunnel</span>
+          </p>
+          <button class="button" type="button">Take everything offline</button>
+        </div>
+
+        <main class="screen">
+          <div class="screen-head">
+            <h1>Security</h1>
+          </div>
+          <p class="screen-intro">What protects your PC and your sites right now. SoiréeHost guards the way in to a site and limits the damage if one is broken into. It cannot fix flaws inside an app you host.</p>
+
+          <div class="checklist-scroll">
+            <section class="group" aria-labelledby="g-reach">
+              <h2 id="g-reach">Reaching this PC</h2>
+              <ul class="checklist">
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>On</span>
+                  <div>
+                    <p class="check-name">No open ports</p>
+                    <p class="check-what">Nothing on this PC accepts connections from the internet. Visitors arrive through the tunnel, which your PC opens outwards.</p>
+                  </div>
+                </li>
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>On</span>
+                  <div>
+                    <p class="check-name">Windows Firewall rules</p>
+                    <p class="check-what">Block incoming connections to SoiréeHost and to the tunnel program.</p>
+                  </div>
+                </li>
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>On</span>
+                  <div>
+                    <p class="check-name">Tunnel program check</p>
+                    <p class="check-what">cloudflared.exe is compared with the copy built into SoiréeHost before every start. It matched at 09:14.</p>
+                  </div>
+                </li>
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>On</span>
+                  <div>
+                    <p class="check-name">Unknown addresses refused</p>
+                    <p class="check-what">A request for any address that is not one of your sites gets “not found”.</p>
+                  </div>
+                </li>
+              </ul>
+            </section>
+
+            <section class="group" aria-labelledby="g-requests">
+              <h2 id="g-requests">Requests to your sites</h2>
+              <ul class="checklist">
+                <li class="check">
+                  <span class="status status-warning"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-warning" /></svg>On, 1 exception</span>
+                  <div>
+                    <p class="check-name">Web application firewall</p>
+                    <p class="check-what">Blocks common attacks, such as SQL injection and cross-site scripting, using the OWASP Core Rule Set.</p>
+                    <ul class="exceptions" aria-label="Exceptions">
+                      <li><svg class="icon" aria-hidden="true"><use href="icons.svg#status-warning" /></svg><span><strong>Notes API</strong> is set to Detect only. Attacks are logged but not blocked.</span></li>
+                    </ul>
+                  </div>
+                  <button class="button" type="button">Open Notes API</button>
+                </li>
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>On</span>
+                  <div>
+                    <p class="check-name">Rate limits</p>
+                    <p class="check-what">Each visitor can make up to 300 requests a minute to a site, unless you change it for that site.</p>
+                  </div>
+                </li>
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>On</span>
+                  <div>
+                    <p class="check-name">Hidden files refused</p>
+                    <p class="check-what">Files such as .env, .git, private keys and backups are never served, even if they are in a site’s folder.</p>
+                  </div>
+                </li>
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>On</span>
+                  <div>
+                    <p class="check-name">Security headers</p>
+                    <p class="check-what">Tell browsers not to frame your sites, guess file types or leak the page address to other sites.</p>
+                  </div>
+                </li>
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>On</span>
+                  <div>
+                    <p class="check-name">Local apps only</p>
+                    <p class="check-what">Proxy sites can reach apps on this PC only, not other devices on your network.</p>
+                  </div>
+                </li>
+              </ul>
+            </section>
+
+            <section class="group" aria-labelledby="g-settings">
+              <h2 id="g-settings">Settings and secrets</h2>
+              <ul class="checklist">
+                <li class="check">
+                  <span class="status status-off"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-off" /></svg>Not set up</span>
+                  <div>
+                    <p class="check-name">Tunnel token</p>
+                    <p class="check-what">Gives your sites a permanent address on your own domain. Without it, sites go online through temporary quick share links.</p>
+                  </div>
+                  <button class="button" type="button">Set up</button>
+                </li>
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>On</span>
+                  <div>
+                    <p class="check-name">Settings protected</p>
+                    <p class="check-what">Only the SoiréeHost service and administrators can change the settings files. Their permissions are checked at every start.</p>
+                  </div>
+                </li>
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>On</span>
+                  <div>
+                    <p class="check-name">Web server kept apart</p>
+                    <p class="check-what">The web server and the tunnel run under their own Windows accounts, cannot start other programs and cannot read your secrets.</p>
+                  </div>
+                </li>
+                <li class="check">
+                  <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>Intact</span>
+                  <div>
+                    <p class="check-name">Change history</p>
+                    <p class="check-what">Every change to settings is recorded in a log that cannot be rewritten. Checked at 14:02: no entries missing or altered.</p>
+                  </div>
+                  <button class="button" type="button">View history</button>
+                </li>
+              </ul>
+            </section>
+
+            <section class="group" aria-labelledby="g-outbound">
+              <h2 id="g-outbound">Connections SoiréeHost makes</h2>
+              <ul class="checklist">
+                <li class="check">
+                  <span class="status"><svg class="icon" aria-hidden="true"><use href="icons.svg#cloud" /></svg>2 in total</span>
+                  <div>
+                    <p class="check-name">Outbound connections</p>
+                    <ul class="outbound check-what">
+                      <li>Cloudflare, for the tunnel, while a site is online.</li>
+                      <li>GitHub, to check for updates.</li>
+                    </ul>
+                    <p class="check-what">Nothing else. SoiréeHost sends no usage data.</p>
+                  </div>
+                </li>
+              </ul>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

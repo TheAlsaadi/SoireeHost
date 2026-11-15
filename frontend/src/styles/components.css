@@ -1,0 +1,365 @@
+/*
+ * Styles for the components the static screens did not show: dialogs,
+ * toasts, form controls, empty states, the QR code. Tokens only, logical
+ * properties only.
+ */
+
+/* The rail items are buttons: reset what a button brings. */
+.rail-item {
+  inline-size: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+}
+
+.split.split-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.drop-hint,
+.list-foot {
+  margin: 0;
+  padding-block: var(--space-3);
+  padding-inline: var(--space-6);
+}
+
+.page-actions {
+  margin-block: 0 var(--space-4);
+  padding-inline: var(--space-6);
+}
+
+/* ---------- Panels (Settings, first run) ---------- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+}
+
+.panel p {
+  margin: 0;
+}
+
+.first-panel {
+  margin-inline: var(--space-6);
+  max-inline-size: 40rem;
+}
+
+.first-panel h2 {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.check-setting {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.check-wide {
+  grid-template-columns: 8rem minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.group-sub {
+  margin-block: var(--space-4) var(--space-2);
+}
+
+.warnings-list li {
+  align-items: flex-start;
+}
+
+.licences {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+
+/* ---------- Form controls ---------- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.form-field legend,
+.form-field > label,
+.form-label {
+  margin-block-end: var(--space-1);
+  padding: 0;
+  font-weight: var(--weight-strong);
+}
+
+.form-field p {
+  margin: 0;
+}
+
+.form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.folder-path {
+  flex: 1;
+  min-inline-size: 12rem;
+  overflow-wrap: anywhere;
+}
+
+.input-text,
+.select-native {
+  min-block-size: var(--control-height);
+  padding-block: var(--space-1);
+  padding-inline: var(--space-3);
+  border: var(--border-width) solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.input-text.mono {
+  font-family: var(--font-mono);
+}
+
+textarea.input-text {
+  resize: vertical;
+}
+
+.input-short {
+  inline-size: 7rem;
+}
+
+.input-token {
+  flex: 1;
+  min-inline-size: 16rem;
+}
+
+.select-native {
+  min-inline-size: 9rem;
+}
+
+.input-bare {
+  flex: 1;
+  min-inline-size: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.input-bare:focus-visible {
+  outline: none;
+}
+
+.input:focus-within {
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: var(--control-height);
+}
+
+.choice-block {
+  align-items: flex-start;
+  padding-block: var(--space-1);
+}
+
+.choice input {
+  margin: 0;
+  accent-color: var(--text-primary);
+}
+
+.choice-block input {
+  margin-block-start: 3px;
+}
+
+.status-warning-text {
+  color: var(--status-warning);
+}
+
+.form-problem {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.form-problem .icon {
+  margin-block-start: 2px;
+  color: var(--status-danger);
+}
+
+.button:disabled,
+.switch:disabled {
+  opacity: 0.55;
+}
+
+/* ---------- Dialog ---------- */
+
+.dialog {
+  inline-size: min(34rem, calc(100vw - 2 * var(--space-6)));
+  max-block-size: calc(100vh - 2 * var(--space-6));
+  padding: 0;
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface-dialog);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-dialog);
+}
+
+.dialog::backdrop {
+  background: rgb(0 0 0 / 30%);
+}
+
+.dialog-title {
+  margin: 0;
+  padding-block: var(--space-5) var(--space-3);
+  padding-inline: var(--space-6);
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.dialog-body {
+  padding-inline: var(--space-6);
+  padding-block-end: var(--space-4);
+  overflow: auto;
+}
+
+.dialog-body p {
+  margin-block: 0 var(--space-3);
+}
+
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding-block: var(--space-4);
+  padding-inline: var(--space-6);
+  border-block-start: var(--border-width) solid var(--border-subtle);
+  background: var(--surface-main);
+}
+
+.confirm-list {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+
+.confirm-list li + li {
+  margin-block-start: var(--space-2);
+}
+
+/* ---------- Toasts ---------- */
+
+.toasts {
+  position: fixed;
+  inset-block-end: var(--space-4);
+  inset-inline-end: var(--space-4);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-inline-size: 26rem;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding-block: var(--space-2);
+  padding-inline: var(--space-3) var(--space-1);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface-dialog);
+  box-shadow: var(--shadow-menu);
+}
+
+.toast > .icon {
+  margin-block-start: 6px;
+}
+
+.toast-done > .icon {
+  color: var(--status-ok);
+}
+
+.toast-error > .icon {
+  color: var(--status-danger);
+}
+
+.toast-text {
+  flex: 1;
+  padding-block: var(--space-1);
+}
+
+.toast-text p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Empty state ---------- */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding-block: var(--space-6);
+  padding-inline: var(--space-6);
+  border-block-start: var(--border-width) solid var(--border-subtle);
+}
+
+.empty p {
+  margin: 0;
+  max-inline-size: 36rem;
+  color: var(--text-secondary);
+}
+
+/* ---------- QR code ---------- */
+
+.qr-wrap {
+  margin-block-start: var(--space-3);
+}
+
+.qr {
+  inline-size: 11rem;
+  block-size: 11rem;
+}
+
+/* A QR code must stay dark on light to scan, in every theme. */
+.qr-bg {
+  fill: #ffffff;
+}
+
+.qr-dot {
+  fill: #000000;
+}
+
+@media (forced-colors: active) {
+  .qr {
+    forced-color-adjust: none;
+  }
+
+  .dialog,
+  .toast {
+    border-color: CanvasText;
+  }
+}

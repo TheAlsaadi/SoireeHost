@@ -206,7 +206,7 @@ func TestGrantSiteAccess(t *testing.T) {
 	if ok, err := GrantsRead(dir, WorkerGroups(web)...); err != nil || ok {
 		t.Fatalf("locked folder readable by the worker: %v %v", ok, err)
 	}
-	if err := GrantSiteAccess(dir, web, sup); err != nil {
+	if _, err := GrantSiteAccess(dir, web, sup, acceptAll); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := GrantsRead(dir, WorkerGroups(web)...); err != nil || !ok {

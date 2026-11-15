@@ -21,102 +21,20 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/worker"
 )
 
-// handle dispatches one control call. Everything that reaches it has been
-// decoded strictly into the method's own type by ipc.DecodeRequest.
-func (s *Supervisor) handle(_ context.Context, c winsec.Caller, method string, params any) (any, *ipc.Error) {
-	switch method {
-	case ipc.MethodStatus:
-		return s.status(), nil
-	case ipc.MethodConfigGet:
-		rec, err := s.current()
-		if err != nil {
-			return nil, ipc.Errorf(ipc.CodeInternal, "The saved settings could not be read: %v", err)
-		}
-		return ipc.ConfigResult{Revision: rec.Revision, Config: rec.Config, Warnings: rec.Config.Warnings()}, nil
-	case ipc.MethodConfigHistory:
-		h, err := s.store.History()
-		if err != nil {
-			return nil, ipc.Errorf(ipc.CodeInternal, "The settings history could not be read: %v", err)
-		}
-		return ipc.HistoryResult{Revisions: h, LastGood: s.store.LastGood()}, nil
-	case ipc.MethodConfigRollback:
-		p, perr := paramsAs[ipc.RollbackParams](params)
-		if perr != nil {
-			return nil, perr
-		}
-		return s.rollback(c, p)
-	case ipc.MethodSitePut:
-		p, perr := paramsAs[ipc.SitePutParams](params)
-		if perr != nil {
-			return nil, perr
-		}
-		return s.sitePut(c, p)
-	case ipc.MethodSiteRemove:
-		p, perr := paramsAs[ipc.SiteIDParams](params)
-		if perr != nil {
-			return nil, perr
-		}
-		return s.siteRemove(c, p.ID)
-	case ipc.MethodSiteSetEnabled:
-		p, perr := paramsAs[ipc.SiteEnabledParams](params)
-		if perr != nil {
-			return nil, perr
-		}
-		return s.siteSetEnabled(c, p)
-	case ipc.MethodSecretSet:
-		p, perr := paramsAs[ipc.SecretSetParams](params)
-		if perr != nil {
-			return nil, perr
-		}
-		return s.secretSet(c, p)
-	case ipc.MethodSecretStatus:
-		st, err := s.secrets.Status(secrets.TunnelToken)
-		if err != nil {
-			return nil, ipc.Errorf(ipc.CodeInternal, "The secrets could not be read.")
-		}
-		return ipc.SecretStatusResult{Secrets: []ipc.SecretStatus{{Name: st.Name, Set: st.Set, SetAt: st.SetAt}}}, nil
-	case ipc.MethodAuditList:
-		p, perr := paramsAs[ipc.AuditListParams](params)
-		if perr != nil {
-			return nil, perr
-		}
-		return s.auditList(p)
-	case ipc.MethodQuickShareStart:
-		p, perr := paramsAs[ipc.QuickShareParams](params)
-		if perr != nil {
-			return nil, perr
-		}
-		return s.quickShareStart(c, p.SiteID)
-	case ipc.MethodQuickShareStop:
-		p, perr := paramsAs[ipc.QuickShareParams](params)
-		if perr != nil {
-			return nil, perr
-		}
-		return s.quickShareStop(c, p.SiteID)
-	case ipc.MethodTunnelOffline:
-		p, perr := paramsAs[ipc.OfflineParams](params)
-		if perr != nil {
-			return nil, perr
-		}
-		return s.setOffline(c, p.Offline)
-	case ipc.MethodFirewallEvents:
-		p, perr := paramsAs[ipc.FirewallEventsParams](params)
-		if perr != nil {
-			return nil, perr
-		}
-		return s.firewallEvents(p)
+func (s *Supervisor) configGet() (any, *ipc.Error) {
+	rec, err := s.current()
+	if err != nil {
+		return nil, ipc.Errorf(ipc.CodeInternal, "The saved settings could not be read: %v", err)
 	}
-	return nil, ipc.Errorf(ipc.CodeInvalid, "Unknown request.")
+	return ipc.ConfigResult{Revision: rec.Revision, Config: rec.Config, Warnings: rec.Config.Warnings()}, nil
 }
 
-// paramsAs returns a request's decoded details as *T, or an error if they are
-// missing or of another type, instead of panicking (review finding GO-15).
-func paramsAs[T any](params any) (*T, *ipc.Error) {
-	p, ok := params.(*T)
-	if !ok || p == nil {
-		return nil, ipc.Errorf(ipc.CodeInvalid, "The request's details are missing or not valid.")
+func (s *Supervisor) configHistory() (any, *ipc.Error) {
+	h, err := s.store.History()
+	if err != nil {
+		return nil, ipc.Errorf(ipc.CodeInternal, "The settings history could not be read: %v", err)
 	}
-	return p, nil
+	return ipc.HistoryResult{Revisions: h, LastGood: s.store.LastGood()}, nil
 }
 
 func (s *Supervisor) status() ipc.StatusResult {
@@ -182,7 +100,7 @@ func (s *Supervisor) applyOrRestore(rec config.Record, prev config.Config) (any,
 	case errors.As(err, &le):
 		good := s.store.LastGood()
 		if good == rec.Revision {
-			return nil, ipc.Errorf(ipc.CodeInvalid, "The web server could not use these settings: %s", le.reason)
+			return nil, le.withDetail(ipc.Errorf(ipc.CodeInvalid, "The web server could not use these settings: %s.", le.reason))
 		}
 		var back config.Record
 		rerr := errors.New("no revision the web server loaded is known")
@@ -195,12 +113,12 @@ func (s *Supervisor) applyOrRestore(rec config.Record, prev config.Config) (any,
 			back, rerr = s.store.Save(prev, winsec.SIDSystem, "Restored the settings before a change the web server refused")
 		}
 		if rerr != nil {
-			return nil, ipc.Errorf(ipc.CodeInternal, "The web server could not use these settings (%s), and restoring revision %d failed: %v", le.reason, good, rerr)
+			return nil, le.withDetail(ipc.Errorf(ipc.CodeInternal, "The web server could not use these settings (%s), and restoring revision %d failed: %v", le.reason, good, rerr))
 		}
 		s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 			"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10)})
 		_ = s.applyWeb(back)
-		return nil, ipc.Errorf(ipc.CodeInvalid, "The web server could not use these settings, so the previous settings were restored. Reason: %s", le.reason)
+		return nil, le.withDetail(ipc.Errorf(ipc.CodeInvalid, "The web server could not use these settings, so the previous settings were restored. Reason: %s.", le.reason))
 	default:
 		return nil, ipc.Errorf(ipc.CodeUnavailable, "The change was saved but could not be applied: %v", err)
 	}
@@ -239,19 +157,19 @@ func (s *Supervisor) workerConnected(_ context.Context, role string) {
 			// a slow or dying worker says nothing about the settings: report
 			// it and keep them, so a change saved while the worker was down
 			// is not undone by a slow first load
-			s.web.setState(StateRunning, "The web server did not finish loading the saved settings: "+le.reason)
+			s.web.setStateDetail(StateRunning, "The web server did not finish loading the saved settings: "+le.reason, le.detail)
 			return
 		}
 		// At connect time only a known-good revision is restored; with none,
 		// the saved settings stay as they are and the reason is reported, so
 		// a folder that is missing at boot never wipes the user's sites.
-		s.web.setState(StateRunning, "The web server could not use the saved settings: "+le.reason)
+		s.web.setStateDetail(StateRunning, "The web server could not use the saved settings: "+le.reason, le.detail)
 		if good := s.store.LastGood(); good != 0 && good != rec.Revision {
 			back, err := s.store.Rollback(good, winsec.SIDSystem)
 			if err != nil {
 				// reported, not hidden (R-22): the saved settings stay as
 				// they are until someone fixes or replaces them
-				s.web.setState(StateRunning, fmt.Sprintf("The web server could not use the saved settings (%s), and restoring revision %d failed: %v", le.reason, good, err))
+				s.web.setStateDetail(StateRunning, fmt.Sprintf("The web server could not use the saved settings (%s), and restoring revision %d failed: %v", le.reason, good, err), le.detail)
 				s.record(winsec.SIDSystem, "config.restore_failed", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 					"restored_revision": strconv.FormatUint(good, 10)})
 				return
@@ -290,7 +208,10 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 			p.Revision, strings.Join(added, ", ")))
 	}
 	w.firewall(cur.Config, target.Config)
-	if e := w.check(p.Confirm, detail); e != nil {
+	w.headers(cur.Config, target.Config)
+	q := *p
+	q.Confirmation = ""
+	if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodConfigRollback, params: q, token: p.Confirmation}, detail); e != nil {
 		return nil, e
 	}
 	rec, err := s.store.Rollback(p.Revision, c.SID)
@@ -379,7 +300,10 @@ func (s *Supervisor) sitePut(c winsec.Caller, p *ipc.SitePutParams) (any, *ipc.E
 		// S-14, S-32: a weaker firewall than now, or a new site that starts
 		// below Block, needs confirmation (ADR-0008)
 		w.firewall(*cfg, config.Config{Sites: []config.Site{site}})
-		if e := w.check(p.Confirm, detail); e != nil {
+		w.headers(*cfg, config.Config{Sites: []config.Site{site}})
+		q := *p
+		q.Confirmation = ""
+		if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodSitePut, params: q, token: p.Confirmation}, detail); e != nil {
 			return e
 		}
 		if i >= 0 {
@@ -451,7 +375,9 @@ func (s *Supervisor) siteSetEnabled(c winsec.Caller, p *ipc.SiteEnabledParams) (
 		if enabled && !site.Enabled && site.Type == config.TypeStatic && site.Static != nil && site.Static.Root != scanned {
 			return ipc.Errorf(ipc.CodeUnavailable, "The site changed while its folder was being checked. Try again.")
 		}
-		if e := w.check(p.Confirm, detail); e != nil {
+		q := *p
+		q.Confirmation = ""
+		if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodSiteSetEnabled, params: q, token: p.Confirmation}, detail); e != nil {
 			return e
 		}
 		cfg.Sites[i].Enabled = enabled
@@ -479,8 +405,14 @@ func (s *Supervisor) secretSet(c winsec.Caller, p *ipc.SecretSetParams) (any, *i
 	if err != nil {
 		return nil, ipc.Errorf(ipc.CodeInternal, "The secrets could not be read.")
 	}
-	if st.Set && !p.Confirm {
-		return nil, ipc.Errorf(ipc.CodeConfirmationRequired, "A tunnel token is already set. Replacing it changes which tunnel your sites use. Confirm to continue.")
+	if st.Set {
+		var w weakenings
+		w.add("tunnel", "A tunnel token is already set. Replacing it changes which tunnel your sites use.")
+		q := *p
+		q.Confirmation = ""
+		if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodSecretSet, params: q, token: p.Confirmation}, map[string]string{}); e != nil {
+			return nil, e
+		}
 	}
 	if err := s.secrets.Set(p.Name, []byte(p.Value)); err != nil {
 		return nil, ipc.Errorf(ipc.CodeInvalid, "The token could not be stored: %v", err)

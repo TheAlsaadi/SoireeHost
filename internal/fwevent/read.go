@@ -8,10 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"slices"
-	"strings"
 	"time"
+
+	"github.com/TheAlsaadi/SoireeHost/internal/logread"
 )
 
 // LogName is the firewall log's file name inside the web worker's log
@@ -85,7 +84,7 @@ func Read(dir string, q Query) (Page, error) {
 	if q.Limit <= 0 || q.Limit > MaxPage {
 		q.Limit = DefaultPage
 	}
-	files, err := logFiles(dir)
+	files, err := logread.Files(dir, LogName, "firewall-", time.Time{})
 	if err != nil {
 		return Page{}, err
 	}
@@ -121,55 +120,6 @@ func Read(dir string, q Query) (Page, error) {
 	return page, nil
 }
 
-// logFiles lists firewall.log and its rotated files, newest first. Links and
-// anything that is not a regular file are left out.
-func logFiles(dir string) ([]string, error) {
-	ents, err := os.ReadDir(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("listing the firewall logs: %w", err)
-	}
-	type file struct {
-		path string
-		mod  time.Time
-	}
-	var out []file
-	for _, e := range ents {
-		n := e.Name()
-		if n != LogName && (!strings.HasPrefix(n, "firewall-") || !strings.HasSuffix(n, ".log")) {
-			continue
-		}
-		if !e.Type().IsRegular() {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		out = append(out, file{filepath.Join(dir, n), info.ModTime()})
-	}
-	slices.SortStableFunc(out, func(a, b file) int {
-		if n := b.mod.Compare(a.mod); n != 0 {
-			return n
-		}
-		// the live file is the newest when times tie
-		if filepath.Base(a.path) == LogName {
-			return -1
-		}
-		if filepath.Base(b.path) == LogName {
-			return 1
-		}
-		return strings.Compare(b.path, a.path)
-	})
-	paths := make([]string, len(out))
-	for i, f := range out {
-		paths[i] = f.path
-	}
-	return paths, nil
-}
-
 // readFile returns the events in one file that match q, oldest first,
 // keeping only the newest q.Limit of them, the number of lines skipped, and
 // the bytes read (at most budget).
@@ -187,7 +137,7 @@ func readFile(path string, q Query, budget int64) ([]Event, int, int64, error) {
 	var evs []Event
 	skipped := 0
 	for {
-		b, tooLong, err := nextLine(r)
+		b, tooLong, err := logread.NextLine(r)
 		if len(b) > 0 || tooLong {
 			if tooLong {
 				skipped++
@@ -208,17 +158,4 @@ func readFile(path string, q Query, budget int64) ([]Event, int, int64, error) {
 		}
 	}
 	return evs, skipped, budget - lr.N, nil
-}
-
-// nextLine returns the next line without its newline. A line longer than the
-// reader's buffer is consumed and reported as too long.
-func nextLine(r *bufio.Reader) ([]byte, bool, error) {
-	b, err := r.ReadSlice('\n')
-	if errors.Is(err, bufio.ErrBufferFull) {
-		for errors.Is(err, bufio.ErrBufferFull) {
-			_, err = r.ReadSlice('\n')
-		}
-		return nil, true, err
-	}
-	return bytes.TrimRight(b, "\r\n"), false, err
 }

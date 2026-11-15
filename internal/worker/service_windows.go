@@ -63,8 +63,13 @@ func RunService(version string) error {
 // the process once it has reported the failure.
 func loadOrExit(m ipc.WorkerMsg) error {
 	err := LoadJSON(m.Caddy)
-	if errors.Is(err, ErrSelfCheck) {
-		return fmt.Errorf("%w: %w", ipc.ErrAgentExit, err)
+	switch {
+	case errors.Is(err, ErrSelfCheck):
+		return ipc.Coded(ipc.FailSelfCheck, fmt.Errorf("%w: %w", ipc.ErrAgentExit, err))
+	case errors.Is(err, ErrStart):
+		return ipc.Coded(ipc.FailStart, err)
+	case err != nil:
+		return ipc.Coded(ipc.FailConfigRejected, err)
 	}
-	return err
+	return nil
 }

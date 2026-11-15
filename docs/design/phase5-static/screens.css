@@ -1,0 +1,900 @@
+/*
+ * Static design screens for Phase 5 approval. Every value comes from
+ * tokens.css. Logical properties only (margin-inline-start, not margin-left),
+ * so a right-to-left layout stays possible (plan section 7).
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  block-size: 100%;
+}
+
+body {
+  background: var(--surface-window);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
+}
+
+:focus-visible {
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.small {
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.secondary {
+  color: var(--text-secondary);
+}
+
+.visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.icon {
+  inline-size: var(--icon-small);
+  block-size: var(--icon-small);
+  flex: none;
+  fill: currentColor;
+}
+
+.icon-large {
+  inline-size: var(--icon-large);
+  block-size: var(--icon-large);
+}
+
+/* ---------- Window frame ---------- */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  block-size: 100vh;
+  min-block-size: 30rem;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-block: var(--space-3);
+  padding-inline: var(--space-2);
+  background: var(--surface-window);
+}
+
+.rail-name {
+  margin: 0;
+  padding-block: var(--space-2) var(--space-4);
+  padding-inline: var(--space-3);
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.rail ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.rail a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-block-size: 2.25rem;
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.rail a:hover {
+  background: var(--surface-hover);
+}
+
+.rail a[aria-current="page"] {
+  background: var(--surface-selected);
+  color: var(--text-selected);
+  font-weight: var(--weight-strong);
+}
+
+/* The selected destination carries a bar as well as a background, so it
+   does not rely on a fill colour alone. */
+.rail a[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block: var(--space-2);
+  inline-size: 3px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  background: var(--surface-main);
+  border-inline-start: var(--border-width) solid var(--border-subtle);
+  border-block-start: var(--border-width) solid var(--border-subtle);
+  border-start-start-radius: var(--radius-panel);
+  margin-block-start: var(--space-2);
+}
+
+/* ---------- Status line: one sentence on every screen ---------- */
+
+.statusline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-block-size: 3rem;
+  padding-inline: var(--space-6) var(--space-4);
+  border-block-end: var(--border-width) solid var(--border-subtle);
+}
+
+.statusline-text {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.statusline-text strong {
+  font-weight: var(--weight-strong);
+}
+
+/* ---------- Screen header ---------- */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-block-size: 0;
+}
+
+.screen-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-block: var(--space-5) var(--space-4);
+  padding-inline: var(--space-6);
+}
+
+.screen-head h1 {
+  margin: 0;
+  flex: 1;
+  font-family: var(--font-title);
+  font-size: var(--text-title);
+  line-height: var(--leading-title);
+  font-weight: var(--weight-strong);
+}
+
+.screen-intro {
+  margin: 0;
+  padding-inline: var(--space-6);
+  padding-block-end: var(--space-4);
+  max-inline-size: 44rem;
+  color: var(--text-secondary);
+}
+
+/* ---------- Buttons ---------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-block-size: var(--control-height);
+  padding-inline: var(--space-3);
+  border: var(--border-width) solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+  transition: background-color var(--motion-fast) var(--ease);
+}
+
+.button:hover {
+  background: var(--surface-hover);
+}
+
+.button:active {
+  background: var(--surface-pressed);
+}
+
+/* The accent appears here and on the focus ring, nowhere else. */
+.button-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-weight: var(--weight-strong);
+}
+
+.button-primary:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.button-primary:active {
+  background: var(--accent-pressed);
+}
+
+.button-subtle {
+  border-color: transparent;
+  background: transparent;
+}
+
+.button-icon {
+  inline-size: var(--control-height);
+  padding-inline: 0;
+}
+
+/* ---------- Switch: on/off is state, so it is grey, never the accent ---------- */
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.switch-track {
+  position: relative;
+  inline-size: 2.5rem;
+  block-size: 1.25rem;
+  border: var(--border-width) solid var(--border-control);
+  border-radius: 0.625rem;
+  background: var(--surface-raised);
+  flex: none;
+}
+
+.switch-track::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 3px;
+  inset-inline-start: 3px;
+  inline-size: 0.75rem;
+  block-size: 0.75rem;
+  border-radius: 50%;
+  background: var(--switch-knob-off);
+  transition: inset-inline-start var(--motion-fast) var(--ease);
+}
+
+.switch[aria-checked="true"] .switch-track {
+  border-color: var(--switch-on);
+  background: var(--switch-on);
+}
+
+.switch[aria-checked="true"] .switch-track::after {
+  inset-inline-start: calc(100% - 0.75rem - 3px);
+  background: var(--switch-knob-on);
+}
+
+.switch-label {
+  min-inline-size: 1.75rem;
+}
+
+button.switch {
+  padding: var(--space-1);
+  margin: calc(var(--space-1) * -1);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+/* ---------- Status mark: shape + word + colour, never colour alone ---------- */
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.status-ok .icon {
+  color: var(--status-ok);
+}
+
+.status-warning .icon {
+  color: var(--status-warning);
+}
+
+.status-danger .icon {
+  color: var(--status-danger);
+}
+
+.status-off .icon {
+  color: var(--status-off);
+}
+
+/* ---------- Two-column body: list and detail pane ---------- */
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--pane-width);
+  flex: 1;
+  min-block-size: 0;
+  border-block-start: var(--border-width) solid var(--border-subtle);
+}
+
+.split > .list-region {
+  overflow: auto;
+  min-inline-size: 0;
+}
+
+/* ---------- Tables (Sites list, Activity log) ---------- */
+
+.table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  background: var(--surface-raised);
+}
+
+.table th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  padding-block: var(--space-2);
+  padding-inline: var(--space-3);
+  background: var(--surface-main);
+  border-block-end: var(--border-width) solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  font-weight: var(--weight-strong);
+  text-align: start;
+  white-space: nowrap;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-inline-start: var(--space-6);
+}
+
+.table td {
+  block-size: var(--row-height);
+  padding-block: var(--space-1);
+  padding-inline: var(--space-3);
+  border-block-end: var(--border-width) solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.table tbody tr:hover {
+  background: var(--surface-hover);
+}
+
+.table tbody tr[aria-selected="true"] {
+  background: var(--surface-selected);
+  color: var(--text-selected);
+}
+
+.table tbody tr[aria-selected="true"] td:first-child {
+  box-shadow: inset 3px 0 0 currentColor;
+}
+
+/* In right-to-left the bar moves to the other edge. */
+[dir="rtl"] .table tbody tr[aria-selected="true"] td:first-child {
+  box-shadow: inset -3px 0 0 currentColor;
+}
+
+.table tbody tr[aria-selected="true"] .status .icon,
+.table tbody tr[aria-selected="true"] .secondary {
+  color: inherit;
+}
+
+.cell-truncate {
+  max-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-name {
+  font-weight: var(--weight-strong);
+}
+
+.table-fixed {
+  table-layout: fixed;
+}
+
+.table-fixed td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.col-name {
+  inline-size: 10rem;
+}
+
+.col-type {
+  inline-size: 4.5rem;
+}
+
+.col-status {
+  inline-size: 11rem;
+}
+
+.col-switch {
+  inline-size: 6.75rem;
+}
+
+.col-time {
+  inline-size: 6rem;
+}
+
+.col-site {
+  inline-size: 8.5rem;
+}
+
+.col-result {
+  inline-size: 8.5rem;
+}
+
+.col-visitor {
+  inline-size: 8rem;
+}
+
+/* ---------- Detail pane ---------- */
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  overflow: auto;
+  background: var(--surface-raised);
+  border-inline-start: var(--border-width) solid var(--border-subtle);
+}
+
+.pane-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding-block: var(--space-4) var(--space-3);
+  padding-inline: var(--space-5) var(--space-3);
+}
+
+.pane-head h2 {
+  margin: 0;
+  flex: 1;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  font-weight: var(--weight-strong);
+  overflow-wrap: anywhere;
+}
+
+.pane-section {
+  padding-block: var(--space-3) var(--space-4);
+  padding-inline: var(--space-5);
+  border-block-start: var(--border-width) solid var(--border-subtle);
+}
+
+.pane-section h3 {
+  margin-block: 0 var(--space-2);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  font-weight: var(--weight-strong);
+  color: var(--text-secondary);
+}
+
+.health {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding-inline: var(--space-5);
+  padding-block-end: var(--space-4);
+}
+
+.health .icon {
+  margin-block-start: 2px;
+}
+
+.address {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-3);
+}
+
+.note {
+  display: flex;
+  gap: var(--space-2);
+  margin-block: var(--space-3) 0;
+  color: var(--text-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+/* Label/value lists inside the pane. */
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--text-secondary);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pane-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: auto;
+  padding-block: var(--space-4);
+  padding-inline: var(--space-5);
+  border-block-start: var(--border-width) solid var(--border-subtle);
+}
+
+/* ---------- Filter bar (Activity) ---------- */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding-inline: var(--space-6);
+  padding-block-end: var(--space-4);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.field label {
+  color: var(--text-secondary);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.select,
+.input {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-inline-size: 9rem;
+  min-block-size: var(--control-height);
+  padding-inline: var(--space-3) var(--space-2);
+  border: var(--border-width) solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.input {
+  justify-content: flex-start;
+  min-inline-size: 14rem;
+  color: var(--text-secondary);
+}
+
+.live {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+/* ---------- Log rows ---------- */
+
+.log td {
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.log .mono {
+  font-size: var(--text-small);
+}
+
+.log tr.is-blocked {
+  background: var(--surface-blocked);
+}
+
+.log tr.is-blocked td:first-child {
+  box-shadow: inset 3px 0 0 var(--status-danger);
+}
+
+[dir="rtl"] .log tr.is-blocked td:first-child {
+  box-shadow: inset -3px 0 0 var(--status-danger);
+}
+
+.log tr.is-blocked[aria-selected="true"] {
+  background: var(--surface-selected);
+}
+
+.log .result {
+  white-space: nowrap;
+}
+
+.log .result .icon {
+  color: var(--status-off);
+}
+
+.log .is-blocked .result .icon {
+  color: var(--status-danger);
+}
+
+.log .result-warning .icon {
+  color: var(--status-warning);
+}
+
+.code-block {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-main);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A character that could hide or reorder text, shown as a visible marker. */
+.ctl {
+  padding-inline: 2px;
+  border: var(--border-width) solid var(--border-control);
+  border-radius: 2px;
+  color: var(--text-secondary);
+}
+
+.rule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* ---------- Security checklist ---------- */
+
+.checklist-scroll {
+  flex: 1;
+  overflow: auto;
+  padding-block-end: var(--space-8);
+}
+
+.group {
+  margin-inline: var(--space-6);
+  margin-block-end: var(--space-6);
+  max-inline-size: 60rem;
+}
+
+.group h2 {
+  margin-block: 0 var(--space-2);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  font-weight: var(--weight-strong);
+}
+
+.checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+}
+
+.check {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-4);
+  padding-block: var(--space-3);
+  padding-inline: var(--space-4);
+}
+
+.check + .check {
+  border-block-start: var(--border-width) solid var(--border-subtle);
+}
+
+.check-name {
+  margin: 0;
+  font-weight: var(--weight-strong);
+}
+
+.check-what {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.check .status {
+  padding-block-start: 1px;
+}
+
+.exceptions {
+  list-style: none;
+  margin-block: var(--space-2) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.exceptions li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.exceptions .icon {
+  align-self: center;
+  color: var(--status-warning);
+}
+
+.outbound {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+
+/* ---------- Window sizes ---------- */
+
+@media (max-width: 60rem) {
+  /* The address is in the detail pane; the list drops it when narrow. */
+  .col-address,
+  .cell-address {
+    display: none;
+  }
+
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .pane {
+    border-inline-start: 0;
+    border-block-start: var(--border-width) solid var(--border-subtle);
+    max-block-size: 50vh;
+  }
+
+  .check {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+}
+
+@media (forced-colors: active) {
+  .switch-track,
+  .button,
+  .select,
+  .input {
+    forced-color-adjust: none;
+  }
+
+  .table tbody tr[aria-selected="true"],
+  .rail a[aria-current="page"] {
+    forced-color-adjust: none;
+  }
+
+  .log tr.is-blocked td:first-child {
+    border-inline-start: 3px solid CanvasText;
+  }
+}
+
+.pane-section .subhead {
+  margin-block-start: var(--space-3);
+}
+
+/* Normal results carry no mark; the spacer keeps the numbers aligned with
+   the marked ones. */
+.mark-space {
+  display: inline-block;
+  inline-size: var(--icon-small);
+  flex: none;
+}
+
+/* A switch inside the selected row takes the row's text colour, so it stays
+   visible when the selection fill is the same colour as an "on" track
+   (contrast themes). */
+.table tbody tr[aria-selected="true"] .switch-track {
+  border-color: var(--text-selected);
+}
+
+.table tbody tr[aria-selected="true"] .switch[aria-checked="true"] .switch-track {
+  background: var(--text-selected);
+}
+
+.table tbody tr[aria-selected="true"] .switch[aria-checked="true"] .switch-track::after {
+  background: var(--surface-selected);
+}
+
+/* ---------- Large text or a small window (200 % zoom) ---------- */
+
+/* The rail keeps its icons and drops the visible labels; each link keeps its
+   name for screen readers. */
+@media (max-width: 45rem) {
+  .app {
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+  }
+
+  .rail {
+    padding-inline: var(--space-1);
+  }
+
+  .rail-name,
+  .rail-label {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .rail a {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  /* The visitor is in the detail pane; the log keeps room for the request. */
+  .col-visitor,
+  .cell-visitor {
+    display: none;
+  }
+
+  .col-site {
+    inline-size: 7rem;
+  }
+}
+
+/* A short window scrolls as one page instead of squeezing the list. */
+@media (max-height: 34rem) {
+  .app {
+    block-size: auto;
+    min-block-size: 100vh;
+  }
+
+  .split {
+    display: block;
+  }
+
+  .split > .list-region,
+  .pane,
+  .checklist-scroll {
+    overflow: visible;
+    max-block-size: none;
+  }
+}

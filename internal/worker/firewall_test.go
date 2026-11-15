@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/accesslog"
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/fwevent"
 )
@@ -47,6 +48,26 @@ func waitEvent(t *testing.T, site, mark string) fwevent.Event {
 	return fwevent.Event{}
 }
 
+// waitAccess waits for the access-log entry whose path holds mark.
+func waitAccess(t *testing.T, mark string) accesslog.Entry {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		p, err := accesslog.Read(logDir, accesslog.Query{Limit: accesslog.MaxPage})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range p.Entries {
+			if strings.Contains(e.URI, mark) {
+				return e
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("no access entry for %s", mark)
+	return accesslog.Entry{}
+}
+
 // Phase 4 check: sample SQL injection, cross-site scripting and traversal
 // requests get a 403 through the whole handler chain and appear in the
 // firewall log; normal requests pass (S-14).
@@ -75,6 +96,12 @@ func TestFirewallInChain(t *testing.T) {
 			}
 			if strings.Contains(e.URI, "UNION") || strings.Contains(e.URI, "script") || strings.Contains(e.URI, "passwd") {
 				t.Errorf("%s: query value kept in the event: %q", name, e.URI)
+			}
+			// ADR-0009: Activity names the rule by matching the access-log
+			// entry to this event on host, path, client and method
+			a := waitAccess(t, mark)
+			if a.Host != e.Host || a.URI != e.URI || a.ClientIP != e.ClientIP || a.Method != e.Method || a.Status != 403 {
+				t.Errorf("%s on %s: access entry %+v does not match event %+v", name, host, a, e)
 			}
 		}
 	}

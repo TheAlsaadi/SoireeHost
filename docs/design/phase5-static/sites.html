@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Sites · SoiréeHost design</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="screens.css" />
+    <script src="theme.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="rail" aria-label="SoiréeHost">
+        <p class="rail-name">SoiréeHost</p>
+        <ul>
+          <li><a href="sites.html" aria-current="page"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#sites" /></svg><span class="rail-label">Sites</span></a></li>
+          <li><a href="activity.html"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#activity" /></svg><span class="rail-label">Activity</span></a></li>
+          <li><a href="security.html"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#security" /></svg><span class="rail-label">Security</span></a></li>
+          <li><a href="#backups"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#backups" /></svg><span class="rail-label">Backups</span></a></li>
+          <li><a href="#settings"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#settings" /></svg><span class="rail-label">Settings</span></a></li>
+        </ul>
+      </nav>
+
+      <div class="main">
+        <div class="statusline" role="status">
+          <p class="statusline-text">
+            <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg><strong>Online:</strong></span>
+            <span>2 of 4 sites served through Cloudflare Tunnel</span>
+          </p>
+          <button class="button" type="button">Take everything offline</button>
+        </div>
+
+        <main class="screen">
+          <div class="screen-head">
+            <h1>Sites</h1>
+            <button class="button button-primary" type="button"><svg class="icon" aria-hidden="true"><use href="icons.svg#add" /></svg>Add site</button>
+          </div>
+
+          <div class="split">
+            <div class="list-region">
+              <table class="table table-fixed" role="grid" aria-label="Sites">
+                <colgroup><col class="col-name" /><col class="col-address" /><col class="col-type" /><col class="col-status" /><col class="col-switch" /></colgroup>
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col" class="cell-address">Address</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Serving</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr aria-selected="true" tabindex="0">
+                    <td class="site-name">Recipe notes</td>
+                    <td class="cell-truncate cell-address mono small" title="https://plain-river-tide.trycloudflare.com">plain-river-tide.trycloudflare.com</td>
+                    <td>Static</td>
+                    <td><span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>Online</span></td>
+                    <td>
+                      <button class="switch" type="button" role="switch" aria-checked="true" aria-label="Serve Recipe notes"><span class="switch-track"></span><span class="switch-label">On</span></button>
+                    </td>
+                  </tr>
+                  <tr aria-selected="false" tabindex="-1">
+                    <td class="site-name">Budget tracker</td>
+                    <td class="cell-truncate cell-address mono small" title="https://amber-coast-lamp.trycloudflare.com">amber-coast-lamp.trycloudflare.com</td>
+                    <td>Proxy</td>
+                    <td><span class="status status-warning"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-warning" /></svg>Port 3000 is not answering</span></td>
+                    <td>
+                      <button class="switch" type="button" role="switch" aria-checked="true" aria-label="Serve Budget tracker"><span class="switch-track"></span><span class="switch-label">On</span></button>
+                    </td>
+                  </tr>
+                  <tr aria-selected="false" tabindex="-1">
+                    <td class="site-name">Notes API</td>
+                    <td class="secondary cell-address">No address yet</td>
+                    <td>Proxy</td>
+                    <td><span class="status status-off"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-off" /></svg>Not online</span></td>
+                    <td>
+                      <button class="switch" type="button" role="switch" aria-checked="true" aria-label="Serve Notes API"><span class="switch-track"></span><span class="switch-label">On</span></button>
+                    </td>
+                  </tr>
+                  <tr aria-selected="false" tabindex="-1">
+                    <td class="site-name">Old portfolio</td>
+                    <td class="secondary cell-address">No address yet</td>
+                    <td>Static</td>
+                    <td><span class="status status-off"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-off" /></svg>Stopped</span></td>
+                    <td>
+                      <button class="switch" type="button" role="switch" aria-checked="false" aria-label="Serve Old portfolio"><span class="switch-track"></span><span class="switch-label">Off</span></button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <aside class="pane" aria-labelledby="pane-title">
+              <div class="pane-head">
+                <h2 id="pane-title">Recipe notes</h2>
+                <button class="button button-subtle button-icon" type="button" aria-label="Close details"><svg class="icon" aria-hidden="true"><use href="icons.svg#dismiss" /></svg></button>
+              </div>
+              <p class="health status-ok">
+                <svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>
+                <span><span class="visually-hidden">Online. </span>Serving through a quick share link. Last request at 14:02.</span>
+              </p>
+
+              <section class="pane-section" aria-labelledby="h-address">
+                <h3 id="h-address">Address</h3>
+                <p class="address">https://plain-river-tide.trycloudflare.com</p>
+                <div class="actions">
+                  <button class="button" type="button"><svg class="icon" aria-hidden="true"><use href="icons.svg#copy" /></svg>Copy address</button>
+                  <button class="button" type="button"><svg class="icon" aria-hidden="true"><use href="icons.svg#qr" /></svg>Show QR code</button>
+                </div>
+                <p class="note"><svg class="icon" aria-hidden="true"><use href="icons.svg#info" /></svg>Temporary link for testing. It changes whenever the tunnel restarts.</p>
+              </section>
+
+              <section class="pane-section" aria-labelledby="h-content">
+                <h3 id="h-content">Content</h3>
+                <dl class="facts">
+                  <dt>Type</dt>
+                  <dd>Static files from a folder</dd>
+                  <dt>Folder</dt>
+                  <dd class="mono small">C:\Sites\recipes</dd>
+                  <dt>Folder listing</dt>
+                  <dd>Off</dd>
+                  <dt>.well-known folder</dt>
+                  <dd>Off</dd>
+                </dl>
+              </section>
+
+              <section class="pane-section" aria-labelledby="h-online">
+                <h3 id="h-online">Going online</h3>
+                <dl class="facts">
+                  <dt>Quick share</dt>
+                  <dd>On</dd>
+                  <dt>Permanent address</dt>
+                  <dd>Needs a tunnel token, set in Settings</dd>
+                </dl>
+                <div class="actions">
+                  <button class="button" type="button">Stop sharing</button>
+                </div>
+              </section>
+
+              <section class="pane-section" aria-labelledby="h-protection">
+                <h3 id="h-protection">Protection</h3>
+                <dl class="facts">
+                  <dt>Firewall</dt>
+                  <dd>Block, paranoia level 1</dd>
+                  <dt>Rate limit</dt>
+                  <dd>300 requests a minute per visitor</dd>
+                  <dt>Upload limit</dt>
+                  <dd>10 MB per request</dd>
+                  <dt>Security headers</dt>
+                  <dd>All four sent</dd>
+                </dl>
+              </section>
+
+              <div class="pane-foot">
+                <button class="button" type="button">Edit site</button>
+                <button class="button" type="button">Stop serving</button>
+                <button class="button" type="button"><svg class="icon" aria-hidden="true"><use href="icons.svg#delete" /></svg>Remove site</button>
+              </div>
+            </aside>
+          </div>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

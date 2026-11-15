@@ -60,7 +60,7 @@ func TestFirewallWeakeningNeedsConfirmation(t *testing.T) {
 		s := site
 		s.Firewall.Mode = mode
 		wantConfirm(t, h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: s}, nil), mode)
-		if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: s, Confirm: true}, &res); err != nil {
+		if err := h.confirmed(ipc.MethodSitePut, &ipc.SitePutParams{Site: s}, &res); err != nil {
 			t.Fatal(err)
 		}
 		if !auditHas(t, h, "site.put", "weakening", "firewall") {
@@ -81,7 +81,7 @@ func TestFirewallWeakeningNeedsConfirmation(t *testing.T) {
 	// rolling back to the Off revision is weakening too
 	offRev := res.Revision - 1
 	wantConfirm(t, h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: offRev}, nil), "rollback to Off")
-	if err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: offRev, Confirm: true}, nil); err != nil {
+	if err := h.confirmed(ipc.MethodConfigRollback, &ipc.RollbackParams{Revision: offRev}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !auditHas(t, h, "config.rollback", "weakening", "firewall") {
@@ -126,7 +126,7 @@ func TestExposureCheckBeforeLive(t *testing.T) {
 		t.Fatal("file contents in the message")
 	}
 	var res ipc.ConfigResult
-	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site, Confirm: true}, &res); err != nil {
+	if err := h.confirmed(ipc.MethodSitePut, &ipc.SitePutParams{Site: site}, &res); err != nil {
 		t.Fatal(err)
 	}
 	// editing a live site's other settings does not ask again
@@ -152,7 +152,7 @@ func TestExposureCheckBeforeLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantConfirm(t, h.call(ipc.MethodSiteSetEnabled, ipc.SiteEnabledParams{ID: "blog", Enabled: true}, nil), "re-enabling")
-	if err := h.call(ipc.MethodSiteSetEnabled, ipc.SiteEnabledParams{ID: "blog", Enabled: true, Confirm: true}, &res); err != nil {
+	if err := h.confirmed(ipc.MethodSiteSetEnabled, &ipc.SiteEnabledParams{ID: "blog", Enabled: true}, &res); err != nil {
 		t.Fatal(err)
 	}
 	// a disabled site is saved without a check
@@ -177,7 +177,9 @@ func TestExposureCheckFailsClosed(t *testing.T) {
 	site := config.Site{ID: "blog", Name: "Blog", Enabled: true, Hostnames: []string{"blog.example.com"},
 		Type: config.TypeStatic, Static: &config.Static{Root: root}}
 	var e *ipc.Error
-	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site, Confirm: true}, nil); !errors.As(err, &e) || e.Code != ipc.CodeInvalid || !strings.Contains(e.Message, "disk on fire") {
+	if err := h.confirmed(ipc.MethodSitePut, &ipc.SitePutParams{Site: site}, nil); !errors.As(err, &e) || e.Code != ipc.CodeInvalid ||
+		strings.Contains(e.Message, "disk on fire") || e.WorkerDetail != "disk on fire" {
+		// DR-6: the worker's words come back apart from the message, never in it
 		t.Fatalf("failed check: %v", err)
 	}
 	var cur ipc.ConfigResult

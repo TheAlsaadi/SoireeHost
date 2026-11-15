@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
@@ -47,6 +48,10 @@ type WorkerMsg struct {
 	Tunnel   *TunnelPlan     `json:"tunnel,omitempty"`
 	Report   *TunnelReport   `json:"report,omitempty"`
 	Reason   string          `json:"reason,omitempty"`
+	// Code is a failed message's reason as one of a closed set (review
+	// finding DR-6); Reason is then the worker's own detail, which the
+	// supervisor cleans and never presents as its own words.
+	Code string `json:"code,omitempty"`
 	// Scan asks the web worker to check a static site's folder; Exposure
 	// is its answer (ADR-0008).
 	Scan     *ScanRequest              `json:"scan,omitempty"`
@@ -62,6 +67,92 @@ type ScanRequest struct {
 
 // MaxReasonLen bounds a worker's failure reason.
 const MaxReasonLen = 2048
+
+// Failure codes a worker may give in a failed message (DR-6).
+const (
+	FailConfigRejected = "config_rejected"
+	FailSelfCheck      = "self_check_failed"
+	FailStart          = "start_failed"
+	FailScan           = "scan_failed"
+	FailBusy           = "busy"
+	FailTunnelRefused  = "tunnel_refused"
+	FailOther          = "other"
+)
+
+// failureSentences are the supervisor's own words for each code; the
+// worker's detail is shown apart from them, labelled as coming from the
+// worker.
+var failureSentences = map[string]string{
+	FailConfigRejected: "the web server refused the new settings",
+	FailSelfCheck:      "the web server found it was listening on an address other than this PC's loopback address and stopped",
+	FailStart:          "the web server could not start with the new settings",
+	FailScan:           "the web server could not check the folder",
+	FailBusy:           "the web server is busy checking other folders; try again",
+	FailTunnelRefused:  "the tunnel launcher refused the tunnel settings",
+	FailOther:          "the worker reported a problem",
+}
+
+// ValidFailureCode reports whether c is one of the failure codes.
+func ValidFailureCode(c string) bool { _, ok := failureSentences[c]; return ok }
+
+// FailureSentence is the supervisor's sentence for a failure code.
+func FailureSentence(c string) string {
+	if s, ok := failureSentences[c]; ok {
+		return s
+	}
+	return failureSentences[FailOther]
+}
+
+// CodedError gives an error one of the failure codes.
+type CodedError struct {
+	Code string
+	Err  error
+}
+
+func (e *CodedError) Error() string { return e.Err.Error() }
+func (e *CodedError) Unwrap() error { return e.Err }
+
+// Coded wraps err with a failure code.
+func Coded(code string, err error) error { return &CodedError{Code: code, Err: err} }
+
+// FailureCode returns the code err carries, or fallback.
+func FailureCode(err error, fallback string) string {
+	var ce *CodedError
+	if errors.As(err, &ce) && ValidFailureCode(ce.Code) {
+		return ce.Code
+	}
+	return fallback
+}
+
+// MaxDetailRunes bounds a cleaned worker detail.
+const MaxDetailRunes = 200
+
+// CleanDetail turns a worker's failure text into one short line that is safe
+// to show: every control, format or otherwise invisible character (newlines,
+// bidirectional overrides, zero-width characters) becomes a space, runs of
+// spaces collapse, and the result is cut to MaxDetailRunes characters (DR-6).
+func CleanDetail(s string) string {
+	var b strings.Builder
+	space := false
+	n := 0
+	for _, r := range strings.ToValidUTF8(s, "\uFFFD") {
+		blank := !unicode.IsGraphic(r) || unicode.Is(unicode.Cf, r) || unicode.IsSpace(r)
+		if blank && (space || b.Len() == 0) {
+			continue
+		}
+		if n == MaxDetailRunes {
+			return strings.TrimRight(b.String(), " ") + "…"
+		}
+		if blank {
+			b.WriteByte(' ')
+		} else {
+			b.WriteRune(r)
+		}
+		space = blank
+		n++
+	}
+	return strings.TrimRight(b.String(), " ")
+}
 
 // CutReason makes an error text a valid failure reason: valid UTF-8, at
 // most MaxReasonLen bytes, cut on a character boundary, never empty. JSON
@@ -132,6 +223,9 @@ func (m WorkerMsg) ValidateFor(role string) error {
 	case MsgFailed:
 		if m.Reason == "" || len(m.Reason) > MaxReasonLen || m.hasPayload() {
 			return errors.New("failed needs a short reason and no payload")
+		}
+		if !ValidFailureCode(m.Code) {
+			return errors.New("failed needs a known failure code")
 		}
 	case MsgStatus:
 		if role != RoleTunnel {

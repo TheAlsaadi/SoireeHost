@@ -100,7 +100,7 @@ func FuzzCutReason(f *testing.F) {
 		if out == "" || len(out) > MaxReasonLen || !utf8.ValidString(out) {
 			t.Fatalf("%d bytes, valid %v", len(out), utf8.ValidString(out))
 		}
-		b, err := json.Marshal(WorkerMsg{Type: MsgFailed, Revision: 1, Reason: out})
+		b, err := json.Marshal(WorkerMsg{Type: MsgFailed, Revision: 1, Code: FailOther, Reason: out})
 		if err != nil {
 			t.Fatal(err)
 		}

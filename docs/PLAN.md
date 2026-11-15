@@ -405,7 +405,7 @@ Build in this order: design tokens and three static screens (Sites with its deta
 
 Done when:
 
-- [ ] The owner approved the static screens before implementation began.
+- [x] The owner approved the static screens before implementation began. (15 Nov 2026: tokens and the Sites, Activity and Security screens in light, dark and contrast, `docs/design/phase5-static`, after the design critique and accessibility pass in its `REVIEW.md`)
 - [ ] Nothing from the banned list in section 7 appears.
 - [ ] The accessibility review passes at AA and the whole app works by keyboard.
 - [ ] A request with script in its path and user agent shows as plain text in Activity.

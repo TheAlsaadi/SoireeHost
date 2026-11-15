@@ -3,6 +3,7 @@ package supervisor
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -32,19 +33,6 @@ func (w *weakenings) add(tag, sentence string) {
 	w.sentences = append(w.sentences, sentence)
 }
 
-// check refuses the change unless it is confirmed; with confirmation it
-// records the tags in the audit detail.
-func (w *weakenings) check(confirm bool, detail map[string]string) *ipc.Error {
-	if len(w.tags) == 0 {
-		return nil
-	}
-	if !confirm {
-		return ipc.Errorf(ipc.CodeConfirmationRequired, "%s Confirm to continue.", strings.Join(w.sentences, " "))
-	}
-	detail["weakening"] = strings.Join(w.tags, ",")
-	return nil
-}
-
 // firewallWeakening adds a sentence for each site whose firewall next makes
 // weaker than cur (S-14, S-32; Detect only counts, owner decision of 15 Nov
 // 2026).
@@ -68,6 +56,26 @@ func (w *weakenings) firewall(cur, next config.Config) {
 	w.add("firewall", strings.Join(parts, " "))
 }
 
+// headers adds a sentence for each site whose security headers next makes
+// weaker than cur: a header removed, or set to a value recognised as weaker
+// (S-16, S-32, review finding SE-28).
+func (w *weakenings) headers(cur, next config.Config) {
+	added := config.HeaderWeakenings(cur, next)
+	if len(added) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(added))
+	for id := range added {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	var parts []string
+	for _, id := range ids {
+		parts = append(parts, fmt.Sprintf("Site %q stops sending, or weakens, these security headers: %s.", id, strings.Join(added[id], ", ")))
+	}
+	w.add("headers", strings.Join(parts, " "))
+}
+
 // exposureCheck runs the exposure check on a static site that is about to go
 // live (ADR-0008). A folder that cannot be checked is not put live: the
 // call fails. Files that would be served and look like secrets are a
@@ -82,7 +90,12 @@ func (s *Supervisor) exposureCheck(site config.Site, w *weakenings, detail map[s
 		return nil, nil, ipc.Errorf(ipc.CodeUnavailable,
 			"The web server is not running, so the folder cannot be checked before it goes live. Try again when it is running, or save the site switched off.")
 	case err != nil:
-		return nil, nil, ipc.Errorf(ipc.CodeInvalid, "The folder could not be checked before it goes live: %s", trimReason(err))
+		e := ipc.Errorf(ipc.CodeInvalid, "The folder could not be checked before it goes live: %s.", trimReason(err))
+		var le *loadError
+		if errors.As(err, &le) {
+			e = le.withDetail(e)
+		}
+		return nil, nil, e
 	}
 	rep := m.Exposure
 	var warn []string
