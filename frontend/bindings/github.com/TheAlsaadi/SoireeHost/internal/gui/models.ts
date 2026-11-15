@@ -13,10 +13,18 @@ export class Port {
     "process": string;
 
     /**
-     * Loopback is true when the app listens only on this PC, which a proxy
-     * site needs (S-10).
+     * Loopback is true when the app can be reached on this PC's own
+     * address, which a proxy site needs (S-10).
      */
     "loopback": boolean;
+
+    /**
+     * IPv4 and IPv6 say which loopback address answers: 127.0.0.1, ::1 or
+     * both. Many development servers listen on ::1 only, and a proxy site
+     * must then forward to [::1].
+     */
+    "ipv4": boolean;
+    "ipv6": boolean;
 
     /** Creates a new Port instance. */
     constructor($$source: Partial<Port> = {}) {
@@ -28,6 +36,12 @@ export class Port {
         }
         if (!("loopback" in $$source)) {
             this["loopback"] = false;
+        }
+        if (!("ipv4" in $$source)) {
+            this["ipv4"] = false;
+        }
+        if (!("ipv6" in $$source)) {
+            this["ipv6"] = false;
         }
 
         Object.assign(this, $$source);

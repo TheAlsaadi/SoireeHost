@@ -8,7 +8,6 @@ package accesslog
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,14 +15,13 @@ import (
 	"math"
 	"net/netip"
 	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/fwevent"
+	"github.com/TheAlsaadi/SoireeHost/internal/logread"
 	"github.com/TheAlsaadi/SoireeHost/internal/redact"
 )
 
@@ -233,7 +231,7 @@ func Read(dir string, q Query) (Page, error) {
 	if q.Limit <= 0 || q.Limit > MaxPage {
 		q.Limit = DefaultPage
 	}
-	files, err := logFiles(dir)
+	files, err := logread.Files(dir, LogName, "access-", q.After)
 	if err != nil {
 		return Page{}, err
 	}
@@ -268,54 +266,6 @@ func Read(dir string, q Query) (Page, error) {
 	return page, nil
 }
 
-// logFiles lists access.log and its rotated .log files, newest first. Links
-// and anything that is not a regular file are left out.
-func logFiles(dir string) ([]string, error) {
-	ents, err := os.ReadDir(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("listing the access logs: %w", err)
-	}
-	type file struct {
-		path string
-		mod  time.Time
-	}
-	var out []file
-	for _, e := range ents {
-		n := e.Name()
-		if n != LogName && (!strings.HasPrefix(n, "access-") || !strings.HasSuffix(n, ".log")) {
-			continue
-		}
-		if !e.Type().IsRegular() {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		out = append(out, file{filepath.Join(dir, n), info.ModTime()})
-	}
-	slices.SortStableFunc(out, func(a, b file) int {
-		if n := b.mod.Compare(a.mod); n != 0 {
-			return n
-		}
-		if filepath.Base(a.path) == LogName {
-			return -1
-		}
-		if filepath.Base(b.path) == LogName {
-			return 1
-		}
-		return strings.Compare(b.path, a.path)
-	})
-	paths := make([]string, len(out))
-	for i, f := range out {
-		paths[i] = f.path
-	}
-	return paths, nil
-}
-
 func readFile(path string, q Query, budget int64) ([]Entry, int, int64, error) {
 	f, err := os.Open(path) // #nosec G304 -- a file name listed from the supervisor's own view of the web log folder
 	if errors.Is(err, os.ErrNotExist) {
@@ -330,7 +280,7 @@ func readFile(path string, q Query, budget int64) ([]Entry, int, int64, error) {
 	var out []Entry
 	skipped := 0
 	for {
-		b, tooLong, err := nextLine(r)
+		b, tooLong, err := logread.NextLine(r)
 		if len(b) > 0 || tooLong {
 			if tooLong {
 				skipped++
@@ -351,15 +301,4 @@ func readFile(path string, q Query, budget int64) ([]Entry, int, int64, error) {
 		}
 	}
 	return out, skipped, budget - lr.N, nil
-}
-
-func nextLine(r *bufio.Reader) ([]byte, bool, error) {
-	b, err := r.ReadSlice('\n')
-	if errors.Is(err, bufio.ErrBufferFull) {
-		for errors.Is(err, bufio.ErrBufferFull) {
-			_, err = r.ReadSlice('\n')
-		}
-		return nil, true, err
-	}
-	return bytes.TrimRight(b, "\r\n"), false, err
 }

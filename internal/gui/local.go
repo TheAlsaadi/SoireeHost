@@ -75,9 +75,14 @@ func (l *Local) PrepareFolder(path string) (string, error) {
 type Port struct {
 	Port    uint16 `json:"port"`
 	Process string `json:"process"`
-	// Loopback is true when the app listens only on this PC, which a proxy
-	// site needs (S-10).
+	// Loopback is true when the app can be reached on this PC's own
+	// address, which a proxy site needs (S-10).
 	Loopback bool `json:"loopback"`
+	// IPv4 and IPv6 say which loopback address answers: 127.0.0.1, ::1 or
+	// both. Many development servers listen on ::1 only, and a proxy site
+	// must then forward to [::1].
+	IPv4 bool `json:"ipv4"`
+	IPv6 bool `json:"ipv6"`
 }
 
 // ListeningPorts lists the TCP ports apps listen on, from 1024 up, with the
@@ -103,6 +108,13 @@ func (l *Local) ListeningPorts() ([]Port, error) {
 			byPort[p] = cur
 		}
 		cur.Loopback = cur.Loopback || loop
+		if loop {
+			if a.Is4() {
+				cur.IPv4 = true
+			} else {
+				cur.IPv6 = true
+			}
+		}
 	}
 	out := make([]Port, 0, len(byPort))
 	for _, p := range byPort {

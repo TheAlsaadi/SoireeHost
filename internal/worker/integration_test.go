@@ -16,6 +16,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/accesslog"
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 )
@@ -520,6 +521,23 @@ func TestLogRedaction(t *testing.T) {
 		if !strings.Contains(string(access), want) {
 			t.Errorf("access log lacks %q:\n%s", want, access)
 		}
+	}
+	// ADR-0009: the supervisor's reader understands what Caddy really writes
+	page, err := accesslog.Read(h.logDir, accesslog.Query{})
+	if err != nil || len(page.Entries) == 0 || page.Skipped != 0 {
+		t.Fatalf("access.list reader: %d entries, %d skipped, %v", len(page.Entries), page.Skipped, err)
+	}
+	seen := false
+	for _, e := range page.Entries {
+		if e.UserAgent == "test-agent/1.0" && e.ClientIP == "203.0.113.9" && e.Method == http.MethodGet && e.Host != "" && !e.Time.IsZero() {
+			seen = true
+			if strings.Contains(e.URI+e.Referer, secretMarker) {
+				t.Errorf("a secret reached an access entry: %+v", e)
+			}
+		}
+	}
+	if !seen {
+		t.Errorf("no parsed entry for the test request: %+v", page.Entries)
 	}
 }
 

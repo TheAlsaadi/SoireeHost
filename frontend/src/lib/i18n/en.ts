@@ -229,6 +229,7 @@ export const en = {
   "security.group.settings": "Settings and secrets",
   "security.group.outbound": "Connections SoiréeHost makes",
   "security.state.on": "On",
+  "security.state.unknown": "Not known",
   "security.state.off": "Off",
   "security.state.notSet": "Not set up",
   "security.state.exceptions": "On, {n} exception(s)",

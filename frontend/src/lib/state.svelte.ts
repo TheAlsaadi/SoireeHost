@@ -80,6 +80,9 @@ export const confirmation = $state({
 });
 
 function ask(sentences: string[]): Promise<boolean> {
+  // One confirmation at a time: a new one declines any still open, so no
+  // earlier change is left waiting for an answer that cannot come.
+  confirmation.resolve?.(false);
   return new Promise((resolve) => {
     confirmation.sentences = sentences;
     confirmation.resolve = resolve;

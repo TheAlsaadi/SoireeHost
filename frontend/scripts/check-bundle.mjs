@@ -5,6 +5,7 @@
 // - No file refers to a remote address (scripts, styles, fonts, images).
 // - index.html has its CSP and loads only bundled scripts, none inline.
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import process from "node:process";
 import { join } from "node:path";
 
 const root = "dist";

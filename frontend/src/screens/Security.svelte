@@ -32,12 +32,17 @@
   const headerSites = $derived(sites.filter((s) => (s.remove_headers ?? []).length > 0));
   const repair = $derived(app.status?.tunnel.repair_needed ?? false);
 
-  function stateOf(on: boolean, exceptions = 0): { tone: Tone; text: string } {
-    if (!on) return { tone: "off", text: t("security.state.off") };
+  function stateOf(enabled: boolean, exceptions = 0): { tone: Tone; text: string } {
+    if (!known) return unknown;
+    if (!enabled) return { tone: "off", text: t("security.state.off") };
     if (exceptions > 0) return { tone: "warning", text: t("security.state.exceptions", { n: exceptions }) };
     return { tone: "ok", text: t("security.state.on") };
   }
-  const on = { tone: "ok" as Tone, text: t("security.state.on") };
+  // A protection is shown as On only while the supervisor answers; without
+  // it nothing here is known, and the screen says so.
+  const known = $derived(!app.failed && !!app.status);
+  const unknown = { tone: "off" as Tone, text: t("security.state.unknown") };
+  const on = $derived(known ? { tone: "ok" as Tone, text: t("security.state.on") } : unknown);
 </script>
 
 <main class="screen">
@@ -117,9 +122,11 @@
         {@render check(on, "security.isolation.name", t("security.isolation.what"))}
         <li class="check">
           <StatusMark
-            {...audit && !audit.ok
-              ? { tone: "danger" as Tone, text: t("security.state.broken") }
-              : { tone: "ok" as Tone, text: t("security.state.intact") }}
+            {...!audit
+              ? unknown
+              : !audit.ok
+                ? { tone: "danger" as Tone, text: t("security.state.broken") }
+                : { tone: "ok" as Tone, text: t("security.state.intact") }}
           />
           <div>
             <p class="check-name">{t("security.audit.name")}</p>

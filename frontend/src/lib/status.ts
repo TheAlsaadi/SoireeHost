@@ -113,3 +113,13 @@ export function idFromName(name: string, taken: string[]): string {
   for (let i = 2; taken.includes(id); i++) id = `${base}-${i}`;
   return id;
 }
+
+/**
+ * The proxy target for an app on port n: [::1] when it listens on the IPv6
+ * loopback address only (as many development servers do), 127.0.0.1
+ * otherwise. Both are this PC's own address (S-10).
+ */
+export function proxyTarget(n: number, ports: gui.Port[] | undefined): string {
+  const p = ports?.find((x) => x.port === n);
+  return (p && p.ipv6 && !p.ipv4 ? "[::1]:" : "127.0.0.1:") + n;
+}

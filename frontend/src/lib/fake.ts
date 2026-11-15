@@ -145,9 +145,9 @@ export function fakeApi(): Api {
     chooseFolder: async () => "C:\\Sites\\new-site",
     prepareFolder: async (p) => p,
     listeningPorts: async () => [
-      { port: 3000, process: "node.exe", loopback: true },
-      { port: 5173, process: "node.exe", loopback: true },
-      { port: 8000, process: "python.exe", loopback: true },
+      { port: 3000, process: "node.exe", loopback: true, ipv4: true, ipv6: false },
+      { port: 5173, process: "node.exe", loopback: true, ipv4: true, ipv6: false },
+      { port: 8000, process: "python.exe", loopback: true, ipv4: true, ipv6: false },
     ],
     qrCode: async () => {
       const size = 25;

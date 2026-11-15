@@ -86,7 +86,7 @@ describe("status in plain words", () => {
   it("names the port of a proxy site whose app is not answering", () => {
     const s = site({ type: "proxy", proxy: { target: "127.0.0.1:3000", allow_lan: false } });
     expect(proxyPort(s)).toBe(3000);
-    const said = siteStatus(s, status([quick]), [{ port: 8000, process: "python.exe", loopback: true }]);
+    const said = siteStatus(s, status([quick]), [{ port: 8000, process: "python.exe", loopback: true, ipv4: true, ipv6: false }]);
     expect(t(said.key, said.params)).toBe("Port 3000 is not answering");
   });
 
@@ -113,5 +113,14 @@ describe("message catalogue", () => {
     for (const [k, v] of Object.entries(en)) {
       expect(v, k).not.toMatch(/!|\bOops\b/i);
     }
+  });
+});
+
+describe("proxy target", () => {
+  it("forwards to [::1] when the app listens on the IPv6 loopback only", async () => {
+    const { proxyTarget } = await import("./status");
+    expect(proxyTarget(3000, [{ port: 3000, process: "node.exe", loopback: true, ipv4: false, ipv6: true }])).toBe("[::1]:3000");
+    expect(proxyTarget(3000, [{ port: 3000, process: "node.exe", loopback: true, ipv4: true, ipv6: true }])).toBe("127.0.0.1:3000");
+    expect(proxyTarget(3000, undefined)).toBe("127.0.0.1:3000");
   });
 });

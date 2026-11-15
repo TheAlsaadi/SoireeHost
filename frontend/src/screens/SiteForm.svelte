@@ -4,8 +4,8 @@
   import VisibleText from "../components/VisibleText.svelte";
   import { api, type config } from "../lib/api";
   import { t } from "../lib/i18n";
-  import { app, applyConfig, refreshPorts, refreshStatus, toastDone, toastError, withConfirmation } from "../lib/state.svelte";
-  import { idFromName, proxyPort } from "../lib/status";
+  import { Declined, app, applyConfig, refreshPorts, refreshStatus, toastDone, toastError, withConfirmation } from "../lib/state.svelte";
+  import { idFromName, proxyPort, proxyTarget } from "../lib/status";
   import { toApiError } from "../lib/errors";
 
   let {
@@ -89,7 +89,7 @@
           .filter(Boolean),
         type: kind,
         static: kind === "static" ? { root, directory_listing: listing } : null,
-        proxy: kind === "proxy" ? { target: "127.0.0.1:" + n, allow_lan: false } : null,
+        proxy: kind === "proxy" ? { target: proxyTarget(n, app.ports), allow_lan: false } : null,
         max_body_bytes: site?.max_body_bytes ?? 0,
         rate_limit_per_minute: site?.rate_limit_per_minute ?? 0,
         allow_well_known: kind === "static" && wellKnown,
@@ -104,6 +104,7 @@
       onsaved?.(next.id);
       toastDone(name.trim());
     } catch (e) {
+      if (e instanceof Declined) return;
       const err = toApiError(e);
       if (err.code) problem = err.message || t("error.generic");
       if (err.workerDetail) problem += " " + t("common.workerSaid") + " " + err.workerDetail;

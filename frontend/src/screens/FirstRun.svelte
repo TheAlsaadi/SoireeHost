@@ -3,8 +3,8 @@
   import VisibleText from "../components/VisibleText.svelte";
   import { api, type config } from "../lib/api";
   import { t } from "../lib/i18n";
-  import { app, applyConfig, refreshPorts, refreshStatus, toastError, withConfirmation } from "../lib/state.svelte";
-  import { idFromName } from "../lib/status";
+  import { Declined, app, applyConfig, refreshPorts, refreshStatus, toastError, withConfirmation } from "../lib/state.svelte";
+  import { idFromName, proxyTarget } from "../lib/status";
   import { toApiError } from "../lib/errors";
 
   // First run reaches a live site in three steps: choose a folder or a
@@ -54,7 +54,7 @@
         hostnames: [],
         type: kind,
         static: kind === "static" ? { root, directory_listing: false } : null,
-        proxy: kind === "proxy" ? { target: "127.0.0.1:" + port.trim(), allow_lan: false } : null,
+        proxy: kind === "proxy" ? { target: proxyTarget(Number(port.trim()), app.ports), allow_lan: false } : null,
         max_body_bytes: 0,
         rate_limit_per_minute: 0,
         allow_well_known: false,
@@ -65,6 +65,7 @@
       await refreshStatus();
       ondone();
     } catch (e) {
+      if (e instanceof Declined) return;
       const err = toApiError(e);
       problem = err.message || t("error.generic");
       if (err.workerDetail) problem += " " + t("common.workerSaid") + " " + err.workerDetail;

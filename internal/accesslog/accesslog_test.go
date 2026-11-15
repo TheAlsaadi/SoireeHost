@@ -121,3 +121,28 @@ func FuzzParseLine(f *testing.F) {
 		}
 	})
 }
+
+// A poll for new entries skips log files last written before its After
+// bound, so polling does not reread the whole history (ADR-0009).
+func TestReadSkipsOldFilesWhenPolling(t *testing.T) {
+	dir := t.TempDir()
+	old := filepath.Join(dir, "access-2026-11-01T00-00-00.000.log")
+	if err := os.WriteFile(old, append(line(t, map[string]any{"ts": 1794000000.0, "request": req("GET", "a.example.com", "/old", "ua")}), '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Unix(1794000000, 0)
+	if err := os.Chtimes(old, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, LogName), append(line(t, map[string]any{"ts": 1794700000.0, "request": req("GET", "a.example.com", "/new", "ua")}), '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := Read(dir, Query{})
+	if len(all.Entries) != 2 {
+		t.Fatalf("without a bound: %d entries", len(all.Entries))
+	}
+	recent, _ := Read(dir, Query{After: time.Unix(1794600000, 0)})
+	if len(recent.Entries) != 1 || recent.Entries[0].URI != "/new" {
+		t.Fatalf("poll read old files: %+v", recent.Entries)
+	}
+}

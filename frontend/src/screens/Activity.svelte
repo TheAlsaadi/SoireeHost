@@ -13,7 +13,10 @@
   // through Svelte's attribute binding, and never into HTML.
 
   const MAX_ROWS = 1000;
-  let entries = $state<ipc.AccessEntry[]>([]);
+  // Entries are never changed in place, so they are kept raw: each one is
+  // the same object for as long as it is listed, and its id stays put when
+  // newer requests arrive above it.
+  let entries = $state.raw<ipc.AccessEntry[]>([]);
   let siteFilter = $state("");
   let classFilter = $state("");
   let timeFilter = $state("1h");
@@ -24,7 +27,16 @@
   let loaded = $state(false);
   let selectedKey = $state("");
 
-  const keyOf = (e: ipc.AccessEntry, i: number) => e.time + "|" + i;
+  const ids = new WeakMap<ipc.AccessEntry, string>();
+  let nextId = 1;
+  function keyOf(e: ipc.AccessEntry): string {
+    let id = ids.get(e);
+    if (!id) {
+      id = String(nextId++);
+      ids.set(e, id);
+    }
+    return id;
+  }
 
   function since(): string | undefined {
     const span: Record<string, number> = { "15m": 15, "1h": 60, "24h": 1440 };
@@ -90,7 +102,7 @@
     if (!q) return entries;
     return entries.filter((e) => e.uri.toLowerCase().includes(q) || (e.client_ip ?? "").includes(q) || e.host.includes(q));
   });
-  const selected = $derived(shown.find((e, i) => keyOf(e, i) === selectedKey));
+  const selected = $derived(shown.find((e) => keyOf(e) === selectedKey));
   const siteName = (id?: string) => app.config?.sites.find((s) => s.id === id)?.name ?? t("activity.unknownSite");
 
   function resultText(e: ipc.AccessEntry): string {
@@ -107,13 +119,13 @@
     else if (ev.key === "Escape") return void (selectedKey = "");
     else if (ev.key === "Enter") {
       const row = shown[i];
-      if (row) selectedKey = keyOf(row, i);
+      if (row) selectedKey = keyOf(row);
       return;
     } else return;
     ev.preventDefault();
     const target = shown[next];
     if (!target) return;
-    selectedKey = keyOf(target, next);
+    selectedKey = keyOf(target);
     ((ev.currentTarget as HTMLElement).parentElement?.children[next] as HTMLElement | undefined)?.focus();
   }
 
@@ -184,14 +196,14 @@
             </tr>
           </thead>
           <tbody>
-            {#each shown as e, i (keyOf(e, i))}
+            {#each shown as e, i (keyOf(e))}
               {@const blocked = e.firewall?.action === "blocked"}
               {@const flagged = !!e.firewall}
               <tr
                 class:is-blocked={blocked}
-                aria-selected={keyOf(e, i) === selectedKey}
-                tabindex={keyOf(e, i) === selectedKey || (!selectedKey && i === 0) ? 0 : -1}
-                onclick={() => (selectedKey = keyOf(e, i))}
+                aria-selected={keyOf(e) === selectedKey}
+                tabindex={keyOf(e) === selectedKey || (!selectedKey && i === 0) ? 0 : -1}
+                onclick={() => (selectedKey = keyOf(e))}
                 onkeydown={(ev) => onRowKey(ev, i)}
               >
                 <td class="mono">{clockSeconds(e.time)}</td>
