@@ -61,7 +61,11 @@ and then `/plugin install <name>@<marketplace>`, choosing project scope, for onl
 - `cc-skills-golang@samber`
 - `wails@go-skills` and `go-release@go-skills`
 
-`frontend-design` is not loaded in this environment; install it before Phase 5 with `/plugin install frontend-design@claude-plugins-official`, after the same review.
+### Anthropic (`anthropics/claude-plugins-official`, `frontend-design` v1.1.1, Apache-2.0)
+
+Reviewed 15 Nov 2026 before Phase 5, from the marketplace copy and again from the installed copy (`SKILL.md` SHA-256 `d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3` in both). Contents: `plugin.json`, a README, the licence and one `SKILL.md`; no hooks, MCP servers or scripts, no network use. Verdict: approved, installed at project scope (`claude plugin install frontend-design@claude-plugins-official --scope project`) and declared in `.claude/settings.json`; the official marketplace is built in, so it needs no `extraKnownMarketplaces` entry.
+
+The skill pushes for a distinctive look and its own choice of typefaces. Plan section 7 wins wherever they differ: a quiet Windows utility, Segoe UI Variable and Cascadia Mono, one accent colour, and the banned list. The skill itself says the brief's own words win. Use it for its process (token plan, review against the brief, self-critique) and its writing guidance.
 
 ## Installation status (12 Nov 2026, after Phase 2)
 

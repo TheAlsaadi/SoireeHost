@@ -53,6 +53,7 @@ Read the reference that matches the task:
 19. **Never vendor or extract CRS response data files.** Windows Defender quarantines `web-shells-php.data` as a backdoor; `build/check-crs.ps1` extracts only the listed request files. Vendored rules stay byte-identical (`-text` in `.gitattributes`); change them only with `check-crs.ps1 -Update`.
 20. **Firewall cost is CPU, not memory.** CRS costs about 12 s of CPU per MB of body text, so text over 128 KB is refused in Block mode and inspections are capped at half the cores; measure before raising any firewall limit.
 21. **Key-shaped test fixtures** (PEM blocks) are built from pieces at run time, or gitleaks fails the build.
+22. **Request path checks take one `sitecheck.Path`**, built by `sitecheck.ParseTarget` from the request target as sent or by `sitecheck.NamePath` from a file name under a site root (SE-25). Never build the decoded and raw forms separately; the guard also refuses a request whose `r.URL.Path` is not what its target decodes to.
 
 ## How a phase runs
 

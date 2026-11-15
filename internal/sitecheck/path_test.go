@@ -1,19 +1,19 @@
 package sitecheck
 
 import (
-	"net/url"
 	"strings"
 	"testing"
 )
 
-// decode mimics net/http: raw is the path on the wire, decoded is r.URL.Path.
-func decode(t *testing.T, raw string) (decoded string, ok bool) {
+// target builds the Path of a test request target, failing the test if it
+// does not parse.
+func target(t *testing.T, raw string) Path {
 	t.Helper()
-	u, err := url.ParseRequestURI(raw)
+	p, err := ParseTarget(raw)
 	if err != nil {
-		return "", false
+		t.Fatalf("test path %q does not parse: %v", raw, err)
 	}
-	return u.Path, true
+	return p
 }
 
 func TestCheckStatic(t *testing.T) {
@@ -87,11 +87,8 @@ func TestCheckStatic(t *testing.T) {
 		"/" + strings.Repeat("a", MaxPathLen): BadRequest,
 	}
 	for raw, want := range cases {
-		dec, ok := decode(t, raw)
-		if !ok {
-			t.Fatalf("test path %q does not parse", raw)
-		}
-		if got := CheckStatic(dec, raw); got != want {
+		p := target(t, raw)
+		if got := CheckStatic(p); got != want {
 			t.Errorf("CheckStatic(%q) = %v, want %v", raw, got, want)
 		}
 	}
@@ -99,14 +96,17 @@ func TestCheckStatic(t *testing.T) {
 
 func TestCheckStaticRawBackslash(t *testing.T) {
 	// a literal backslash on the wire never reaches url decoding as a separator
-	if got := CheckStatic(`/..\win.ini`, `/..\win.ini`); got != BadRequest {
+	if got := CheckStatic(target(t, `/..\win.ini`)); got != BadRequest {
 		t.Fatalf("got %v", got)
 	}
-	if got := CheckStatic("", ""); got != BadRequest {
-		t.Fatalf("empty path: got %v", got)
+	for _, raw := range []string{"", "index.html", "*", "http://x/index.html"} {
+		if _, err := ParseTarget(raw); err == nil {
+			t.Errorf("target %q parsed", raw)
+		}
 	}
-	if got := CheckStatic("index.html", "index.html"); got != BadRequest {
-		t.Fatalf("relative path: got %v", got)
+	// SE-25: a Path that was never built refuses
+	if CheckStatic(Path{}) != BadRequest || CheckProxy(Path{}) != BadRequest {
+		t.Fatal("the zero Path was allowed")
 	}
 }
 
@@ -144,11 +144,8 @@ func TestCheckProxy(t *testing.T) {
 		"/release-notes.v2~": Allow,
 	}
 	for raw, want := range cases {
-		dec, ok := decode(t, raw)
-		if !ok {
-			t.Fatalf("test path %q does not parse", raw)
-		}
-		if got := CheckProxy(dec, raw); got != want {
+		p := target(t, raw)
+		if got := CheckProxy(p); got != want {
 			t.Errorf("CheckProxy(%q) = %v, want %v", raw, got, want)
 		}
 	}
@@ -198,19 +195,16 @@ func TestWellKnownOptIn(t *testing.T) {
 		"/.well-knownx/a":                   {NotFound, NotFound},
 	}
 	for raw, w := range cases {
-		dec, ok := decode(t, raw)
-		if !ok {
-			t.Fatalf("test path %q does not parse", raw)
-		}
-		if got := on.Static(dec, raw); got != w.static {
+		p := target(t, raw)
+		if got := on.Static(p); got != w.static {
 			t.Errorf("Static(%q) = %v, want %v", raw, got, w.static)
 		}
-		if got := on.Proxy(dec, raw); got != w.proxy {
+		if got := on.Proxy(p); got != w.proxy {
 			t.Errorf("Proxy(%q) = %v, want %v", raw, got, w.proxy)
 		}
 	}
 	for _, raw := range []string{"/.well-known/security.txt", "/.well-known/"} {
-		if CheckStatic(raw, raw) != NotFound || CheckProxy(raw, raw) != NotFound {
+		if CheckStatic(target(t, raw)) != NotFound || CheckProxy(target(t, raw)) != NotFound {
 			t.Errorf("%s allowed without the opt-in", raw)
 		}
 	}

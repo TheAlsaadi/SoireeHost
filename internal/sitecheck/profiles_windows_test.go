@@ -66,7 +66,7 @@ func TestCheckRootRefusesProfileOutsideUsers(t *testing.T) {
 
 func TestStaticRefusesAppData(t *testing.T) {
 	for _, p := range []string{"/AppData/Roaming/x/logins.json", "/site/appdata/x", "/NTUSER.DAT"} {
-		if v := CheckStatic(p, p); v == Allow {
+		if v := CheckStatic(target(t, p)); v == Allow {
 			t.Errorf("%s allowed", p)
 		}
 	}

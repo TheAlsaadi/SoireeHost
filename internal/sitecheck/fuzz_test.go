@@ -1,7 +1,6 @@
 package sitecheck
 
 import (
-	"net/url"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -22,16 +21,12 @@ func FuzzCheckStatic(f *testing.F) {
 	f.Add("/.well-known/security.txt", true)
 	f.Add("/.well-known/.env", true)
 	f.Fuzz(func(t *testing.T, raw string, wellKnown bool) {
-		u, err := url.ParseRequestURI(raw)
+		p, err := ParseTarget(raw)
 		if err != nil {
 			return
 		}
-		dec := u.Path
-		rawPath := raw
-		if i := strings.IndexByte(rawPath, '?'); i >= 0 {
-			rawPath = rawPath[:i]
-		}
-		if (Rules{AllowWellKnown: wellKnown}).Static(dec, rawPath) != Allow {
+		dec := p.Decoded()
+		if (Rules{AllowWellKnown: wellKnown}).Static(p) != Allow {
 			return
 		}
 		if !utf8.ValidString(dec) || !strings.HasPrefix(dec, "/") || strings.HasPrefix(dec, "//") || strings.ContainsAny(dec, "\\:*?\"<>|\x00") {
@@ -63,17 +58,18 @@ func FuzzCheckProxy(f *testing.F) {
 	}
 	f.Add("/.well-known/openid-configuration", true)
 	f.Fuzz(func(t *testing.T, raw string, wellKnown bool) {
-		u, err := url.ParseRequestURI(raw)
+		p, err := ParseTarget(raw)
 		if err != nil {
 			return
 		}
-		if (Rules{AllowWellKnown: wellKnown}).Proxy(u.Path, u.EscapedPath()) != Allow {
+		dec := p.Decoded()
+		if (Rules{AllowWellKnown: wellKnown}).Proxy(p) != Allow {
 			return
 		}
-		if strings.ContainsAny(u.Path, "\\\x00\r\n") {
+		if strings.ContainsAny(dec, "\\\x00\r\n") {
 			t.Fatalf("allowed %q", raw)
 		}
-		for i, seg := range strings.Split(u.Path[1:], "/") {
+		for i, seg := range strings.Split(dec[1:], "/") {
 			if wellKnown && i == 0 && seg == WellKnown {
 				continue
 			}

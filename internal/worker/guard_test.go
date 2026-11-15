@@ -112,6 +112,18 @@ func TestGuardRefusesTargets(t *testing.T) {
 			}
 		}
 	}
+	// SE-25: the path the next handler acts on must be the one the target
+	// decodes to; a request whose path was changed after parsing is refused
+	for _, mode := range []string{"static", "proxy"} {
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/index.html", nil)
+		r.RequestURI = "/index.html"
+		r.URL.Path = "/.env"
+		err := Guard{Mode: mode}.ServeHTTP(httptest.NewRecorder(), r, next)
+		var he caddyhttp.HandlerError
+		if !errors.As(err, &he) || he.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: a path that differs from its target got %v", mode, err)
+		}
+	}
 	// SE-26: a guard with no mode, or an unknown one, refuses everything
 	for _, g := range []Guard{{}, {Mode: "Static"}, {Mode: "admin"}} {
 		if got := status(g, "/index.html"); got != 400 {
