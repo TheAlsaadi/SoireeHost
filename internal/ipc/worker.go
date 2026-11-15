@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
+	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 )
 
 // Worker message types, a closed set (ADR-0006, ADR-0007).
@@ -18,11 +19,13 @@ const (
 	// supervisor to worker
 	MsgLoad = "load"
 	MsgStop = "stop"
+	MsgScan = "scan" // web worker only: the exposure check (ADR-0008)
 	// worker to supervisor
-	MsgHello  = "hello"
-	MsgLoaded = "loaded"
-	MsgFailed = "failed"
-	MsgStatus = "status" // tunnel launcher only
+	MsgHello   = "hello"
+	MsgLoaded  = "loaded"
+	MsgFailed  = "failed"
+	MsgStatus  = "status"  // tunnel launcher only
+	MsgScanned = "scanned" // web worker only
 )
 
 // Worker roles.
@@ -44,6 +47,17 @@ type WorkerMsg struct {
 	Tunnel   *TunnelPlan     `json:"tunnel,omitempty"`
 	Report   *TunnelReport   `json:"report,omitempty"`
 	Reason   string          `json:"reason,omitempty"`
+	// Scan asks the web worker to check a static site's folder; Exposure
+	// is its answer (ADR-0008).
+	Scan     *ScanRequest              `json:"scan,omitempty"`
+	Exposure *sitecheck.ExposureReport `json:"exposure,omitempty"`
+}
+
+// ScanRequest names the folder to check: a canonical static root, which the
+// worker opens with every S-11 check before reading anything.
+type ScanRequest struct {
+	Root           string `json:"root"`
+	AllowWellKnown bool   `json:"allow_well_known"`
 }
 
 // MaxReasonLen bounds a worker's failure reason.
@@ -70,7 +84,9 @@ func CutReason(s string) string {
 	return s
 }
 
-func (m WorkerMsg) hasPayload() bool { return m.Caddy != nil || m.Tunnel != nil || m.Report != nil }
+func (m WorkerMsg) hasPayload() bool {
+	return m.Caddy != nil || m.Tunnel != nil || m.Report != nil || m.Scan != nil || m.Exposure != nil
+}
 
 // ValidateFor checks that the message has the fields its type needs on a
 // pipe of the given role, and none it should not carry.
@@ -87,8 +103,8 @@ func (m WorkerMsg) ValidateFor(role string) error {
 			return errors.New("hello carries a payload")
 		}
 	case MsgLoad:
-		if m.Report != nil {
-			return errors.New("load carries a status report")
+		if m.Report != nil || m.Scan != nil || m.Exposure != nil {
+			return errors.New("load carries another message's payload")
 		}
 		switch role {
 		case RoleWeb:
@@ -130,6 +146,26 @@ func (m WorkerMsg) ValidateFor(role string) error {
 	case MsgStop:
 		if m.hasPayload() || m.Reason != "" {
 			return errors.New("stop carries a payload")
+		}
+	case MsgScan:
+		if role != RoleWeb {
+			return errors.New("only the web worker checks folders")
+		}
+		if m.Scan == nil || m.Caddy != nil || m.Tunnel != nil || m.Report != nil || m.Exposure != nil {
+			return errors.New("scan needs a folder and nothing else")
+		}
+		if err := config.ValidateRootSyntax(m.Scan.Root); err != nil {
+			return fmt.Errorf("scan folder: %w", err)
+		}
+	case MsgScanned:
+		if role != RoleWeb {
+			return errors.New("only the web worker checks folders")
+		}
+		if m.Exposure == nil || m.Caddy != nil || m.Tunnel != nil || m.Report != nil || m.Scan != nil {
+			return errors.New("scanned needs a report and nothing else")
+		}
+		if err := sitecheck.ValidateExposureReport(*m.Exposure); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("unknown message type %q", m.Type)

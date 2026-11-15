@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
@@ -46,6 +47,9 @@ func TestDecodeRequest(t *testing.T) {
 		"site.put":    `{"id":3,"method":"site.put","params":{"site":{"id":"a","name":"A","enabled":true,"hostnames":["a.example.com"],"type":"proxy","proxy":{"target":"127.0.0.1:3000","allow_lan":false},"max_body_bytes":0,"rate_limit_per_minute":0,"allow_well_known":false},"confirm":false}}`,
 		"secret.set":  `{"id":4,"method":"secret.set","params":{"name":"tunnel_token","value":"x","confirm":true}}`,
 		"audit":       `{"id":5,"method":"audit.list","params":{"after":0,"limit":10}}`,
+		"fw events":   `{"id":6,"method":"firewall.events","params":{"site_id":"blog","before":"2026-11-15T10:00:00Z","limit":50}}`,
+		"fw all":      `{"id":7,"method":"firewall.events"}`,
+		"enable conf": `{"id":8,"method":"site.set_enabled","params":{"id":"a","enabled":true,"confirm":true}}`,
 	}
 	for name, in := range good {
 		if _, _, err := DecodeRequest([]byte(in)); err != nil {
@@ -63,6 +67,9 @@ func TestDecodeRequest(t *testing.T) {
 		"empty":               ``,
 		"negative id":         `{"id":-1,"method":"status.get"}`,
 		"site field unknown":  `{"id":3,"method":"site.put","params":{"site":{"id":"a","port_forward":true}}}`,
+		"fw path":             `{"id":6,"method":"firewall.events","params":{"file":"C:\\Windows\\win.ini"}}`,
+		"fw bad time":         `{"id":6,"method":"firewall.events","params":{"before":"yesterday"}}`,
+		"firewall directives": `{"id":3,"method":"site.put","params":{"site":{"id":"a","firewall":{"mode":"block","directives":"SecRuleEngine Off"}}}}`,
 	}
 	for name, in := range bad {
 		if _, _, err := DecodeRequest([]byte(in)); err == nil {
@@ -120,6 +127,8 @@ func TestWorkerMsgValidate(t *testing.T) {
 		{RoleTunnel, WorkerMsg{Type: MsgFailed, Reason: "port in use"}},
 		{RoleTunnel, WorkerMsg{Type: MsgStatus, Report: report}},
 		{RoleWeb, WorkerMsg{Type: MsgStop}},
+		{RoleWeb, WorkerMsg{Type: MsgScan, Revision: 4, Scan: &ScanRequest{Root: `C:\Sites\blog`}}},
+		{RoleWeb, WorkerMsg{Type: MsgScanned, Revision: 4, Exposure: &sitecheck.ExposureReport{Findings: []sitecheck.Finding{}}}},
 	}
 	for _, g := range good {
 		if err := g.m.ValidateFor(g.role); err != nil {
@@ -131,6 +140,17 @@ func TestWorkerMsgValidate(t *testing.T) {
 		m    WorkerMsg
 	}{
 		{RoleWeb, WorkerMsg{Type: "exec"}},
+		// exposure check (ADR-0008): web pipe only, one payload, valid folder and report
+		{RoleTunnel, WorkerMsg{Type: MsgScan, Scan: &ScanRequest{Root: `C:\Sites\blog`}}},
+		{RoleTunnel, WorkerMsg{Type: MsgScanned, Exposure: &sitecheck.ExposureReport{Findings: []sitecheck.Finding{}}}},
+		{RoleWeb, WorkerMsg{Type: MsgScan}},
+		{RoleWeb, WorkerMsg{Type: MsgScan, Scan: &ScanRequest{Root: `relative\x`}}},
+		{RoleWeb, WorkerMsg{Type: MsgScan, Scan: &ScanRequest{Root: `C:\`}}},
+		{RoleWeb, WorkerMsg{Type: MsgScan, Scan: &ScanRequest{Root: `C:\Sites\blog`}, Caddy: json.RawMessage(`{}`)}},
+		{RoleWeb, WorkerMsg{Type: MsgScanned}},
+		{RoleWeb, WorkerMsg{Type: MsgScanned, Exposure: &sitecheck.ExposureReport{Findings: []sitecheck.Finding{{Path: "../x", Kind: sitecheck.KindPrivateKey, Served: true}}}}},
+		{RoleWeb, WorkerMsg{Type: MsgLoad, Caddy: json.RawMessage(`{}`), Scan: &ScanRequest{Root: `C:\Sites\blog`}}},
+		{RoleWeb, WorkerMsg{Type: MsgLoaded, Exposure: &sitecheck.ExposureReport{Findings: []sitecheck.Finding{}}}},
 		{"admin", WorkerMsg{Type: MsgStop}},
 		{RoleWeb, WorkerMsg{Type: MsgHello, Role: "admin"}},
 		{RoleWeb, WorkerMsg{Type: MsgHello, Role: RoleTunnel}},

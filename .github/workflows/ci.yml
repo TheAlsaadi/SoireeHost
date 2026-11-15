@@ -25,7 +25,10 @@ concurrency:
 
 env:
   GOTOOLCHAIN: local
-  GOFLAGS: -mod=readonly
+  # no_fs_access keeps Coraza from writing request bodies to temp files;
+  # internal/waf does not compile without it (ADR-0008). A step that sets
+  # its own -tags must list it too.
+  GOFLAGS: -mod=readonly -tags=no_fs_access
   NODE_VERSION: "26"
   WAILS_VERSION: v3.1.0
   GOLANGCI_LINT_VERSION: v2.15.0
@@ -48,6 +51,9 @@ jobs:
           go-version-file: go.mod
       - name: Verify module checksums
         run: go mod verify
+      - name: Vendored Core Rule Set matches its signed release (S-71, ADR-0008)
+        shell: pwsh
+        run: ./build/check-crs.ps1
       - name: go vet
         run: go vet ./...
       - name: Tests with race detector
@@ -72,11 +78,11 @@ jobs:
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
       - name: staticcheck
-        run: go run honnef.co/go/tools/cmd/staticcheck@${{ env.STATICCHECK_VERSION }} ./...
+        run: go run honnef.co/go/tools/cmd/staticcheck@${{ env.STATICCHECK_VERSION }} -tags no_fs_access ./...
       - name: gosec
-        run: go run github.com/securego/gosec/v2/cmd/gosec@${{ env.GOSEC_VERSION }} -quiet -exclude-dir=.semgrep ./...
+        run: go run github.com/securego/gosec/v2/cmd/gosec@${{ env.GOSEC_VERSION }} -quiet -tags no_fs_access -exclude-dir=.semgrep ./...
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }} ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }} -tags no_fs_access ./...
 
   frontend:
     name: Frontend checks
@@ -188,7 +194,7 @@ jobs:
       - name: Build release binary
         env:
           CGO_ENABLED: "0"
-        run: go build -trimpath -tags production,cloudflared -o bin/soireehost.exe ./cmd/soireehost
+        run: go build -trimpath -tags production,cloudflared,no_fs_access -o bin/soireehost.exe ./cmd/soireehost
       - name: Copy the binary to a folder only administrators can change
         # setup refuses to install from a folder another account could change
         # (DR-9), and the checkout folder's permissions are the runner's
@@ -205,7 +211,7 @@ jobs:
           SOIREEHOST_E2E: "1"
         shell: pwsh
         run: |
-          $out = go test -tags e2e -count=1 -v -timeout 60m ./internal/e2e/ 2>&1 | Out-String
+          $out = go test -tags e2e,no_fs_access -count=1 -v -timeout 60m ./internal/e2e/ 2>&1 | Out-String
           $code = $LASTEXITCODE
           Write-Output $out
           if ($code -ne 0) {
@@ -221,7 +227,7 @@ jobs:
         env:
           SOIREEHOST_E2E: "1"
           SOIREEHOST_PHONE_MINUTES: ${{ inputs.phone_minutes }}
-        run: go test -tags e2e -count=1 -v -timeout 10m -run '^TestPhoneCheck$' ./internal/e2e/
+        run: go test -tags e2e,no_fs_access -count=1 -v -timeout 10m -run '^TestPhoneCheck$' ./internal/e2e/
       - name: Phone check, keep the quick share up
         if: github.event_name == 'workflow_dispatch' && inputs.phone_minutes != '0'
         env:

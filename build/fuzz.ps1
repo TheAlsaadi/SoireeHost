@@ -8,6 +8,8 @@ param([string]$Duration = "10m")
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 Set-Location (Split-Path -Parent $PSScriptRoot)
+# internal/waf does not compile without the no_fs_access tag (ADR-0008)
+if (-not ($env:GOFLAGS -match 'no_fs_access')) { $env:GOFLAGS = ("$env:GOFLAGS -tags=no_fs_access").Trim() }
 
 $pkgs = go list ./...
 if ($LASTEXITCODE -ne 0) { throw "go list failed" }

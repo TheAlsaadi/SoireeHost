@@ -14,8 +14,11 @@ import (
 type Verdict int
 
 const (
+	// invalidVerdict is the zero value; it refuses like BadRequest, so a
+	// Verdict that was never set never lets a request through (SE-26).
+	invalidVerdict Verdict = iota
 	// Allow lets the request through.
-	Allow Verdict = iota
+	Allow
 	// BadRequest means the path is malformed or uses a Windows path trick;
 	// answer 400.
 	BadRequest
@@ -32,6 +35,8 @@ func (v Verdict) String() string {
 		return "bad request"
 	case NotFound:
 		return "not found"
+	case invalidVerdict:
+		return "invalid"
 	}
 	return "unknown"
 }

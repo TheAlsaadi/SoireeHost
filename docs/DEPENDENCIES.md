@@ -2,7 +2,7 @@
 
 Every dependency needs a reason, a pinned version, a licence check and a `govulncheck` or `npm audit` pass (plan section 1 rule 5, S-70, S-75). Update this file in the same change that adds or upgrades a dependency.
 
-Last reviewed: 12 Nov 2026 (Phase 1).
+Last reviewed: 15 Nov 2026 (Phase 4).
 
 ## Linked into soireehost.exe (Go)
 
@@ -22,6 +22,40 @@ Linked in with Caddy (Phase 1): 150 Go modules in all, counted from `go version 
 Upgraded in Phase 1 above what Caddy selects, to clear `govulncheck` findings: `github.com/klauspost/compress` v1.20.1 to v1.20.4 (GO-2026-6865, a panic reachable from both the Wails updater path and Caddy; fixed in v1.20.2), `golang.org/x/net` to v0.62.0 (GO-2026-6866, GO-2026-6860, not reachable), `golang.org/x/crypto` to v0.59.0 (GO-2026-5932, not reachable). Also moved to the newest releases: `golang.org/x/sync` v0.25.0, `golang.org/x/term` v0.48.0, `golang.org/x/text` v0.44.0.
 
 `govulncheck ./...` (v1.9.0, 12 Nov 2026): no vulnerabilities found.
+
+### Added in Phase 4: the web application firewall (ADR-0008), 15 Nov 2026
+
+| Module | Version | Licence | Why |
+| --- | --- | --- | --- |
+| `github.com/corazawaf/coraza/v3` | v3.8.1 | Apache-2.0 | The web application firewall engine that runs the OWASP Core Rule Set (S-14, plan section 3). Used directly by `internal/waf` instead of `coraza-caddy`, whose logging writes matched request data and unmasked URIs (S-18) and which brings a rule set without five published security fixes. Built with the `no_fs_access` tag so request bodies never reach disk. Two of its transformations are replaced at start-up because of a Windows bug (Coraza issue 1140, ADR-0008 section 4) |
+| `golang.org/x/sync` | v0.25.0 | BSD-3-Clause | Was already linked; now imported directly for `semaphore` (the firewall's body budget and inspection slots) |
+
+Linked through Coraza, from `go version -m bin/soireehost.exe`, each with its licence read from the module's own licence file:
+
+| Module | Version | Licence | Used by Coraza for |
+| --- | --- | --- | --- |
+| `github.com/corazawaf/libinjection-go` | v0.3.3 | BSD-3-Clause | `@detectSQLi` and `@detectXSS` (libinjection) |
+| `github.com/petar-dambovaliev/aho-corasick` | v0.0.0-20250424160509-463d218d4745 | MIT | `@pm` and `@pmFromFile` phrase matching |
+| `rsc.io/binaryregexp` | v0.2.0 | BSD-3-Clause | Regular expressions over raw bytes |
+| `github.com/tidwall/gjson`, `match`, `pretty` | v1.18.0, v1.1.1, v1.2.1 | MIT | The JSON request body processor |
+| `github.com/kaptinlin/jsonschema`, `go-i18n` | v0.4.6, v0.1.4 | MIT | The `@validateSchema` operator |
+| `github.com/goccy/go-json`, `go-yaml` | v0.10.5, v1.19.2 | MIT | Pulled in by `kaptinlin/jsonschema` |
+| `github.com/gotnospirit/makeplural`, `messageformat` | v0.0.0-20180622080156-a5f48d94d976, v0.0.0-20221001023931-dfe49f1eb092 | BSD-2-Clause | Pulled in by `kaptinlin/go-i18n` |
+| `github.com/valllabh/ocsf-schema-golang` | v1.0.3 | Apache-2.0 | Coraza's OCSF audit log format; the audit log is off (`SecAuditEngine Off`) |
+
+`govulncheck -tags no_fs_access ./...` (v1.9.0, 15 Nov 2026): no vulnerabilities found.
+
+Supply-chain-risk-auditor pass (S-75), 15 Nov 2026, over `go.mod` (7 direct dependencies; 165 modules swept for advisories at their locked versions):
+
+- **Coraza.** No advisories, repository active (pushed the day of the audit), security policy published. OpenSSF Scorecard: Dangerous-Workflow 10/10, Binary-Artifacts 10/10, Token-Permissions 10/10, Code-Review 7/10. Not assessable for Go: publisher concentration, provenance, download volume and deprecation.
+- **The 13 modules Coraza brings.** None carries a known advisory. The audit checked advisories only at this depth.
+- **Advisories in the sweep.** All come from modules already on `main` at the same versions, not from this change: the accepted go-jose v3 advisories (below) and GHSA-q7gw-24fr-5p69 in OpenTelemetry (below).
+
+### Vendored rule set (data, not code)
+
+| Data | Version | Licence | Why |
+| --- | --- | --- | --- |
+| OWASP Core Rule Set, request rules and their data files (30 files in `internal/waf/crs/`) | v4.30.0, archive SHA-256 `3d678a41fd5aade34760127fef5dd64fd7a77848913fc0f70dde0cf467c94427` | Apache-2.0 | The firewall's rules (S-14; owner decision of 15 Nov 2026). Copied byte for byte from the official signed release (signature checked with the CRS key `36006F0E0BA167832158821138EEACA1AB8A6E72`). Pinned in `build/crs.lock`, and `build/check-crs.ps1` fails CI if any file differs from the release. The response rules and their data files are left out (ADR-0008) |
 
 ## Embedded executable
 
@@ -63,6 +97,7 @@ Other CI and developer tools, pinned in the `env` block of `.github/workflows/ci
 | --- | --- | --- | --- | --- |
 | GHSA-gcqx-w48m-w2h4, `deepmerge` prototype poisoning | Low | `@sveltejs/vite-plugin-svelte`, build time only | No fixed version exists. It merges this project's own config files at build time; no attacker-controlled input reaches it, and nothing from it ships | When a fixed `deepmerge` or a plugin release without it appears |
 | GHSA-4w3g-jfj2-cw2q, GHSA-mgcc-cww5-fp2q, GHSA-vvm8-gf78-28g4, `github.com/go-jose/go-jose/v3` v3.0.5 panics and denial of service on hostile JOSE input | Medium | Caddy `caddytls` → smallstep `certificates` → `go.step.sm/crypto/jose` | No v3 release fixes them (3.0.5 is the last); the fixes are in v4. `govulncheck` reports none reachable: the parsing runs only in Caddy's internal CA and ACME server, which the generated config never enables. `go-jose/v4`, which SoiréeHost does reach, is at v4.1.9 (newest) | When Caddy or smallstep drops go-jose v3, and at every Caddy upgrade |
+| GHSA-q7gw-24fr-5p69, `go.opentelemetry.io/otel/sdk`, `sdk/log` and `trace` v1.46.0 / v0.22.0: `AttributeValueLengthLimit` bypassed by attribute values of U+FFFD runes | Medium | Caddy's tracing support (`caddyhttp` → OpenTelemetry) | Published 13 Nov 2026, fixed in v1.47.0. Already on `main` before Phase 4. `govulncheck` reports it not reachable: SoiréeHost never configures tracing, so no span or attribute is ever recorded | Raise to v1.47.0 or later in a dependency update, and at every Caddy upgrade |
 
 CI runs `npm audit --audit-level=moderate`, so this low finding does not fail the build; a new moderate or higher one does.
 

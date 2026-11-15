@@ -8,6 +8,8 @@ import (
 	"strconv"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
+	"github.com/TheAlsaadi/SoireeHost/internal/fwevent"
+	"github.com/TheAlsaadi/SoireeHost/internal/waf"
 )
 
 // Options are the parts of the Caddy config that come from where the worker
@@ -25,8 +27,9 @@ type Options struct {
 
 // Log file names inside Options.LogDir.
 const (
-	AccessLogName = "access.log"
-	WorkerLogName = "worker.log"
+	AccessLogName   = "access.log"
+	WorkerLogName   = "worker.log"
+	FirewallLogName = fwevent.LogName
 )
 
 // Log rotation (S-18): each log is capped at about logRollMB * (logRollKeep+1).
@@ -116,7 +119,16 @@ func BuildCaddyJSON(cfg config.Config, opts Options) ([]byte, error) {
 				"writer":  logWriter(filepath.Join(opts.LogDir, WorkerLogName)),
 				"encoder": logEncoder(),
 				"level":   "INFO",
-				"exclude": []string{"http.log.access"},
+				"exclude": []string{"http.log.access", waf.LoggerName},
+			},
+			// firewall events, already built safe by the handler (S-18,
+			// ADR-0008); rotated files stay plain so the supervisor can
+			// read them for firewall.events
+			"firewall": obj{
+				"writer":  firewallLogWriter(filepath.Join(opts.LogDir, FirewallLogName)),
+				"encoder": obj{"format": "json", "time_format": "rfc3339_nano"},
+				"level":   "INFO",
+				"include": []string{waf.LoggerName},
 			},
 			"access": obj{
 				"writer":  logWriter(filepath.Join(opts.LogDir, AccessLogName)),
@@ -146,6 +158,12 @@ func siteRoutes(site config.Site, hostnames []string, fsName string) (route, err
 		obj{"handler": "soireehost_guard", "mode": site.Type, "allow_well_known": site.AllowWellKnown},
 		obj{"handler": "request_body", "max_size": site.MaxBodyBytes},
 	)
+	// S-14: the firewall reads at most the site's own body limit, so it
+	// comes after request_body (ADR-0005 item 4, ADR-0008)
+	if mode := site.Firewall.EffectiveMode(); mode != config.FirewallOff {
+		chain = append(chain, obj{"handler": "soireehost_waf", "site": site.ID, "mode": mode,
+			"paranoia_level": site.Firewall.Level()})
+	}
 	switch site.Type {
 	case config.TypeStatic:
 		fileServer := obj{
@@ -246,6 +264,12 @@ func errorResponse() obj {
 		"body":        "{http.error.status_code} {http.error.status_text}\n",
 		"headers":     obj{"Content-Type": []string{"text/plain; charset=utf-8"}},
 	}
+}
+
+func firewallLogWriter(file string) obj {
+	w := logWriter(file)
+	w["roll_compression"] = "none"
+	return w
 }
 
 func logWriter(file string) obj {

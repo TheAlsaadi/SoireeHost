@@ -55,7 +55,7 @@ One Go codebase compiles to one binary, `soireehost.exe`, and that binary is the
 | Go | Language and toolchain | 1.27.4 (Caddy, Coraza for Caddy and Wails v3 all require 1.26 or newer) | BSD-3 | Build tool only |
 | [Wails v3](https://github.com/wailsapp/wails/releases/tag/v3.1.0) | Desktop shell: window, tray, Go-to-UI bindings, updater | v3.1.0 (fallback v2.17.1) | MIT | Compiled in |
 | [Caddy](https://github.com/caddyserver/caddy/releases) | Web server and reverse proxy | v2.11.9 | Apache-2.0 | Compiled in as a library |
-| [Coraza for Caddy](https://github.com/corazawaf/coraza-caddy) with the OWASP Core Rule Set | Web application firewall | `coraza-caddy/v2` v2.6.2, which brings `coraza-coreruleset/v4` v4.25 (the rule set's long-term-support line) | Apache-2.0 | Compiled in as a Caddy module |
+| [Coraza](https://github.com/corazawaf/coraza) with the [OWASP Core Rule Set](https://github.com/coreruleset/coreruleset) | Web application firewall | `coraza/v3` v3.8.1 in a SoiréeHost Caddy module, with the request rules of CRS v4.30.0 vendored from its signed release (owner decision, 15 Nov 2026; ADR-0008). `coraza-caddy` and its lagging `coraza-coreruleset` wrapper are not used | Apache-2.0 | Compiled in as a Caddy module; rules embedded |
 | [cloudflared](https://github.com/cloudflare/cloudflared/releases) | Cloudflare Tunnel connector | 2026.11.0 (moved from 2026.10.7 on 14 Nov 2026 for VULN-170057, ADR-0007) | Apache-2.0 | Official binary embedded in `soireehost.exe`, unpacked by the setup role, run as a child process |
 | Svelte 5, TypeScript, Vite | Control-panel UI | Svelte 5.57.3, Vite 8.3.8, TypeScript as supported by `svelte-check`; exact versions in `frontend/package-lock.json`. Node.js 26 LTS for builds | MIT, Apache-2.0 | Bundled into the binary |
 | WebView2 | Renders the UI | Evergreen runtime in Windows | Microsoft | System component |
@@ -394,10 +394,10 @@ Build Coraza with the Core Rule Set, the per-site modes, rate limiting, the expo
 
 Done when:
 
-- [ ] Sample SQL injection, cross-site scripting and traversal requests get a 403 and appear in the firewall log.
-- [ ] Browsing a normal static site and a typical proxied app triggers no block at paranoia level 1.
-- [ ] The exposure check flags a planted `.env` file and private key.
-- [ ] Tests pass for S-14.
+- [x] Sample SQL injection, cross-site scripting and traversal requests get a 403 and appear in the firewall log. (15 Nov 2026, pull request 11, run 43704274901: `waf` `TestAttackSetBlocked`, `worker` `TestFirewallInChain`, and on the installed services `e2e` `TestFirewallOnInstalledSystem`, read back over the control pipe with `firewall.events`)
+- [x] Browsing a normal static site and a typical proxied app triggers no block at paranoia level 1. (15 Nov 2026, pull request 11, run 43704274901: `waf` `TestNormalSetPasses`, `worker` `TestFirewallInChain`, `e2e` `TestFirewallOnInstalledSystem`)
+- [x] The exposure check flags a planted `.env` file and private key. (15 Nov 2026, pull request 11, run 43704274901: `sitecheck` `TestScanExposureFlagsSecrets`, `supervisor` `TestExposureCheckBeforeLive`)
+- [x] Tests pass for S-14. (15 Nov 2026, pull request 11, run 43704274901; ADR-0008 accepted by the owner 15 Nov 2026)
 
 ### Phase 5: Control panel
 

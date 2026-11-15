@@ -57,7 +57,12 @@ func TestStripsOtherForwardedSpellings(t *testing.T) {
 
 func TestStripsForwardedTrailers(t *testing.T) {
 	up := trailerUpstream(t)
-	h := startHarness(t, func(c *config.Config) { c.Sites[1].Proxy.Target = up.Listener.Addr().String() })
+	// the firewall rightly flags a chunked body with no Content-Type (CRS
+	// 920640); this test is about the guard, so that site has it off
+	h := startHarness(t, func(c *config.Config) {
+		c.Sites[1].Proxy.Target = up.Listener.Addr().String()
+		c.Sites[1].Firewall.Mode = config.FirewallOff
+	})
 	r := h.raw(t, "POST / HTTP/1.1\r\nHost: app.example.com\r\nConnection: close\r\n"+
 		"CF-Connecting-IP: 203.0.113.7\r\nTransfer-Encoding: chunked\r\nTrailer: X-Forwarded-For, X-Real-Ip\r\n\r\n"+
 		"3\r\nabc\r\n0\r\nX-Forwarded-For: 6.6.6.6\r\nX-Real-Ip: 6.6.6.6\r\n\r\n")

@@ -16,6 +16,7 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/secrets"
+	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 	"github.com/TheAlsaadi/SoireeHost/internal/worker"
 )
@@ -61,7 +62,7 @@ func (s *Supervisor) handle(_ context.Context, c winsec.Caller, method string, p
 		if perr != nil {
 			return nil, perr
 		}
-		return s.siteSetEnabled(c, p.ID, p.Enabled)
+		return s.siteSetEnabled(c, p)
 	case ipc.MethodSecretSet:
 		p, perr := paramsAs[ipc.SecretSetParams](params)
 		if perr != nil {
@@ -98,6 +99,12 @@ func (s *Supervisor) handle(_ context.Context, c winsec.Caller, method string, p
 			return nil, perr
 		}
 		return s.setOffline(c, p.Offline)
+	case ipc.MethodFirewallEvents:
+		p, perr := paramsAs[ipc.FirewallEventsParams](params)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.firewallEvents(p)
 	}
 	return nil, ipc.Errorf(ipc.CodeInvalid, "Unknown request.")
 }
@@ -275,14 +282,16 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 	detail := map[string]string{"to_revision": strconv.FormatUint(p.Revision, 10)}
 	// S-32 (owner decision of 13 Nov 2026, review finding R-04): going back
 	// to settings that forward to a device on the local network the current
-	// ones do not needs the same confirmation as adding one, and is audited
+	// ones do not needs the same confirmation as adding one, and is audited;
+	// so does going back to a weaker firewall (ADR-0008)
+	var w weakenings
 	if added := newLANTargets(cur.Config, target.Config); len(added) > 0 {
-		if !p.Confirm {
-			return nil, ipc.Errorf(ipc.CodeConfirmationRequired,
-				"Revision %d forwards to a device on your local network (%s), which makes that device reachable from the internet. Confirm to continue.",
-				p.Revision, strings.Join(added, ", "))
-		}
-		detail["weakening"] = "allow_lan"
+		w.add("allow_lan", fmt.Sprintf("Revision %d forwards to a device on your local network (%s), which makes that device reachable from the internet.",
+			p.Revision, strings.Join(added, ", ")))
+	}
+	w.firewall(cur.Config, target.Config)
+	if e := w.check(p.Confirm, detail); e != nil {
+		return nil, e
 	}
 	rec, err := s.store.Rollback(p.Revision, c.SID)
 	if err != nil {
@@ -344,7 +353,16 @@ func (s *Supervisor) sitePut(c winsec.Caller, p *ipc.SitePutParams) (any, *ipc.E
 	if site.Proxy != nil {
 		detail["target"] = site.Proxy.Target
 	}
-	return s.withTunnel(s.change(c, "site.put", detail, func(cfg *config.Config) *ipc.Error {
+	var w weakenings
+	var rep *sitecheck.ExposureReport
+	var warn []string
+	if !s.alreadyLive(site) {
+		var perr *ipc.Error
+		if rep, warn, perr = s.exposureCheck(site, &w, detail); perr != nil {
+			return nil, perr
+		}
+	}
+	res, e := s.change(c, "site.put", detail, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == site.ID })
 		// quick shares are changed only through quickshare.start and
 		// quickshare.stop; replacing a site keeps its share as it is
@@ -356,11 +374,13 @@ func (s *Supervisor) sitePut(c winsec.Caller, p *ipc.SitePutParams) (any, *ipc.E
 		// current settings is a weakening change, including pointing a site
 		// that already allows the LAN at another device (review finding R-04)
 		if len(newLANTargets(*cfg, config.Config{Sites: []config.Site{site}})) > 0 {
-			if !p.Confirm {
-				return ipc.Errorf(ipc.CodeConfirmationRequired,
-					"Forwarding to a device on your local network makes that device reachable from the internet through this site. Confirm to continue.")
-			}
-			detail["weakening"] = "allow_lan"
+			w.add("allow_lan", "Forwarding to a device on your local network makes that device reachable from the internet through this site.")
+		}
+		// S-14, S-32: a weaker firewall than now, or a new site that starts
+		// below Block, needs confirmation (ADR-0008)
+		w.firewall(*cfg, config.Config{Sites: []config.Site{site}})
+		if e := w.check(p.Confirm, detail); e != nil {
+			return e
 		}
 		if i >= 0 {
 			cfg.Sites[i] = site
@@ -368,7 +388,22 @@ func (s *Supervisor) sitePut(c winsec.Caller, p *ipc.SitePutParams) (any, *ipc.E
 			cfg.Sites = append(cfg.Sites, site)
 		}
 		return nil
-	}))
+	})
+	return s.withTunnel(withExposure(res, e, rep, warn))
+}
+
+// withExposure adds the exposure check's report and warnings to a change's
+// result.
+func withExposure(res any, e *ipc.Error, rep *sitecheck.ExposureReport, warn []string) (any, *ipc.Error) {
+	if e != nil {
+		return nil, e
+	}
+	if r, ok := res.(ipc.ConfigResult); ok {
+		r.Exposure = rep
+		r.Warnings = append(r.Warnings, warn...)
+		return r, nil
+	}
+	return res, nil
 }
 
 func (s *Supervisor) siteRemove(c winsec.Caller, id string) (any, *ipc.Error) {
@@ -382,15 +417,47 @@ func (s *Supervisor) siteRemove(c winsec.Caller, id string) (any, *ipc.Error) {
 	}))
 }
 
-func (s *Supervisor) siteSetEnabled(c winsec.Caller, id string, enabled bool) (any, *ipc.Error) {
-	return s.withTunnel(s.change(c, "site.set_enabled", map[string]string{"site": id, "enabled": strconv.FormatBool(enabled)}, func(cfg *config.Config) *ipc.Error {
+func (s *Supervisor) siteSetEnabled(c winsec.Caller, p *ipc.SiteEnabledParams) (any, *ipc.Error) {
+	id, enabled := p.ID, p.Enabled
+	detail := map[string]string{"site": id, "enabled": strconv.FormatBool(enabled)}
+	// a static folder that goes live is checked first (ADR-0008)
+	var w weakenings
+	var rep *sitecheck.ExposureReport
+	var warn []string
+	var scanned string
+	if enabled {
+		cur, err := s.current()
+		if err != nil {
+			return nil, ipc.Errorf(ipc.CodeInternal, "The saved settings could not be read: %v", err)
+		}
+		if i := slices.IndexFunc(cur.Config.Sites, func(x config.Site) bool { return x.ID == id }); i >= 0 {
+			site := cur.Config.Sites[i]
+			if !site.Enabled && site.Type == config.TypeStatic && site.Static != nil {
+				site.Enabled = true
+				var perr *ipc.Error
+				if rep, warn, perr = s.exposureCheck(site, &w, detail); perr != nil {
+					return nil, perr
+				}
+				scanned = site.Static.Root
+			}
+		}
+	}
+	res, e := s.change(c, "site.set_enabled", detail, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == id })
 		if i < 0 {
 			return ipc.Errorf(ipc.CodeNotFound, "There is no site %q.", id)
 		}
+		site := cfg.Sites[i]
+		if enabled && !site.Enabled && site.Type == config.TypeStatic && site.Static != nil && site.Static.Root != scanned {
+			return ipc.Errorf(ipc.CodeUnavailable, "The site changed while its folder was being checked. Try again.")
+		}
+		if e := w.check(p.Confirm, detail); e != nil {
+			return e
+		}
 		cfg.Sites[i].Enabled = enabled
 		return nil
-	}))
+	})
+	return s.withTunnel(withExposure(res, e, rep, warn))
 }
 
 // secretSet stores the tunnel token (write-only, S-35). Only a Cloudflare
