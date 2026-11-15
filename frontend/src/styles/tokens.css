@@ -1,0 +1,208 @@
+/*
+ * SoiréeHost design tokens (plan section 7, ADR-0009).
+ *
+ * Three layers: primitives (raw values), roles (what a colour is for) and the
+ * few component tokens. Components use roles only, never primitives.
+ * Light is the default; dark follows the system setting; Windows contrast
+ * themes are handled by the forced-colors block at the end, which maps every
+ * role to a system colour.
+ */
+
+:root {
+  /* ---- Primitives: neutral greys (light) ---- */
+  --grey-0: #ffffff;
+  --grey-25: #fafafa;
+  --grey-50: #f5f5f5;
+  --grey-75: #efefef;
+  --grey-100: #e9e9e9;
+  --grey-150: #e1e1e1;
+  --grey-300: #c4c4c4;
+  --grey-500: #8a8a8a;
+  --grey-600: #5f5f5f;
+  --grey-800: #2f2f2f;
+  --grey-900: #1b1b1b;
+
+  /* ---- Primitives: the one accent, "Soirée plum" ---- */
+  --plum-600: #6b3a60;
+  --plum-700: #5a3051;
+  --plum-800: #4a2743;
+  --plum-200: #dbb6d1;
+  --plum-300: #cfa3c4;
+  --plum-950: #2a1225;
+
+  /* ---- Primitives: status hues (light) ---- */
+  --green-700: #0e700e;
+  --amber-700: #8a5300;
+  --red-700: #b42318;
+  --red-50: #fdf1f0;
+
+  /* ---- Roles: surfaces ---- */
+  --surface-window: var(--grey-50);   /* behind the rail */
+  --surface-main: var(--grey-25);     /* the working area */
+  --surface-raised: var(--grey-0);    /* lists, detail pane, inputs */
+  --surface-hover: var(--grey-75);
+  --surface-selected: var(--grey-100);
+  --surface-pressed: var(--grey-150);
+  --surface-dialog: var(--grey-0);
+  --surface-blocked: var(--red-50);   /* a blocked log row */
+
+  /* ---- Roles: text ---- */
+  --text-primary: var(--grey-900);
+  --text-secondary: var(--grey-600);  /* 6.0:1 on --surface-main */
+  --text-on-accent: #ffffff;
+  --text-selected: var(--text-primary);
+
+  /* ---- Roles: borders and lines ---- */
+  --border-subtle: var(--grey-150);   /* separates regions; decorative */
+  --border-control: var(--grey-500);  /* edges of inputs, switches: 3.4:1 */
+  --border-strong: var(--grey-800);
+
+  /* ---- Roles: accent (primary action and focus ring only) ---- */
+  --accent: var(--plum-600);
+  --accent-hover: var(--plum-700);
+  --accent-pressed: var(--plum-800);
+  --focus-ring: var(--plum-600);
+
+  /* ---- Roles: switch (not the accent: on/off is state, not action) ---- */
+  --switch-on: var(--grey-900);
+  --switch-knob-on: #ffffff;
+  --switch-knob-off: var(--grey-600);
+
+  /* ---- Roles: status (always with a word and a shape) ---- */
+  --status-ok: var(--green-700);
+  --status-warning: var(--amber-700);
+  --status-danger: var(--red-700);
+  --status-off: var(--grey-600);
+
+  /* ---- Type ---- */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-title: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  /* Three sizes, in rem so the Windows text-size setting scales them. */
+  --text-small: 0.75rem;   /* 12 px: captions, column heads, log text */
+  --text-body: 0.875rem;   /* 14 px: everything else */
+  --text-title: 1.25rem;   /* 20 px: one title per screen */
+  --leading-small: 1rem;
+  --leading-body: 1.25rem;
+  --leading-title: 1.75rem;
+  /* Two weights. */
+  --weight-regular: 400;
+  --weight-strong: 600;
+
+  /* ---- Space: 4 px grid ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* ---- Shape ---- */
+  --radius-control: 4px;
+  --radius-panel: 6px;
+  --border-width: 1px;
+  --focus-width: 2px;
+  --focus-offset: 2px;
+
+  /* ---- Depth: only menus and dialogs ---- */
+  --shadow-menu: 0 2px 8px rgb(0 0 0 / 14%), 0 0 1px rgb(0 0 0 / 20%);
+  --shadow-dialog: 0 8px 24px rgb(0 0 0 / 18%), 0 0 1px rgb(0 0 0 / 22%);
+
+  /* ---- Motion ---- */
+  --motion-fast: 120ms;
+  --motion-slow: 160ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- Component sizes ---- */
+  --rail-width: 12rem;
+  --pane-width: 21rem;
+  --row-height: 2.5rem;
+  --control-height: 2rem;
+  --icon-small: 16px;
+  --icon-large: 20px;
+
+  color-scheme: light;
+}
+
+/* ---- Dark: follows the system unless a preview forces light ---- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-window: #1f1f1f;
+    --surface-main: #262626;
+    --surface-raised: #2c2c2c;
+    --surface-hover: #333333;
+    --surface-selected: #3a3a3a;
+    --surface-pressed: #414141;
+    --surface-dialog: #2c2c2c;
+    --surface-blocked: #3a2525;
+    --text-primary: #f2f2f2;
+    --text-secondary: #ababab;
+    --text-on-accent: var(--plum-950);
+    --border-subtle: #383838;
+    --border-control: #8c8c8c;
+    --border-strong: #d6d6d6;
+    --accent: var(--plum-200);
+    --accent-hover: var(--plum-300);
+    --accent-pressed: #c487b5;
+    --focus-ring: var(--plum-200);
+    --switch-on: #f2f2f2;
+    --switch-knob-on: #1f1f1f;
+    --switch-knob-off: #ababab;
+    --status-ok: #6ccb5f;
+    --status-warning: #f2c35b;
+    --status-danger: #ff9b91;
+    --status-off: #ababab;
+    --shadow-menu: 0 2px 8px rgb(0 0 0 / 40%), 0 0 1px rgb(0 0 0 / 60%);
+    --shadow-dialog: 0 8px 24px rgb(0 0 0 / 50%), 0 0 1px rgb(0 0 0 / 60%);
+    color-scheme: dark;
+  }
+}
+
+/*
+ * ---- Windows contrast themes ----
+ * In forced-colors mode the browser replaces colours with the user's theme.
+ * Every role maps to a system colour so nothing disappears: borders stay,
+ * focus uses Highlight, disabled text uses GrayText. Status colours become
+ * CanvasText, which is why status is never shown by colour alone.
+ */
+@media (forced-colors: active) {
+  :root {
+    --surface-window: Canvas;
+    --surface-main: Canvas;
+    --surface-raised: Canvas;
+    --surface-hover: Canvas;
+    --surface-selected: Highlight;
+    --surface-pressed: Canvas;
+    --surface-dialog: Canvas;
+    --surface-blocked: Canvas;
+    --text-primary: CanvasText;
+    --text-secondary: CanvasText;
+    --text-on-accent: ButtonFace;
+    --text-selected: HighlightText;
+    --border-subtle: CanvasText;
+    --border-control: ButtonText;
+    --border-strong: CanvasText;
+    --accent: ButtonText;
+    --accent-hover: ButtonText;
+    --accent-pressed: ButtonText;
+    --focus-ring: Highlight;
+    --switch-on: Highlight;
+    --switch-knob-on: HighlightText;
+    --switch-knob-off: ButtonText;
+    --status-ok: CanvasText;
+    --status-warning: CanvasText;
+    --status-danger: CanvasText;
+    --status-off: GrayText;
+    --shadow-menu: none;
+    --shadow-dialog: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-slow: 0ms;
+  }
+}

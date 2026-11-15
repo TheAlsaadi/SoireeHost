@@ -292,7 +292,7 @@ func hasAllow(dacl *windows.ACL, sid string, mask uint32, flags uint8) bool {
 		if uint32(ace.Mask)&mask != mask || ace.Header.AceFlags&flags != flags {
 			continue
 		}
-		got := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+		got := (*windows.SID)(unsafe.Pointer(&ace.SidStart)) // #nosec G103 -- the SID follows the ACE header, as the Windows ACE layout defines
 		if got.Equals(want) {
 			return true
 		}
@@ -332,7 +332,7 @@ func openFolderNoFollow(path string, access uint32) (windows.Handle, windows.ByH
 // handlePath is the real path of an open file, in drive-letter form.
 func handlePath(h windows.Handle) (string, error) {
 	buf := make([]uint16, windows.MAX_LONG_PATH)
-	n, err := windows.GetFinalPathNameByHandle(h, &buf[0], uint32(len(buf)), 0)
+	n, err := windows.GetFinalPathNameByHandle(h, &buf[0], windows.MAX_LONG_PATH, 0)
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve the folder: %w", err)
 	}

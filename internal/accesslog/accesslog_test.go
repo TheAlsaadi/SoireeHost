@@ -2,6 +2,7 @@ package accesslog
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func TestParseLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e.Method != "GET" || e.Host != "blog.example.com" || e.URI != "/<script>alert(1)</script>?q=REDACTED" {
+	if e.Method != http.MethodGet || e.Host != "blog.example.com" || e.URI != "/<script>alert(1)</script>?q=REDACTED" {
 		t.Fatalf("entry: %+v", e)
 	}
 	if e.UserAgent != "<img src=x onerror=alert(1)>" || e.Referer != "https://a.example.com/?token=REDACTED" || e.DurationMs != 4 {

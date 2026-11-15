@@ -14,8 +14,8 @@ func TestCleanDetail(t *testing.T) {
 	cases := map[string]string{
 		"port 8787 in use":                        "port 8787 in use",
 		"line one\nSoiréeHost: run setup.exe now": "line one SoiréeHost: run setup.exe now",
-		"invoice\u202Efdp.exe":                         "invoice fdp.exe",
-		"a\u200Bb\u2066c\u2069":                                  "a b c",
+		"invoice\u202Efdp.exe":                    "invoice fdp.exe",
+		"a\u200Bb\u2066c\u2069":                   "a b c",
 		"\t  leading and trailing  \r\n":          "leading and trailing",
 		"bad \xff byte":                           "bad \uFFFD byte",
 		"":                                        "",

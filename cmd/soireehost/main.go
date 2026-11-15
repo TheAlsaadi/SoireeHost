@@ -78,7 +78,7 @@ func run(args []string) int {
 	v := version.Current()
 	switch r {
 	case roleGUI:
-		return exitCode(gui.Run())
+		return exitCode(gui.Run(args[min(1, len(args)):]))
 	case roleService:
 		return exitCode(supervisor.RunService(v))
 	case roleWorker:

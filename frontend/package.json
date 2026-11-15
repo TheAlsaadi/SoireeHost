@@ -7,10 +7,11 @@
     "node": "^22.12.0 || >=24"
   },
   "scripts": {
-    "build": "vite build --mode production",
+    "build": "vite build --mode production && node scripts/check-bundle.mjs",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "lint": "eslint --max-warnings 0 .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:fake": "vite --mode fake"
   },
   "overrides": {
     "minimatch": "11.0.8"
@@ -24,6 +25,7 @@
     "eslint": "10.14.0",
     "eslint-plugin-svelte": "3.24.1",
     "globals": "17.14.0",
+    "happy-dom": "21.0.4",
     "svelte": "5.57.3",
     "svelte-check": "4.7.8",
     "typescript": "6.0.3",

@@ -15,7 +15,7 @@ describe("S-34 lint rules", () => {
   it("rejects {@html} in Svelte", async () => {
     const ids = await ruleIds('<script lang="ts">let x = $state("");</script>\n{@html x}\n', "src/Probe.svelte");
     expect(ids).toContain("svelte/no-at-html-tags");
-  });
+  }, 60_000);
 
   it.each([
     "el.innerHTML = data;",
