@@ -2,7 +2,7 @@
 
 Every dependency needs a reason, a pinned version, a licence check and a `govulncheck` or `npm audit` pass (plan section 1 rule 5, S-70, S-75). Update this file in the same change that adds or upgrades a dependency.
 
-Last reviewed: 15 Nov 2026 (OpenTelemetry v1.47.0 upgrade).
+Last reviewed: 15 Nov 2026 (Phase 4, then the OpenTelemetry v1.47.0 upgrade).
 
 ## Linked into soireehost.exe (Go)
 
@@ -26,6 +26,40 @@ Upgraded in Phase 1 above what Caddy selects, to clear `govulncheck` findings: `
 Upgraded on 15 Nov 2026 above what Caddy selects, to clear GHSA-q7gw-24fr-5p69 (Medium: `AttributeValueLengthLimit` fully bypassed by attribute values of valid U+FFFD runes; published 13 Nov 2026, fixed in v1.47.0). It affects `go.opentelemetry.io/otel/sdk`, `otel/sdk/log` and `otel/trace` v1.46.0 / v0.22.0, which Caddy's `caddyhttp` pulls in for tracing. `govulncheck` never reported it reachable, because SoiréeHost never configures tracing; the Phase 4 supply-chain audit (pull request 11) had recorded it as an accepted finding until this upgrade. All OpenTelemetry Go modules from the same upstream release move together so they stay consistent: the v1 modules (`otel`, `metric`, `trace`, `sdk`, `sdk/metric` and the OTLP and stdout metric and trace exporters) from v1.46.0 to v1.47.0, `otel/log` and `otel/sdk/log` from v0.22.0 to v1.47.0 (both now stable), the log exporters from v0.22.0 to v0.23.0, and `otel/exporters/prometheus` from v0.68.0 to v0.69.0. Minimal version selection also raised `github.com/prometheus/common` v0.71.0 to v0.72.0 and `google.golang.org/genproto/googleapis/api` and `rpc` to the 28 Sep 2026 pseudo-version. All are Apache-2.0, unchanged. `go.opentelemetry.io/contrib` stays at v0.71.0: nothing requires its newer release, and v0.71.0 has no advisory.
 
 `govulncheck -tags no_fs_access ./...` (v1.9.0, Go 1.27.4, 15 Nov 2026, database updated 11 Nov 2026): no vulnerabilities found. That database predates the advisory, so the fix was also checked against its OSV ranges: every affected module is now at the fixed v1.47.0. `go mod verify`, `go vet`, `go test`, golangci-lint, staticcheck and gosec pass.
+
+### Added in Phase 4: the web application firewall (ADR-0008), 15 Nov 2026
+
+| Module | Version | Licence | Why |
+| --- | --- | --- | --- |
+| `github.com/corazawaf/coraza/v3` | v3.8.1 | Apache-2.0 | The web application firewall engine that runs the OWASP Core Rule Set (S-14, plan section 3). Used directly by `internal/waf` instead of `coraza-caddy`, whose logging writes matched request data and unmasked URIs (S-18) and which brings a rule set without five published security fixes. Built with the `no_fs_access` tag so request bodies never reach disk. Two of its transformations are replaced at start-up because of a Windows bug (Coraza issue 1140, ADR-0008 section 4) |
+| `golang.org/x/sync` | v0.25.0 | BSD-3-Clause | Was already linked; now imported directly for `semaphore` (the firewall's body budget and inspection slots) |
+
+Linked through Coraza, from `go version -m bin/soireehost.exe`, each with its licence read from the module's own licence file:
+
+| Module | Version | Licence | Used by Coraza for |
+| --- | --- | --- | --- |
+| `github.com/corazawaf/libinjection-go` | v0.3.3 | BSD-3-Clause | `@detectSQLi` and `@detectXSS` (libinjection) |
+| `github.com/petar-dambovaliev/aho-corasick` | v0.0.0-20250424160509-463d218d4745 | MIT | `@pm` and `@pmFromFile` phrase matching |
+| `rsc.io/binaryregexp` | v0.2.0 | BSD-3-Clause | Regular expressions over raw bytes |
+| `github.com/tidwall/gjson`, `match`, `pretty` | v1.18.0, v1.1.1, v1.2.1 | MIT | The JSON request body processor |
+| `github.com/kaptinlin/jsonschema`, `go-i18n` | v0.4.6, v0.1.4 | MIT | The `@validateSchema` operator |
+| `github.com/goccy/go-json`, `go-yaml` | v0.10.5, v1.19.2 | MIT | Pulled in by `kaptinlin/jsonschema` |
+| `github.com/gotnospirit/makeplural`, `messageformat` | v0.0.0-20180622080156-a5f48d94d976, v0.0.0-20221001023931-dfe49f1eb092 | BSD-2-Clause | Pulled in by `kaptinlin/go-i18n` |
+| `github.com/valllabh/ocsf-schema-golang` | v1.0.3 | Apache-2.0 | Coraza's OCSF audit log format; the audit log is off (`SecAuditEngine Off`) |
+
+`govulncheck -tags no_fs_access ./...` (v1.9.0, 15 Nov 2026): no vulnerabilities found.
+
+Supply-chain-risk-auditor pass (S-75), 15 Nov 2026, over `go.mod` (7 direct dependencies; 165 modules swept for advisories at their locked versions):
+
+- **Coraza.** No advisories, repository active (pushed the day of the audit), security policy published. OpenSSF Scorecard: Dangerous-Workflow 10/10, Binary-Artifacts 10/10, Token-Permissions 10/10, Code-Review 7/10. Not assessable for Go: publisher concentration, provenance, download volume and deprecation.
+- **The 13 modules Coraza brings.** None carries a known advisory. The audit checked advisories only at this depth.
+- **Advisories in the sweep.** All come from modules already on `main` at the same versions, not from this change: the accepted go-jose v3 advisories (below) and GHSA-q7gw-24fr-5p69 in OpenTelemetry, accepted at first and since cleared by the v1.47.0 upgrade (above).
+
+### Vendored rule set (data, not code)
+
+| Data | Version | Licence | Why |
+| --- | --- | --- | --- |
+| OWASP Core Rule Set, request rules and their data files (30 files in `internal/waf/crs/`) | v4.30.0, archive SHA-256 `3d678a41fd5aade34760127fef5dd64fd7a77848913fc0f70dde0cf467c94427` | Apache-2.0 | The firewall's rules (S-14; owner decision of 15 Nov 2026). Copied byte for byte from the official signed release (signature checked with the CRS key `36006F0E0BA167832158821138EEACA1AB8A6E72`). Pinned in `build/crs.lock`, and `build/check-crs.ps1` fails CI if any file differs from the release. The response rules and their data files are left out (ADR-0008) |
 
 ## Embedded executable
 

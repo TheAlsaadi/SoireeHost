@@ -386,7 +386,9 @@ func TestForwardedHeaders(t *testing.T) {
 
 // S-15: request body limit (default 10 MB).
 func TestBodyLimit(t *testing.T) {
-	h := startHarness(t, nil)
+	// raw text over 128 KB is refused by the firewall itself (ADR-0008,
+	// tested in internal/waf); this test is about the site's own limit
+	h := startHarness(t, func(c *config.Config) { c.Sites[1].Firewall.Mode = config.FirewallOff })
 	limit := config.DefaultMaxBodyBytes
 	post := func(n int64, chunked bool) result {
 		var sb strings.Builder

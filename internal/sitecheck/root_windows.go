@@ -35,6 +35,21 @@ type Locations struct {
 	Profiles []string
 }
 
+// check refuses Locations with an empty required field, which would
+// silently switch that S-11 rule off (review finding SE-24). Profiles may be
+// empty: a PC can have no profile outside the Users folder.
+func (loc Locations) check() error {
+	if loc.Windows == "" || loc.ProgramData == "" || loc.UserProfiles == "" || len(loc.ProgramFiles) == 0 {
+		return errors.New("the blocked system folders are not known, so no folder can be checked")
+	}
+	for _, p := range loc.ProgramFiles {
+		if p == "" {
+			return errors.New("the blocked system folders are not known, so no folder can be checked")
+		}
+	}
+	return nil
+}
+
 // DefaultLocations reads the folders from Windows.
 func DefaultLocations() (Locations, error) {
 	get := func(id *windows.KNOWNFOLDERID) (string, error) {
@@ -117,6 +132,9 @@ func canonicalOrClean(p string) string {
 // checks that location against every S-11 rule. It returns the canonical
 // path, which is what the config should store.
 func CheckRoot(root string, loc Locations) (string, error) {
+	if err := loc.check(); err != nil {
+		return "", err
+	}
 	if err := config.ValidateRootSyntax(root); err != nil {
 		return "", err
 	}
@@ -141,6 +159,9 @@ func CheckRoot(root string, loc Locations) (string, error) {
 // that was checked, so swapping the folder for a junction between the check
 // and the open is caught.
 func OpenRoot(root string, loc Locations) (*os.Root, error) {
+	if err := loc.check(); err != nil {
+		return nil, err
+	}
 	if err := config.ValidateRootSyntax(root); err != nil {
 		return nil, err
 	}

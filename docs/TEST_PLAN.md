@@ -42,7 +42,7 @@ The web worker started in-process on a random loopback port with a test config, 
 - **Path traversal suite** (Phase 1, every commit). Each must return 400 or 404 and never file content: `/../win.ini`, `/..%2fwin.ini`, `/..%5cwin.ini`, `/%252e%252e/`, `/SECRET~1.TXT`, `/index.html::$DATA`, `/index.html.`, `/index.html%20`, `/CON`, `/nul.txt`, `/COM1`, `/.git/config`, `/.ENV`, `/.Env`, `/key.PEM`, a junction pointing outside the root, a symlink pointing outside the root.
 - **Headers and limits** (Phase 1): default security headers present, no `Server` header, body over 10 MB refused, rate limit returns 429 after 300 requests a minute from one `CF-Connecting-IP`, spoofed `X-Forwarded-For` ignored.
 - **Host check** (Phase 1, Phase 3): unknown `Host` gets 404; quick share port answers only its assigned hostname.
-- **Firewall** (Phase 4): fixed attack set (SQL injection, XSS, traversal, scanner user agents) gets 403 and a firewall log entry; fixed normal set (static site, a typical JSON API, form posts, file upload under the limit) passes at paranoia level 1.
+- **Firewall** (Phase 4, ADR-0008): fixed attack set (SQL injection, XSS, traversal, LFI, command injection, PHP wrappers, Log4Shell, scanner user agents) gets 403 and a firewall log entry; fixed normal set (static site browsing, a typical JSON API including PUT, PATCH and DELETE, form posts, a 512 KB and a 15 MB file upload) passes at paranoia level 1. The sets live in `internal/waf/waf_test.go` (`attackSet`, `normalSet`) and run against the real rules, through Caddy (`worker` `TestFirewallInChain`) and on the installed services (`e2e` `TestFirewallOnInstalledSystem`).
 - **Log redaction** (Phase 1): requests carrying `Authorization`, `Cookie`, `?token=`, `?password=` produce log lines without those values.
 
 ### Isolation (CI with admin, then VM)
@@ -96,6 +96,19 @@ Plant canary tokens as the tunnel token and in site config, run the app through 
 | Installed system (CI only) | e2e | Real cloudflared: quick share fetched over the internet, socket table and port scan, canary token in process list and logs, tampered binary refused and recovered, firewall rules (`internal/e2e/tunnel_test.go`) |
 | Phone over mobile data | Manual, owner | A hand-started CI run (`phone_minutes` input) prints a quick share link as a notice and keeps it up; the owner opens it on a phone |
 | Tunnel token with a real hostname | Manual | Not yet verified: the owner has no domain (owner decision, 14 Nov 2026); the release notes say so |
+
+## Phase 4 plan (protection, ADR-0008)
+
+| Area | Kind | Tests |
+| --- | --- | --- |
+| Firewall rules (S-14) | Unit, real CRS | `waf`: attack and normal sets in Block mode, Detect only, every paranoia level, size limits (16 MB, 128 KB of text), multipart text count, body budget and inspection slots, the Windows path fix, the vendored rule set |
+| Firewall in the chain | Integration, real Caddy | `worker` `TestFirewallInChain`, `TestFirewallModes`; events read back with the supervisor's reader |
+| Event log (S-18, S-31) | Unit, fuzz | `fwevent` clean/validate/parse/read tables, `FuzzParseLine`, `FuzzClean`; `waf` `TestEventsHoldNoSecrets`; `redact` `FuzzURI` |
+| Weakening and exposure (S-32) | Integration, real pipes | `supervisor` `TestFirewallWeakeningNeedsConfirmation`, `TestExposureCheckBeforeLive`, `TestExposureCheckFailsClosed`, `TestFirewallEventsMethod`; `sitecheck` exposure scan tables |
+| Guard (R-13, R-19, SE-26) | Unit, fuzz | `worker` `TestGuardRefusesTargets`, `TestStripForwardedTable`, `FuzzStripForwarded` |
+| Memory (S-21) | Integration, then e2e | `worker` `TestFirewallMemory`; `e2e` `TestFirewallOnInstalledSystem` (installed worker's peak committed memory) |
+
+Every Go command needs the `no_fs_access` tag; CI sets it in `GOFLAGS`.
 
 ## Current coverage (end of Phase 2)
 

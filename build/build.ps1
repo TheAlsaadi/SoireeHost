@@ -35,6 +35,8 @@ function Invoke-Step([string]$Name, [scriptblock]$Block) {
   if ($LASTEXITCODE -ne 0) { throw "$Name failed with exit code $LASTEXITCODE" }
 }
 
+# the bindings generator loads every package, and internal/waf needs the tag
+$env:GOFLAGS = "-mod=readonly -tags=no_fs_access"
 Invoke-Step "Generate Wails bindings" { wails3 generate bindings -ts ./... }
 
 Push-Location frontend
@@ -54,8 +56,10 @@ finally {
 }
 
 $env:CGO_ENABLED = "0"
-$env:GOFLAGS = "-mod=readonly"
-$tagList = @()
+# no_fs_access keeps Coraza from writing request bodies to temp files;
+# internal/waf does not compile without it (ADR-0008)
+$env:GOFLAGS = "-mod=readonly -tags=no_fs_access"
+$tagList = @("no_fs_access")
 if (-not $Dev) { $tagList += "production" }
 if ($Cloudflared) {
   Invoke-Step "Fetch and verify cloudflared" { & powershell -NoProfile -File (Join-Path $PSScriptRoot "fetch-cloudflared.ps1") }

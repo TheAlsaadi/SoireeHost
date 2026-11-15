@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -122,18 +123,29 @@ func (g Guard) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 	stripTrailers(r)
 
 	raw := r.RequestURI
-	if strings.HasPrefix(raw, "/") {
-		raw, _, _ = strings.Cut(raw, "?")
-	} else {
-		// absolute-form or asterisk-form request target
-		raw = r.URL.EscapedPath()
+	// R-13: origin-form targets only. cloudflared, the only client, sends
+	// nothing else; in an absolute-form target Go takes the host from the
+	// target and drops the Host header, so S-06 could not judge the Host
+	// the client sent.
+	if !strings.HasPrefix(raw, "/") {
+		return caddyhttp.Error(http.StatusBadRequest, errors.New("only origin-form request targets are served"))
 	}
+	// R-19: a raw '#' is never sent by a browser; Go does not split it off,
+	// so it would reach the app as part of the path or query
+	if strings.Contains(raw, "#") {
+		return caddyhttp.Error(http.StatusBadRequest, errors.New("raw '#' in the request target"))
+	}
+	raw, _, _ = strings.Cut(raw, "?")
 	rules := sitecheck.Rules{AllowWellKnown: g.AllowWellKnown}
 	var v sitecheck.Verdict
-	if g.Mode == "static" {
+	switch g.Mode {
+	case "static":
 		v = rules.Static(r.URL.Path, raw)
-	} else {
+	case "proxy":
 		v = rules.Proxy(r.URL.Path, raw)
+	default:
+		// Provision refuses other modes; refuse here too (SE-26)
+		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("unknown guard mode %q", g.Mode))
 	}
 	switch v {
 	case sitecheck.Allow:

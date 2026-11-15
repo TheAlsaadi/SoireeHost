@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/svcrun"
@@ -14,6 +15,13 @@ import (
 // child processes, 1 GiB of memory.
 var Limits = winsec.Limits{MemoryBytes: 1 << 30, ActiveProcesses: 1, NoChildProcesses: true}
 
+// SoftMemoryLimit is the Go runtime's memory limit for the web worker: three
+// quarters of the job cap. The garbage collector knows nothing of the job
+// object and by default lets the heap grow to twice what is live, so a burst
+// of inspected uploads could reach the cap and get the worker killed; with
+// this limit it collects harder first (S-21, ADR-0008).
+func SoftMemoryLimit() int64 { return int64(Limits.MemoryBytes / 4 * 3) } // #nosec G115 -- 768 MiB fits in int64
+
 // RunService runs the web worker as the SoireeHostWeb Windows service: it
 // confines itself, connects to the supervisor, loads what it is sent, and
 // exits when the supervisor's pipe closes. A failed listener self-check, at
@@ -23,6 +31,7 @@ func RunService(version string) error {
 		if err := winsec.Confine(Limits); err != nil {
 			return fmt.Errorf("refusing to run unconfined: %w", err)
 		}
+		debug.SetMemoryLimit(SoftMemoryLimit())
 		root, err := ipc.DataRoot()
 		if err != nil {
 			return err
@@ -40,6 +49,7 @@ func RunService(version string) error {
 			Role:          ipc.RoleWeb,
 			Version:       version,
 			Load:          loadOrExit,
+			Scan:          Scan,
 			Stop:          func() { _ = Stop() },
 		})
 		if cause := context.Cause(ctx); errors.Is(cause, ErrSelfCheck) {

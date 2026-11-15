@@ -1,10 +1,14 @@
 package worker
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 )
@@ -30,6 +34,10 @@ func TestQuickShareHostGate(t *testing.T) {
 	if err := Load(h.cfg, Options{LogDir: h.logDir, QuickHosts: map[string]string{"blog": assigned}}); err != nil {
 		t.Fatal(err)
 	}
+	// a connection the outgoing server accepted while Caddy swapped the
+	// share's server can be dropped (seen once in CI, run 43709309678);
+	// wait for the new config to answer before checking it
+	waitServing(t, share.addr, assigned)
 	if r := share.get(t, assigned, "/"); r.status != 200 || r.body != "INDEX-OK" {
 		t.Fatalf("assigned host: %d %q", r.status, r.body)
 	}
@@ -50,6 +58,37 @@ func TestQuickShareHostGate(t *testing.T) {
 	}
 	if r := h.get(t, "blog.example.com", "/"); r.status != 200 {
 		t.Errorf("main listener stopped serving the site: %d", r.status)
+	}
+}
+
+// waitServing waits until a plain GET for host on addr gets a complete
+// response, so a check that follows sees the loaded config and not a
+// connection caught in the reload.
+func waitServing(t *testing.T, addr, host string) {
+	const crlf = "\r\n"
+	t.Helper()
+	req := "GET / HTTP/1.1" + crlf + "Host: " + host + crlf + "Connection: close" + crlf + crlf
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		c, err := dial(t, addr, time.Second)
+		if err == nil {
+			_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+			_, err = io.WriteString(c, req)
+			if err == nil {
+				var resp *http.Response
+				if resp, err = http.ReadResponse(bufio.NewReader(c), nil); err == nil {
+					_ = resp.Body.Close()
+				}
+			}
+			_ = c.Close()
+		}
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s did not answer after the reload: %v", addr, err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

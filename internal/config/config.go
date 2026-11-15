@@ -123,6 +123,9 @@ type Site struct {
 	// QuickShare, when set, shares the site through a temporary link
 	// (ADR-0007, S-51).
 	QuickShare *QuickShare `json:"quick_share,omitempty"`
+	// Firewall is the site's web application firewall: Block at paranoia
+	// level 1 unless changed (S-14, ADR-0008).
+	Firewall Firewall `json:"firewall"`
 }
 
 // Static serves files from a folder.
@@ -231,6 +234,7 @@ func (c *Config) Normalize() {
 		if site.Proxy != nil {
 			site.Proxy.Target = normalizeTarget(site.Proxy.Target)
 		}
+		site.Firewall.normalize()
 	}
 }
 
@@ -428,6 +432,7 @@ func (s Site) validate(field string, p *problems, own []uint16) {
 	if s.RateLimitPerMinute < 1 || s.RateLimitPerMinute > maxRatePerMinute {
 		p.add(field+".rate_limit_per_minute", "must be between 1 and %d", maxRatePerMinute)
 	}
+	s.Firewall.validate(field+".firewall", p)
 	for k, v := range s.ResponseHeaders {
 		hf := field + ".response_headers"
 		if _, ok := defaultHeaders[k]; !ok {
@@ -445,6 +450,7 @@ func (s Site) validate(field string, p *problems, own []uint16) {
 func (c Config) Warnings() []string {
 	var w []string
 	for _, s := range c.Sites {
+		w = append(w, firewallWarnings(s)...)
 		if s.Type != TypeProxy || s.Proxy == nil || !s.Proxy.AllowLAN {
 			continue
 		}

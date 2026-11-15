@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 )
 
 // FuzzDecodeRequest: decoding never panics; anything accepted names a known
@@ -54,6 +56,8 @@ func FuzzDecodeWorkerMsg(f *testing.F) {
 		`{"type":"status","report":{"tunnels":[{"kind":"quick","site_id":"a","state":"connected","connections":4,"hostname":"x.trycloudflare.com","since":"2026-11-14T00:00:00Z"}]}}`,
 		`{"type":"failed","reason":"x"}`,
 		`{"type":"stop"}`,
+		`{"type":"scan","revision":2,"scan":{"root":"C:\\Sites\\blog","allow_well_known":false}}`,
+		`{"type":"scanned","revision":2,"exposure":{"findings":[{"path":"keys/a.txt","kind":"private_key","served":true},{"path":".env","kind":"blocked_name","served":false}],"entries":3,"incomplete":false}}`,
 	} {
 		f.Add([]byte(s))
 	}
@@ -67,13 +71,18 @@ func FuzzDecodeWorkerMsg(f *testing.F) {
 			if web.Tunnel != nil || web.Report != nil {
 				t.Fatal("a tunnel payload accepted on the web pipe")
 			}
+			if web.Exposure != nil {
+				if err := sitecheck.ValidateExposureReport(*web.Exposure); err != nil {
+					t.Fatalf("accepted an invalid exposure report: %v", err)
+				}
+			}
 		}
 		if terr == nil {
 			if err := tun.ValidateFor(RoleTunnel); err != nil {
 				t.Fatalf("accepted invalid message: %v", err)
 			}
-			if tun.Caddy != nil {
-				t.Fatal("a Caddy payload accepted on the tunnel pipe")
+			if tun.Caddy != nil || tun.Scan != nil || tun.Exposure != nil {
+				t.Fatal("a web payload accepted on the tunnel pipe")
 			}
 		}
 	})

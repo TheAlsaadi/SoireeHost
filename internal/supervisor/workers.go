@@ -59,12 +59,19 @@ type workerMgr struct {
 	since    time.Time
 	lastErr  string
 	restarts int
-	pending  map[uint64]chan error
+	pending  map[uint64]chan reply
 	nextLoad uint64
 }
 
+// reply is a worker's answer to a load or a scan: its message, or why there
+// is none.
+type reply struct {
+	msg ipc.WorkerMsg
+	err error
+}
+
 func newWorkerMgr(s *Supervisor, role, service, sid string) *workerMgr {
-	return &workerMgr{sup: s, role: role, service: service, sid: sid, state: StateStopped, since: time.Now(), pending: map[uint64]chan error{}}
+	return &workerMgr{sup: s, role: role, service: service, sid: sid, state: StateStopped, since: time.Now(), pending: map[uint64]chan reply{}}
 }
 
 func (w *workerMgr) setState(state, lastErr string) {
@@ -210,9 +217,9 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 				if w.role == ipc.RoleTunnel {
 					reason = tunnelRefusedReason // R-21
 				}
-				ch <- &loadError{reason: reason, refused: true}
+				ch <- reply{err: &loadError{reason: reason, refused: true}}
 			} else {
-				ch <- nil
+				ch <- reply{msg: m}
 			}
 		}
 	}()
@@ -237,7 +244,7 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 	w.mu.Lock()
 	w.conn = nil
 	for rev, ch := range w.pending {
-		ch <- lost
+		ch <- reply{err: lost}
 		delete(w.pending, rev)
 	}
 	w.mu.Unlock()
@@ -250,18 +257,51 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 	}
 }
 
-// load sends one load and waits for the worker's answer. Revision numbers on
-// the wire are per-load sequence numbers, so two loads of the same config
-// revision never collide.
+// load sends one load and waits for the worker's answer, which must be
+// loaded or failed (review finding SE-31: anything else is a protocol
+// error, never a success).
 func (w *workerMgr) load(m ipc.WorkerMsg) error {
+	r, err := w.request(m, w.sup.opts.LoadTimeout)
+	if err != nil {
+		return err
+	}
+	if r.Type != ipc.MsgLoaded {
+		return &loadError{reason: fmt.Sprintf("the %s worker answered a load with %s", w.role, r.Type)}
+	}
+	return nil
+}
+
+// errScanFailed wraps the web worker's reason for a scan it could not run.
+var errScanFailed = errors.New("the folder could not be checked")
+
+// scan asks the web worker to run the exposure check on a folder.
+func (w *workerMgr) scan(req ipc.ScanRequest, timeout time.Duration) (*ipc.WorkerMsg, error) {
+	r, err := w.request(ipc.WorkerMsg{Type: ipc.MsgScan, Scan: &req}, timeout)
+	var le *loadError
+	if errors.As(err, &le) {
+		return nil, fmt.Errorf("%w: %s", errScanFailed, le.reason)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if r.Type != ipc.MsgScanned || r.Exposure == nil {
+		return nil, fmt.Errorf("%w: the web worker answered with %s", errScanFailed, r.Type)
+	}
+	return &r, nil
+}
+
+// request sends one message that expects an answer and waits for it.
+// Revision numbers on the wire are per-request sequence numbers, so two
+// loads of the same config revision never collide.
+func (w *workerMgr) request(m ipc.WorkerMsg, timeout time.Duration) (ipc.WorkerMsg, error) {
 	w.mu.Lock()
 	if w.conn == nil {
 		w.mu.Unlock()
-		return errWorkerDown
+		return ipc.WorkerMsg{}, errWorkerDown
 	}
 	w.nextLoad++
 	m.Revision = w.nextLoad
-	ch := make(chan error, 1)
+	ch := make(chan reply, 1)
 	w.pending[m.Revision] = ch
 	conn := w.conn
 	w.mu.Unlock()
@@ -270,18 +310,18 @@ func (w *workerMgr) load(m ipc.WorkerMsg) error {
 		w.mu.Lock()
 		delete(w.pending, m.Revision)
 		w.mu.Unlock()
-		return fmt.Errorf("sending to the %s worker: %w", w.role, err)
+		return ipc.WorkerMsg{}, fmt.Errorf("sending to the %s worker: %w", w.role, err)
 	}
 	select {
-	case err := <-ch:
-		return err
-	case <-time.After(w.sup.opts.LoadTimeout):
+	case r := <-ch:
+		return r.msg, r.err
+	case <-time.After(timeout):
 		w.mu.Lock()
 		delete(w.pending, m.Revision)
 		w.mu.Unlock()
 		// counted as refused, so the change is undone (R-22); the worker
-		// handles loads in order, so a restore sent next lands after it
-		return &loadError{reason: fmt.Sprintf("the %s worker did not answer in time", w.role)}
+		// handles messages in order, so a restore sent next lands after it
+		return ipc.WorkerMsg{}, &loadError{reason: fmt.Sprintf("the %s worker did not answer in time", w.role)}
 	}
 }
 

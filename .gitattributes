@@ -6,3 +6,5 @@
 *.png binary
 *.ico binary
 *.exe binary
+# vendored rule set: byte-for-byte copies of the release (ADR-0008)
+internal/waf/crs/** -text
