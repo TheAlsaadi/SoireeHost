@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Tokens · SoiréeHost design</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="screens.css" />
+    <link rel="stylesheet" href="preview.css" />
+    <script src="theme.js"></script>
+    <script src="contrast.js" defer></script>
+  </head>
+  <body class="preview">
+    <h1 class="preview-title">Design tokens</h1>
+    <p class="secondary">Neutral greys carry the interface. The accent, Soirée plum, appears only on the primary button and the focus ring. Green, amber and red are for status only, always with a word and a shape. Contrast ratios below are measured live in the current theme.</p>
+
+    <h2>Roles</h2>
+    <div class="swatches" id="swatches"></div>
+
+    <h2>Contrast pairs</h2>
+    <table class="table pairs" id="pairs">
+      <thead>
+        <tr><th scope="col">Foreground</th><th scope="col">Background</th><th scope="col">Ratio</th><th scope="col">Needs</th><th scope="col">Result</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h2>Type</h2>
+    <p style="font-family: var(--font-title); font-size: var(--text-title); line-height: var(--leading-title); font-weight: var(--weight-strong); margin: 0">Title, 20 px, Segoe UI Variable Display, 600</p>
+    <p style="margin: 0">Body, 14 px, Segoe UI Variable Text, 400. <strong>Strong, 600.</strong></p>
+    <p class="small" style="margin: 0">Small, 12 px, for captions, column heads and log text.</p>
+    <p class="mono" style="margin: 0">Cascadia Mono, 14 px: https://plain-river-tide.trycloudflare.com</p>
+    <p class="mono small" style="margin: 0">Cascadia Mono, 12 px: GET /soup/lentil.html 200</p>
+
+    <h2>Controls</h2>
+    <div class="actions">
+      <button class="button button-primary" type="button"><svg class="icon" aria-hidden="true"><use href="icons.svg#add" /></svg>Add site</button>
+      <button class="button" type="button">Stop serving</button>
+      <button class="button button-subtle" type="button">Cancel</button>
+      <button class="switch" type="button" role="switch" aria-checked="true" aria-label="Example on"><span class="switch-track"></span><span class="switch-label">On</span></button>
+      <button class="switch" type="button" role="switch" aria-checked="false" aria-label="Example off"><span class="switch-track"></span><span class="switch-label">Off</span></button>
+    </div>
+    <p class="secondary small">Press Tab to see the focus ring.</p>
+
+    <h2>Status marks</h2>
+    <div class="actions">
+      <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg>Online</span>
+      <span class="status status-warning"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-warning" /></svg>Port 3000 is not answering</span>
+      <span class="status status-danger"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-danger" /></svg>Tunnel stopped</span>
+      <span class="status status-danger"><svg class="icon" aria-hidden="true"><use href="icons.svg#blocked" /></svg>Blocked</span>
+      <span class="status status-off"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-off" /></svg>Off</span>
+    </div>
+
+    <h2>Space and shape</h2>
+    <p class="secondary">4 px grid: 4, 8, 12, 16, 20, 24, 32, 40. Radius 4 px on controls, 6 px on panels. 1 px borders between regions. Shadows only on menus and dialogs. Motion 120 to 160 ms, none when Windows asks for reduced motion.</p>
+  </body>
+</html>

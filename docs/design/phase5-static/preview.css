@@ -1,0 +1,80 @@
+/* Design preview pages only (index and tokens), not part of the app. */
+
+.preview {
+  padding: var(--space-8);
+  max-inline-size: 72rem;
+  background: var(--surface-main);
+}
+
+.preview h2 {
+  margin-block: var(--space-8) var(--space-3);
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.preview-title {
+  margin-block: 0 var(--space-2);
+  font-family: var(--font-title);
+  font-size: var(--text-title);
+  line-height: var(--leading-title);
+  font-weight: var(--weight-strong);
+}
+
+.preview > p {
+  max-inline-size: 48rem;
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-2) var(--space-4);
+}
+
+.swatch {
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--space-2);
+  align-items: center;
+}
+
+.swatch .chip {
+  grid-row: span 2;
+  inline-size: 2rem;
+  block-size: 2rem;
+  border: var(--border-width) solid var(--border-control);
+  border-radius: var(--radius-control);
+}
+
+.pairs td {
+  font-size: var(--text-small);
+}
+
+.pairs tr.fail td {
+  font-weight: var(--weight-strong);
+  color: var(--status-danger);
+}
+
+.gallery {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.gallery li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: baseline;
+}
+
+.gallery .label {
+  inline-size: 12rem;
+  font-weight: var(--weight-strong);
+}
+
+.gallery a {
+  color: var(--text-primary);
+}

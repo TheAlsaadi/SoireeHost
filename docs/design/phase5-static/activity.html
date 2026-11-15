@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Activity · SoiréeHost design</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="screens.css" />
+    <script src="theme.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="rail" aria-label="SoiréeHost">
+        <p class="rail-name">SoiréeHost</p>
+        <ul>
+          <li><a href="sites.html"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#sites" /></svg><span class="rail-label">Sites</span></a></li>
+          <li><a href="activity.html" aria-current="page"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#activity" /></svg><span class="rail-label">Activity</span></a></li>
+          <li><a href="security.html"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#security" /></svg><span class="rail-label">Security</span></a></li>
+          <li><a href="#backups"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#backups" /></svg><span class="rail-label">Backups</span></a></li>
+          <li><a href="#settings"><svg class="icon icon-large" aria-hidden="true"><use href="icons.svg#settings" /></svg><span class="rail-label">Settings</span></a></li>
+        </ul>
+      </nav>
+
+      <div class="main">
+        <div class="statusline" role="status">
+          <p class="statusline-text">
+            <span class="status status-ok"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-ok" /></svg><strong>Online:</strong></span>
+            <span>2 of 4 sites served through Cloudflare Tunnel</span>
+          </p>
+          <button class="button" type="button">Take everything offline</button>
+        </div>
+
+        <main class="screen">
+          <div class="screen-head">
+            <h1>Activity</h1>
+            <p class="live small">Updates every 2 seconds</p>
+            <button class="button" type="button">Pause updates</button>
+          </div>
+
+          <form class="filters" aria-label="Filter requests">
+            <div class="field">
+              <label for="f-site">Site</label>
+              <button class="select" id="f-site" type="button" aria-haspopup="listbox">All sites<svg class="icon" aria-hidden="true"><use href="icons.svg#chevron-down" /></svg></button>
+            </div>
+            <div class="field">
+              <label for="f-result">Result</label>
+              <button class="select" id="f-result" type="button" aria-haspopup="listbox">All results<svg class="icon" aria-hidden="true"><use href="icons.svg#chevron-down" /></svg></button>
+            </div>
+            <div class="field">
+              <label for="f-time">Time</label>
+              <button class="select" id="f-time" type="button" aria-haspopup="listbox">Last hour<svg class="icon" aria-hidden="true"><use href="icons.svg#chevron-down" /></svg></button>
+            </div>
+            <div class="field">
+              <label for="f-search">Path or visitor</label>
+              <span class="input" id="f-search" role="textbox" tabindex="0" aria-placeholder="Type to filter"><svg class="icon" aria-hidden="true"><use href="icons.svg#search" /></svg>Type to filter</span>
+            </div>
+          </form>
+
+          <div class="split">
+            <div class="list-region">
+              <table class="table log table-fixed" role="grid" aria-label="Requests, newest first">
+                <colgroup><col class="col-time" /><col class="col-site" /><col class="col-result" /><col /><col class="col-visitor" /></colgroup>
+                <thead>
+                  <tr>
+                    <th scope="col">Time</th>
+                    <th scope="col">Site</th>
+                    <th scope="col">Result</th>
+                    <th scope="col">Request</th>
+                    <th scope="col" class="cell-visitor">Visitor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr aria-selected="false" tabindex="-1">
+                    <td class="mono">14:02:41</td>
+                    <td>Recipe notes</td>
+                    <td class="result"><span class="status"><span class="mark-space"></span>200</span></td>
+                    <td class="cell-truncate mono">GET /soup/lentil.html</td>
+                    <td class="mono cell-visitor">203.0.113.24</td>
+                  </tr>
+                  <tr class="is-blocked" aria-selected="true" tabindex="0">
+                    <td class="mono">14:02:39</td>
+                    <td>Recipe notes</td>
+                    <td class="result"><span class="status"><svg class="icon" aria-hidden="true"><use href="icons.svg#blocked" /></svg>Blocked</span></td>
+                    <td class="cell-truncate mono">GET /&lt;script&gt;alert(1)&lt;/script&gt;</td>
+                    <td class="mono cell-visitor">198.51.100.7</td>
+                  </tr>
+                  <tr class="result-warning" aria-selected="false" tabindex="-1">
+                    <td class="mono">14:02:30</td>
+                    <td>Budget tracker</td>
+                    <td class="result result-warning"><span class="status"><svg class="icon" aria-hidden="true"><use href="icons.svg#status-warning" /></svg>502 No answer</span></td>
+                    <td class="cell-truncate mono">GET /api/summary</td>
+                    <td class="mono cell-visitor">203.0.113.24</td>
+                  </tr>
+                  <tr aria-selected="false" tabindex="-1">
+                    <td class="mono">14:02:18</td>
+                    <td>Recipe notes</td>
+                    <td class="result"><span class="status"><span class="mark-space"></span>404</span></td>
+                    <td class="cell-truncate mono">GET /.env</td>
+                    <td class="mono cell-visitor">192.0.2.80</td>
+                  </tr>
+                  <tr class="is-blocked" aria-selected="false" tabindex="-1">
+                    <td class="mono">14:01:55</td>
+                    <td>Recipe notes</td>
+                    <td class="result"><span class="status"><svg class="icon" aria-hidden="true"><use href="icons.svg#blocked" /></svg>Blocked</span></td>
+                    <td class="cell-truncate mono">GET /search?q=REDACTED</td>
+                    <td class="mono cell-visitor">198.51.100.7</td>
+                  </tr>
+                  <tr aria-selected="false" tabindex="-1">
+                    <td class="mono">14:01:50</td>
+                    <td>Recipe notes</td>
+                    <td class="result"><span class="status"><span class="mark-space"></span>200</span></td>
+                    <td class="cell-truncate mono">GET /</td>
+                    <td class="mono cell-visitor">203.0.113.24</td>
+                  </tr>
+                  <tr aria-selected="false" tabindex="-1">
+                    <td class="mono">14:01:12</td>
+                    <td>Budget tracker</td>
+                    <td class="result"><span class="status"><span class="mark-space"></span>201</span></td>
+                    <td class="cell-truncate mono">POST /api/entries</td>
+                    <td class="mono cell-visitor">203.0.113.24</td>
+                  </tr>
+                  <tr aria-selected="false" tabindex="-1">
+                    <td class="mono">14:00:47</td>
+                    <td>Recipe notes</td>
+                    <td class="result"><span class="status"><span class="mark-space"></span>304</span></td>
+                    <td class="cell-truncate mono">GET /styles.css</td>
+                    <td class="mono cell-visitor">203.0.113.24</td>
+                  </tr>
+                  <tr aria-selected="false" tabindex="-1">
+                    <td class="mono">13:59:30</td>
+                    <td>Recipe notes</td>
+                    <td class="result"><span class="status"><span class="mark-space"></span>200</span></td>
+                    <td class="cell-truncate mono">GET /favicon.ico</td>
+                    <td class="mono cell-visitor">203.0.113.24</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <aside class="pane" aria-labelledby="pane-title">
+              <div class="pane-head">
+                <h2 id="pane-title">Blocked request</h2>
+                <button class="button button-subtle button-icon" type="button" aria-label="Close details"><svg class="icon" aria-hidden="true"><use href="icons.svg#dismiss" /></svg></button>
+              </div>
+              <p class="health status-danger">
+                <svg class="icon" aria-hidden="true"><use href="icons.svg#blocked" /></svg>
+                <span>The firewall answered 403 and the request never reached the site. No action needed.</span>
+              </p>
+
+              <section class="pane-section" aria-labelledby="h-rules">
+                <h3 id="h-rules">Rules that fired</h3>
+                <dl class="facts">
+                  <dt class="mono">941100</dt>
+                  <dd>XSS Attack Detected via libinjection<br /><span class="secondary small">Found in the request path</span></dd>
+                  <dt class="mono">941160</dt>
+                  <dd>NoScript XSS InjectionChecker: HTML Injection<br /><span class="secondary small">Found in the request path</span></dd>
+                </dl>
+              </section>
+
+              <section class="pane-section" aria-labelledby="h-request">
+                <h3 id="h-request">Request</h3>
+                <dl class="facts">
+                  <dt>Time</dt>
+                  <dd>15 Nov 2026, 14:02:39</dd>
+                  <dt>Site</dt>
+                  <dd>Recipe notes</dd>
+                  <dt>Host</dt>
+                  <dd class="mono small">plain-river-tide.trycloudflare.com</dd>
+                  <dt>Method</dt>
+                  <dd class="mono small">GET</dd>
+                  <dt>Visitor</dt>
+                  <dd class="mono small">198.51.100.7</dd>
+                </dl>
+                <h3 id="h-path" class="subhead">Path</h3>
+                <pre class="code-block">/&lt;script&gt;alert(1)&lt;/script&gt;</pre>
+                <h3 id="h-ua" class="subhead">User agent</h3>
+                <pre class="code-block">&lt;img src=x onerror=alert(1)&gt; <span class="ctl" title="Right-to-left override, shown instead of applied">U+202E</span>fdp.exe</pre>
+                <p class="note"><svg class="icon" aria-hidden="true"><use href="icons.svg#info" /></svg>Text from visitors is shown exactly as sent. Hidden characters that could disguise it are shown as their code, like U+202E.</p>
+              </section>
+            </aside>
+          </div>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
