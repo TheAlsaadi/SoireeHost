@@ -251,10 +251,19 @@ func TestBuildCaddyJSON(t *testing.T) {
 	// S-18: both logs are filtered and rotate with a size cap
 	// (encoding/json escapes ">" as backslash-u003e; undo that first)
 	norm := strings.ReplaceAll(s, string([]byte{'\\', 'u', '0', '0', '3', 'e'}), ">")
-	for _, want := range []string{`"roll_size_mb":10`, `"roll_keep":5`, `"request>headers":{"filter":"soireehost_headers"}`, `"request>uri":{"filter":"soireehost_query"}`, `"resp_headers":{"filter":"soireehost_headers"}`} {
-		if strings.Count(norm, want) != 2 {
-			t.Errorf("config has %q %d times, want once per log", want, strings.Count(norm, want))
+	for _, want := range []string{`"roll_size_mb":10`, `"roll_keep":5`} {
+		if strings.Count(norm, want) != 3 {
+			t.Errorf("config has %q %d times, want once per log (access, worker, firewall)", want, strings.Count(norm, want))
 		}
+	}
+	for _, want := range []string{`"request>headers":{"filter":"soireehost_headers"}`, `"request>uri":{"filter":"soireehost_query"}`, `"resp_headers":{"filter":"soireehost_headers"}`} {
+		if strings.Count(norm, want) != 2 {
+			t.Errorf("config has %q %d times, want once per filtered log", want, strings.Count(norm, want))
+		}
+	}
+	// the firewall log keeps its rotated files plain for the supervisor
+	if strings.Count(norm, `"roll_compression":"none"`) != 1 {
+		t.Error("the firewall log is not the one log with plain rotated files")
 	}
 	for _, banned := range []string{"0.0.0.0", "pprof", "\"metrics\"", ":2019"} {
 		if strings.Contains(s, banned) {

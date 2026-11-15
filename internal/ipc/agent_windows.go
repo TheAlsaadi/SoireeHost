@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"time"
+
+	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 )
 
 // ErrAgentExit, wrapped in an error from Load, makes RunAgent report the
@@ -25,6 +27,9 @@ type AgentOptions struct {
 	Version       string
 	// Load applies one load message (Caddy config or tunnel token).
 	Load func(WorkerMsg) error
+	// Scan runs the exposure check on a folder (web worker only). A worker
+	// without it answers every scan with failed.
+	Scan func(ScanRequest) (sitecheck.ExposureReport, error)
 	// Stop is called once when the agent ends, for any reason.
 	Stop func()
 	// DialTimeout bounds the wait for the supervisor's pipe.
@@ -33,6 +38,21 @@ type AgentOptions struct {
 	// launcher's status reports). Each is validated for the role before it
 	// is sent.
 	Notify <-chan WorkerMsg
+}
+
+// maxScans bounds the exposure checks a worker runs at once.
+const maxScans = 2
+
+// scanReply runs one exposure check and builds its answer.
+func scanReply(scan func(ScanRequest) (sitecheck.ExposureReport, error), m WorkerMsg) WorkerMsg {
+	if scan == nil {
+		return WorkerMsg{Type: MsgFailed, Revision: m.Revision, Reason: "this worker does not check folders"}
+	}
+	rep, err := scan(*m.Scan)
+	if err != nil {
+		return WorkerMsg{Type: MsgFailed, Revision: m.Revision, Reason: CutReason(err.Error())}
+	}
+	return WorkerMsg{Type: MsgScanned, Revision: m.Revision, Exposure: &rep}
 }
 
 // RunAgent is the whole life of a worker: connect to the supervisor (checking
@@ -87,6 +107,7 @@ func RunAgent(ctx context.Context, o AgentOptions) error {
 			}
 		}()
 	}
+	scanSlots := make(chan struct{}, maxScans)
 	for {
 		m, err := wc.Recv()
 		if err != nil {
@@ -111,6 +132,23 @@ func RunAgent(ctx context.Context, o AgentOptions) error {
 			}
 			if err := wc.Send(WorkerMsg{Type: MsgLoaded, Revision: m.Revision}); err != nil {
 				return err
+			}
+		case MsgScan:
+			// a scan can take its full 30 s; it runs beside the receive loop so
+			// a load sent meanwhile is not held up past the supervisor's load
+			// timeout and undone (pre-merge review, 15 Nov 2026). At most
+			// maxScans run at once; more are answered failed at once.
+			select {
+			case scanSlots <- struct{}{}:
+				go func(m WorkerMsg) {
+					defer func() { <-scanSlots }()
+					// a failed send means the pipe is closing; the loop sees it
+					_ = wc.Send(scanReply(o.Scan, m))
+				}(m)
+			default:
+				if err := wc.Send(WorkerMsg{Type: MsgFailed, Revision: m.Revision, Reason: "other folders are being checked; try again"}); err != nil {
+					return err
+				}
 			}
 		default:
 			return fmt.Errorf("unexpected %s from the supervisor", m.Type)

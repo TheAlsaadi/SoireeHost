@@ -1,5 +1,10 @@
 version: "2"
 
+run:
+  # internal/waf does not compile without it (ADR-0008)
+  build-tags:
+    - no_fs_access
+
 linters:
   default: standard
   enable:

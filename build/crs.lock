@@ -1,0 +1,45 @@
+# OWASP Core Rule Set pinned for embedding (S-14, S-65, S-71; ADR-0008).
+# Source: https://github.com/coreruleset/coreruleset/releases/tag/v4.30.0
+# SHA-256 matches the asset digest GitHub reports for the release (checked 2026-11-15).
+# The archive's .asc signature was verified on 2026-11-15 with the CRS release key,
+# fingerprint 36006F0E0BA167832158821138EEACA1AB8A6E72 (published in the release's docs/INSTALL.md).
+# build/check-crs.ps1 downloads the archive, refuses it unless the hash matches, and checks
+# that internal/waf/crs holds exactly the files below, byte for byte.
+# internal/waf/crs.go holds the same version; TestCRSVersionMatchesLock keeps them equal.
+version=4.30.0
+url=https://github.com/coreruleset/coreruleset/releases/download/v4.30.0/coreruleset-4.30.0-minimal.tar.gz
+sha256=3d678a41fd5aade34760127fef5dd64fd7a77848913fc0f70dde0cf467c94427
+signer=36006F0E0BA167832158821138EEACA1AB8A6E72
+# Request rules only, and the data files they reference. The response rules and their data
+# files are left out: responses are not inspected (ADR-0008), and Windows Defender
+# quarantines rules/web-shells-php.data as Backdoor:PHP/Dirtelti.MTJ.
+file=LICENSE
+file=rules/REQUEST-901-INITIALIZATION.conf
+file=rules/REQUEST-905-COMMON-EXCEPTIONS.conf
+file=rules/REQUEST-911-METHOD-ENFORCEMENT.conf
+file=rules/REQUEST-913-SCANNER-DETECTION.conf
+file=rules/REQUEST-920-PROTOCOL-ENFORCEMENT.conf
+file=rules/REQUEST-921-PROTOCOL-ATTACK.conf
+file=rules/REQUEST-922-MULTIPART-ATTACK.conf
+file=rules/REQUEST-930-APPLICATION-ATTACK-LFI.conf
+file=rules/REQUEST-931-APPLICATION-ATTACK-RFI.conf
+file=rules/REQUEST-932-APPLICATION-ATTACK-RCE.conf
+file=rules/REQUEST-933-APPLICATION-ATTACK-PHP.conf
+file=rules/REQUEST-934-APPLICATION-ATTACK-GENERIC.conf
+file=rules/REQUEST-941-APPLICATION-ATTACK-XSS.conf
+file=rules/REQUEST-942-APPLICATION-ATTACK-SQLI.conf
+file=rules/REQUEST-943-APPLICATION-ATTACK-SESSION-FIXATION.conf
+file=rules/REQUEST-944-APPLICATION-ATTACK-JAVA.conf
+file=rules/REQUEST-949-BLOCKING-EVALUATION.conf
+file=rules/REQUEST-999-COMMON-EXCEPTIONS-AFTER.conf
+file=rules/ai-critical-artifacts.data
+file=rules/java-classes.data
+file=rules/lfi-os-files.data
+file=rules/php-function-names-933150.data
+file=rules/php-variables.data
+file=rules/restricted-files.data
+file=rules/scanners-user-agents.data
+file=rules/ssrf-no-scheme.data
+file=rules/ssrf.data
+file=rules/unix-shell.data
+file=rules/windows-powershell-commands.data

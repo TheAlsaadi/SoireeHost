@@ -80,6 +80,8 @@ type fakeServices struct {
 	webLoad func(die func(), m ipc.WorkerMsg) error
 	// rawWeb, if set, replaces the whole web agent.
 	rawWeb func(ctx context.Context, pipe, sid string)
+	// webScan, if set, replaces the web worker's exposure check.
+	webScan func(ipc.ScanRequest) (sitecheck.ExposureReport, error)
 }
 
 func (f *fakeServices) startCount(name string) int {
@@ -112,6 +114,10 @@ func (f *fakeServices) Start(name string) error {
 			return worker.LoadJSON(m.Caddy)
 		}
 		o.Stop = func() { _ = worker.Stop() }
+		o.Scan = worker.Scan
+		if f.webScan != nil {
+			o.Scan = f.webScan
+		}
 		if raw != nil {
 			body = func() { raw(ctx, f.pipes.Web, f.sup) }
 		}
@@ -494,13 +500,21 @@ func TestWeakeningNeedsConfirmation(t *testing.T) {
 // S-41: a config the web worker refuses is replaced by the last good one.
 func TestRefusedConfigIsRolledBack(t *testing.T) {
 	missing := filepath.Join(testutil.SiteDir(t), "gone")
-	h := start(t, func(r string) (string, error) {
+	// pretend the folder passed the checks and the exposure check, then
+	// vanished before the web server loaded it
+	svc := &fakeServices{webScan: func(req ipc.ScanRequest) (sitecheck.ExposureReport, error) {
+		if strings.HasSuffix(req.Root, "gone") {
+			return sitecheck.ExposureReport{Findings: []sitecheck.Finding{}}, nil
+		}
+		return worker.Scan(req)
+	}}
+	h := startWith(t, svc, func(r string) (string, error) {
 		if strings.HasSuffix(r, "gone") {
-			return r, nil // pretend the folder passed the check, then vanished
+			return r, nil
 		}
 		loc, _ := sitecheck.DefaultLocations()
 		return sitecheck.CheckRoot(r, loc)
-	})
+	}, 20*time.Second)
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "OK") }))
 	defer app.Close()
 	var res ipc.ConfigResult

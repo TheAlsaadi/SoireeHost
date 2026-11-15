@@ -8,6 +8,8 @@ import (
 
 	"github.com/TheAlsaadi/SoireeHost/internal/audit"
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
+	"github.com/TheAlsaadi/SoireeHost/internal/fwevent"
+	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 )
 
 // Control API methods (ADR-0006). No method takes a command to run, and the
@@ -28,6 +30,8 @@ const (
 	MethodQuickShareStart = "quickshare.start"
 	MethodQuickShareStop  = "quickshare.stop"
 	MethodTunnelOffline   = "tunnel.set_offline"
+	// Phase 4 (ADR-0008)
+	MethodFirewallEvents = "firewall.events"
 )
 
 // Request is one control call.
@@ -147,6 +151,9 @@ type ConfigResult struct {
 	Revision uint64        `json:"revision"`
 	Config   config.Config `json:"config"`
 	Warnings []string      `json:"warnings,omitempty"`
+	// Exposure is the exposure check of the folder a site.put or
+	// site.set_enabled just put live, if it ran (ADR-0008).
+	Exposure *sitecheck.ExposureReport `json:"exposure,omitempty"`
 }
 
 // HistoryResult is the answer to config.history.
@@ -175,10 +182,35 @@ type SiteIDParams struct {
 	ID string `json:"id"`
 }
 
-// SiteEnabledParams turns a site on or off.
+// SiteEnabledParams turns a site on or off. Confirm must be true to put a
+// static folder live when the exposure check finds a file that would be
+// served and looks like a secret (S-32, ADR-0008).
 type SiteEnabledParams struct {
 	ID      string `json:"id"`
 	Enabled bool   `json:"enabled"`
+	Confirm bool   `json:"confirm"`
+}
+
+// FirewallEventsParams pages through the firewall events: one site's (all
+// sites' if empty), older than Before (newest if zero), at most Limit
+// (1 to MaxFirewallPage; zero means 100).
+type FirewallEventsParams struct {
+	SiteID string    `json:"site_id"`
+	Before time.Time `json:"before,omitzero"`
+	Limit  int       `json:"limit"`
+}
+
+// MaxFirewallPage bounds one firewall.events answer.
+const MaxFirewallPage = fwevent.MaxPage
+
+// FirewallEventsResult is one page of firewall events, newest first. Every
+// field of an event is attacker-influenced text for display only (S-34).
+// Skipped counts log lines that were not valid events; More says older
+// events may exist.
+type FirewallEventsResult struct {
+	Events  []fwevent.Event `json:"events"`
+	Skipped int             `json:"skipped"`
+	More    bool            `json:"more"`
 }
 
 // SecretSetParams sets a secret. The value is write-only (S-35).
@@ -231,6 +263,7 @@ var paramTypes = map[string]func() any{
 	MethodQuickShareStart: func() any { return &QuickShareParams{} },
 	MethodQuickShareStop:  func() any { return &QuickShareParams{} },
 	MethodTunnelOffline:   func() any { return &OfflineParams{} },
+	MethodFirewallEvents:  func() any { return &FirewallEventsParams{} },
 }
 
 // Methods lists every control method.

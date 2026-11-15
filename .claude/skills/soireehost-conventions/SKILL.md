@@ -48,6 +48,12 @@ Read the reference that matches the task:
 15. **Never pass cloudflared's text to the supervisor.** The tunnel launcher reports closed-set problem codes; its log lines go through the scrubber first and lines over 64 KB are dropped whole, so a token split by a cut cannot escape it (R-21).
 16. **Canary sweeps must look for the secret as stored.** A tunnel token is base64 text, so a marker inside its secret never appears verbatim; sweep for the token string itself.
 
+17. **Every Go command needs the `no_fs_access` tag** (`GOFLAGS=-mod=readonly -tags=no_fs_access`, and list it in any `-tags` you pass, which replaces the GOFLAGS tags). Without it Coraza writes request bodies and uploads to temp files; `internal/waf/fsaccess_guard.go` makes such a build fail on purpose (ADR-0008).
+18. **Coraza's `normalizePath` transformations are replaced** in `internal/waf/transform.go`: upstream uses `filepath.Clean`, which on Windows turns `/` into `\` and blinds every CRS rule using them to Unix paths (Coraza issue 1140). Re-check `TestUnixPathsDetectedOnWindows` at every Coraza upgrade, and drop the override once upstream is fixed. Coraza's `MatchedRule.Disruptive()` is true for every match; use rule ids (`blockingRules`) to tell what would block.
+19. **Never vendor or extract CRS response data files.** Windows Defender quarantines `web-shells-php.data` as a backdoor; `build/check-crs.ps1` extracts only the listed request files. Vendored rules stay byte-identical (`-text` in `.gitattributes`); change them only with `check-crs.ps1 -Update`.
+20. **Firewall cost is CPU, not memory.** CRS costs about 12 s of CPU per MB of body text, so text over 128 KB is refused in Block mode and inspections are capped at half the cores; measure before raising any firewall limit.
+21. **Key-shaped test fixtures** (PEM blocks) are built from pieces at run time, or gitleaks fails the build.
+
 ## How a phase runs
 
 1. Read the phase in `docs/PLAN.md` and the plan's section 12 decisions it needs; ask the owner those, and anything that needs administrator rights on their PC (machine rule), with `AskUserQuestion` before designing.
