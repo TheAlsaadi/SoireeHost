@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"mime/multipart"
+	"net/http"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -173,11 +175,20 @@ func TestFirewallMemory(t *testing.T) {
 	fw, _ := mw.CreateFormFile("f", "clip.mp4")
 	_, _ = fw.Write(bytes.Repeat([]byte{1, 2, 3, 4}, (15<<20)/4))
 	_ = mw.Close()
-	req := fmt.Sprintf("POST /upload HTTP/1.1\r\nHost: m-block-1.example.com\r\nConnection: close\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s",
-		mw.FormDataContentType(), body.Len(), body.String())
+	// every upload sends the same bytes; the client keeps no copy of its own
+	c := uploadClient(t)
+	codes := make([]int, 16)
 	var wg sync.WaitGroup
-	for range 16 {
-		wg.Go(func() { h.raw(t, req) })
+	for i := range codes {
+		wg.Go(func() {
+			r, err := h.upload(t, c, "m-block-1.example.com", mw.FormDataContentType(), body.Bytes())
+			if err != nil {
+				t.Errorf("upload %d: %v", i, err)
+				return
+			}
+			codes[i] = r.status
+			checkUpload(t, r, body.Len())
+		})
 	}
 	wg.Wait()
 	close(stop)
@@ -186,9 +197,103 @@ func TestFirewallMemory(t *testing.T) {
 	debug.FreeOSMemory()
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
-	t.Logf("S-21 measurement: peak heap+stack %d MiB during the attack set on 8 firewalls and 16 concurrent 15 MB uploads; %d MiB in use after GC; job cap %d MiB",
-		peak>>20, after.HeapInuse>>20, Limits.MemoryBytes>>20)
+	passed := 0
+	for _, code := range codes {
+		if code == http.StatusOK {
+			passed++
+		}
+	}
+	t.Logf("S-21 measurement: peak heap+stack %d MiB during the attack set on 8 firewalls and 16 concurrent 15 MB uploads (%d passed, the rest got 503 from the body budget); %d MiB in use after GC; job cap %d MiB",
+		peak>>20, passed, after.HeapInuse>>20, Limits.MemoryBytes>>20)
 	if peak > Limits.MemoryBytes/4*3 {
 		t.Fatalf("peak memory %d MiB is over the soft limit, three quarters of the job cap", peak>>20)
+	}
+	if passed == 0 {
+		t.Fatal("no upload passed")
+	}
+}
+
+// uploadClient is the HTTP client cloudflared uses towards the worker: Go's
+// transport with keep-alive, which reads the response while it is still
+// sending the body (RFC 9112 section 9.5).
+//
+// A refusal the firewall sends before reading a body (503 from the body
+// budget or the inspection slots, 413 for too much text) must reach such a
+// client. Go's server then shuts its side down and waits before closing.
+// h.raw is no client for large bodies: it sends Connection: close and writes
+// the whole body before reading. For such a request Go's server closes at
+// once with the body unread, Windows resets the connection, and the reset
+// can discard the refusal before the client reads it (the TestFirewallMemory
+// flake of 15 Nov 2026).
+func uploadClient(t *testing.T) *http.Client {
+	t.Helper()
+	tr := &http.Transport{MaxIdleConnsPerHost: 16}
+	t.Cleanup(tr.CloseIdleConnections)
+	return &http.Client{Transport: tr, Timeout: 30 * time.Second}
+}
+
+// upload posts body to /upload on host. It runs in goroutines, so it returns
+// errors instead of failing the test.
+func (h *harness) upload(t *testing.T, c *http.Client, host, contentType string, body []byte) (result, error) {
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+h.addr+"/upload", bytes.NewReader(body))
+	if err != nil {
+		return result{}, err
+	}
+	req.Host = host
+	req.Header.Set("Content-Type", contentType)
+	resp, err := c.Do(req)
+	if err != nil {
+		return result{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return result{}, err
+	}
+	return result{resp.StatusCode, resp.Header, string(b)}, nil
+}
+
+// checkUpload accepts an upload the app received whole, or a 503 from the
+// body budget that tells the client when to retry.
+func checkUpload(t *testing.T, r result, size int) {
+	t.Helper()
+	switch r.status {
+	case http.StatusOK:
+		if !strings.Contains(r.body, fmt.Sprintf(`"body":%d,`, size)) {
+			t.Errorf("upload passed, but the app did not receive all %d bytes: %.200q", size, r.body)
+		}
+	case http.StatusServiceUnavailable:
+		if r.header.Get("Retry-After") == "" {
+			t.Error("503 without Retry-After")
+		}
+	default:
+		t.Errorf("upload answered %d: %.200q", r.status, r.body)
+	}
+}
+
+// A refusal the firewall sends before reading the body reaches the client
+// even while many such uploads arrive at once. 16 concurrent 8 MB JSON bodies
+// each get Block mode's 413 for body text over 128 KB, which is decided from
+// Content-Length alone; three rounds.
+func TestRefusalBeforeBodyIsAnswered(t *testing.T) {
+	h := startHarness(t, nil)
+	c := uploadClient(t)
+	body := []byte(`{"a":"` + strings.Repeat("x", 8<<20) + `"}`)
+	for round := range 3 {
+		var wg sync.WaitGroup
+		for i := range 16 {
+			wg.Go(func() {
+				r, err := h.upload(t, c, "app.example.com", "application/json", body)
+				switch {
+				case err != nil:
+					t.Errorf("round %d, upload %d: %v", round, i, err)
+				case r.status != http.StatusRequestEntityTooLarge:
+					t.Errorf("round %d, upload %d: %d %.200q", round, i, r.status, r.body)
+				case strings.Contains(r.body, `"body":`):
+					t.Errorf("round %d, upload %d: the app received the body", round, i)
+				}
+			})
+		}
+		wg.Wait()
 	}
 }
