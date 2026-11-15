@@ -394,10 +394,10 @@ Build Coraza with the Core Rule Set, the per-site modes, rate limiting, the expo
 
 Done when:
 
-- [ ] Sample SQL injection, cross-site scripting and traversal requests get a 403 and appear in the firewall log.
-- [ ] Browsing a normal static site and a typical proxied app triggers no block at paranoia level 1.
-- [ ] The exposure check flags a planted `.env` file and private key.
-- [ ] Tests pass for S-14.
+- [x] Sample SQL injection, cross-site scripting and traversal requests get a 403 and appear in the firewall log. (15 Nov 2026, pull request 11, run 43704274901: `waf` `TestAttackSetBlocked`, `worker` `TestFirewallInChain`, and on the installed services `e2e` `TestFirewallOnInstalledSystem`, read back over the control pipe with `firewall.events`)
+- [x] Browsing a normal static site and a typical proxied app triggers no block at paranoia level 1. (15 Nov 2026, pull request 11, run 43704274901: `waf` `TestNormalSetPasses`, `worker` `TestFirewallInChain`, `e2e` `TestFirewallOnInstalledSystem`)
+- [x] The exposure check flags a planted `.env` file and private key. (15 Nov 2026, pull request 11, run 43704274901: `sitecheck` `TestScanExposureFlagsSecrets`, `supervisor` `TestExposureCheckBeforeLive`)
+- [x] Tests pass for S-14. (15 Nov 2026, pull request 11, run 43704274901; ADR-0008 awaits the owner's acceptance)
 
 ### Phase 5: Control panel
 

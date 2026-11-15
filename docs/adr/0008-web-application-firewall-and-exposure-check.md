@@ -223,7 +223,7 @@ The web worker sets the Go runtime's soft memory limit to three quarters of its 
 Two measurements are recorded in `docs/SECURITY_CHECKLIST.md` under S-21:
 
 - **In process (`worker` `TestFirewallMemory`).** Caddy runs eight sites, one for every mode and paranoia level. The test runs the attack set through each, then 16 concurrent 15 MB multipart uploads, with the same soft limit. It samples heap plus stack every 20 ms, records the peak, and fails above the soft limit. Measured on 15 Nov 2026 on the owner's PC: a peak of 458 to 471 MiB over three runs, including the test's own client and upstream in the same process, and 41 to 44 MiB in use after GC.
-- **On the installed system (`e2e` `TestFirewallOnInstalledSystem`, CI isolation job).** After the attack set and the same upload burst through the installed services, the test reads the confined web worker's peak committed memory (`PeakPagefileUsage`, the figure the job limit applies to) and fails above 75% of the cap.
+- **On the installed system (`e2e` `TestFirewallOnInstalledSystem`, CI isolation job).** After the attack set and the same upload burst through the installed services, the test reads the confined web worker's peak committed memory (`PeakPagefileUsage`, the figure the job limit applies to) and fails above 75% of the cap. Measured in CI on 15 Nov 2026 (pull request 11, run 43704274901): 483 MiB of the 1024 MiB cap; 12 of the 16 uploads passed and 4 got 503 from the body budget.
 
 ### 11. Carried from the Phase 1–2 review backlog
 
@@ -258,5 +258,5 @@ Left in the backlog because this phase does not change that code:
 1. [ ] Owner: accept or amend this record.
 2. [x] Build it, with the firewall attack and normal request sets from `docs/TEST_PLAN.md` (`waf` `TestAttackSetBlocked`, `TestNormalSetPasses`; `worker` `TestFirewallInChain`), fuzz targets for every new parser (`FuzzParseLine`, `FuzzClean`, `FuzzURI`, `FuzzStripForwarded`; `FuzzDecodeWorkerMsg` and `FuzzDecodeRequest` gained the new messages), and the memory measurements.
 3. [x] CI: `GOFLAGS` with `no_fs_access`, the `check-crs` step, the firewall checks in the isolation job.
-4. [ ] Record S-14 (and the S-18, S-21, S-31, S-32 additions) in `docs/SECURITY_CHECKLIST.md` with test names and run numbers once CI passes.
+4. [x] Record S-14 (and the S-18, S-21, S-31, S-32 additions) in `docs/SECURITY_CHECKLIST.md` with test names and run numbers. (pull request 11, run 43704274901)
 5. [ ] Optional, owner's call: comment on Coraza issue 1140 with the reproduction, since this is public.
