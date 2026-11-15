@@ -207,7 +207,7 @@ func TestCutReason(t *testing.T) {
 			t.Errorf("%s: %d bytes, valid %v", name, len(out), utf8.ValidString(out))
 			continue
 		}
-		b, err := json.Marshal(WorkerMsg{Type: MsgFailed, Revision: 1, Reason: out})
+		b, err := json.Marshal(WorkerMsg{Type: MsgFailed, Revision: 1, Code: FailOther, Reason: out})
 		if err != nil {
 			t.Fatal(err)
 		}

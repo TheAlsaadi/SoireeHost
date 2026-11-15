@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"slices"
 	"strings"
 )
 
@@ -118,8 +119,13 @@ type Site struct {
 	// default (S-12); everything inside it still follows the path rules.
 	AllowWellKnown bool `json:"allow_well_known"`
 	// ResponseHeaders overrides the default security headers (S-16). Keys must
-	// be one of ManagedHeaders; an empty value means the header is not sent.
+	// be one of ManagedHeaders and values must not be empty.
 	ResponseHeaders map[string]string `json:"response_headers,omitempty"`
+	// RemoveHeaders names managed security headers the site does not send.
+	// Removing a header is the only way to stop sending one, so it is always
+	// explicit, and it is a weakening change (S-16, S-32, review finding
+	// SE-28).
+	RemoveHeaders []string `json:"remove_headers,omitempty"`
 	// QuickShare, when set, shares the site through a temporary link
 	// (ADR-0007, S-51).
 	QuickShare *QuickShare `json:"quick_share,omitempty"`
@@ -182,11 +188,36 @@ func Decode(r io.Reader) (Config, error) {
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return Config{}, errors.New("decoding config: unexpected data after the config object")
 	}
+	c.MigrateLegacy()
 	c.Normalize()
 	if err := c.Validate(); err != nil {
 		return Config{}, err
 	}
 	return c, nil
+}
+
+// MigrateLegacy turns settings saved by earlier versions into their current
+// form without changing what they do: a security header overridden with an
+// empty value (the old way to stop sending it) moves to RemoveHeaders (SE-28).
+// It is applied to saved and imported settings only; a control call that
+// sends an empty header value is refused.
+func (c *Config) MigrateLegacy() {
+	for i := range c.Sites {
+		site := &c.Sites[i]
+		for k, v := range site.ResponseHeaders {
+			if v != "" {
+				continue
+			}
+			delete(site.ResponseHeaders, k)
+			if !slices.Contains(site.RemoveHeaders, k) {
+				site.RemoveHeaders = append(site.RemoveHeaders, k)
+			}
+		}
+		if len(site.ResponseHeaders) == 0 {
+			site.ResponseHeaders = nil
+		}
+		slices.Sort(site.RemoveHeaders)
+	}
 }
 
 // Encode writes the config as indented JSON.
@@ -439,9 +470,26 @@ func (s Site) validate(field string, p *problems, own []uint16) {
 			p.add(hf, "%q is not a header that can be changed; allowed: %s", k, strings.Join(ManagedHeaders(), ", "))
 			continue
 		}
+		if v == "" {
+			p.add(hf+"."+k, "must not be empty; to stop sending this header, add it to remove_headers")
+			continue
+		}
 		if err := validHeaderValue(v); err != nil {
 			p.add(hf+"."+k, "%v", err)
 		}
+	}
+	removed := map[string]bool{}
+	for _, k := range s.RemoveHeaders {
+		rf := field + ".remove_headers"
+		switch {
+		case defaultHeaders[k] == "":
+			p.add(rf, "%q is not a header that can be removed; allowed: %s", k, strings.Join(ManagedHeaders(), ", "))
+		case removed[k]:
+			p.add(rf, "%q is listed twice", k)
+		case s.ResponseHeaders[k] != "":
+			p.add(rf, "%q is both set and removed", k)
+		}
+		removed[k] = true
 	}
 }
 
@@ -451,6 +499,8 @@ func (c Config) Warnings() []string {
 	var w []string
 	for _, s := range c.Sites {
 		w = append(w, firewallWarnings(s)...)
+		w = append(w, headerWarnings(s)...)
+		w = append(w, optInWarnings(s)...)
 		if s.Type != TypeProxy || s.Proxy == nil || !s.Proxy.AllowLAN {
 			continue
 		}

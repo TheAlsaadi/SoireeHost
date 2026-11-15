@@ -384,10 +384,11 @@ func TestEffectiveHeaders(t *testing.T) {
 		h["Referrer-Policy"] != "strict-origin-when-cross-origin" || h["Permissions-Policy"] == "" {
 		t.Fatalf("defaults wrong: %v", h)
 	}
-	s.ResponseHeaders = map[string]string{"Content-Security-Policy": "", "Referrer-Policy": "no-referrer"}
+	s.ResponseHeaders = map[string]string{"Referrer-Policy": "no-referrer"}
+	s.RemoveHeaders = []string{"Content-Security-Policy"}
 	h = s.EffectiveHeaders()
 	if _, ok := h["Content-Security-Policy"]; ok {
-		t.Fatal("empty override did not remove header")
+		t.Fatal("a removed header is still sent")
 	}
 	if h["Referrer-Policy"] != "no-referrer" {
 		t.Fatal("override not applied")

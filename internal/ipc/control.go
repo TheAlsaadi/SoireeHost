@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/accesslog"
 	"github.com/TheAlsaadi/SoireeHost/internal/audit"
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/fwevent"
@@ -32,6 +33,10 @@ const (
 	MethodTunnelOffline   = "tunnel.set_offline"
 	// Phase 4 (ADR-0008)
 	MethodFirewallEvents = "firewall.events"
+	// Phase 5 (ADR-0009)
+	MethodAccessList   = "access.list"
+	MethodConfigExport = "config.export"
+	MethodConfigImport = "config.import"
 )
 
 // Request is one control call.
@@ -59,11 +64,32 @@ const (
 )
 
 // Error is a failed call. Message is a plain sentence the control panel shows
-// as text (S-34); it never contains a secret.
+// as text (S-34); it never contains a secret. A confirmation_required error
+// carries the Confirmation to send back if the user agrees (S-32, SE-27).
 type Error struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code         string        `json:"code"`
+	Message      string        `json:"message"`
+	Confirmation *Confirmation `json:"confirmation,omitempty"`
+	// WorkerDetail is a worker's own account of a failure, cleaned to one
+	// short line (DR-6). The control panel shows it apart from Message,
+	// labelled as coming from the web server, never as SoiréeHost's words.
+	WorkerDetail string `json:"worker_detail,omitempty"`
 }
+
+// Confirmation is the supervisor's offer to accept one weakening change
+// (S-32, review finding SE-27). Sentences say exactly what the change
+// weakens; the control panel shows them, as text, and if the user confirms
+// sends the same call again with Token in its confirmation field. The token
+// is single-use, bound to the caller, the method, the call's parameters and
+// these sentences, and expires at Expires.
+type Confirmation struct {
+	Token     string    `json:"token"`
+	Sentences []string  `json:"sentences"`
+	Expires   time.Time `json:"expires"`
+}
+
+// ConfirmationTTL is how long a confirmation token stays valid.
+const ConfirmationTTL = 2 * time.Minute
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
 
@@ -143,7 +169,10 @@ type WorkerStatus struct {
 	State     string    `json:"state"`
 	Since     time.Time `json:"since"`
 	LastError string    `json:"last_error,omitempty"`
-	Restarts  int       `json:"restarts"`
+	// LastErrorDetail is the worker's own cleaned detail for LastError, if
+	// it gave one (DR-6).
+	LastErrorDetail string `json:"last_error_detail,omitempty"`
+	Restarts        int    `json:"restarts"`
 }
 
 // ConfigResult is the answer to config.get and the changing calls.
@@ -162,19 +191,19 @@ type HistoryResult struct {
 	LastGood  uint64          `json:"last_good"`
 }
 
-// RollbackParams selects a revision to restore. Confirm must be true when
-// that revision forwards to a device on the local network that the current
-// settings do not (S-32).
+// RollbackParams selects a revision to restore. Going back to settings that
+// weaken protection (a new LAN target, a weaker firewall) needs a
+// confirmation token (S-32).
 type RollbackParams struct {
-	Revision uint64 `json:"revision"`
-	Confirm  bool   `json:"confirm"`
+	Revision     uint64 `json:"revision"`
+	Confirmation string `json:"confirmation,omitempty"`
 }
 
-// SitePutParams adds or replaces a site. Confirm must be true for a change
-// that weakens protection (S-32).
+// SitePutParams adds or replaces a site. A change that weakens protection
+// needs a confirmation token (S-32).
 type SitePutParams struct {
-	Site    config.Site `json:"site"`
-	Confirm bool        `json:"confirm"`
+	Site         config.Site `json:"site"`
+	Confirmation string      `json:"confirmation,omitempty"`
 }
 
 // SiteIDParams names a site.
@@ -182,13 +211,13 @@ type SiteIDParams struct {
 	ID string `json:"id"`
 }
 
-// SiteEnabledParams turns a site on or off. Confirm must be true to put a
-// static folder live when the exposure check finds a file that would be
-// served and looks like a secret (S-32, ADR-0008).
+// SiteEnabledParams turns a site on or off. Putting a static folder live
+// when the exposure check finds a file that would be served and looks like
+// a secret needs a confirmation token (S-32, ADR-0008).
 type SiteEnabledParams struct {
-	ID      string `json:"id"`
-	Enabled bool   `json:"enabled"`
-	Confirm bool   `json:"confirm"`
+	ID           string `json:"id"`
+	Enabled      bool   `json:"enabled"`
+	Confirmation string `json:"confirmation,omitempty"`
 }
 
 // FirewallEventsParams pages through the firewall events: one site's (all
@@ -213,11 +242,12 @@ type FirewallEventsResult struct {
 	More    bool            `json:"more"`
 }
 
-// SecretSetParams sets a secret. The value is write-only (S-35).
+// SecretSetParams sets a secret. The value is write-only (S-35). Replacing a
+// secret that is set needs a confirmation token (S-32).
 type SecretSetParams struct {
-	Name    string `json:"name"`
-	Value   string `json:"value"`
-	Confirm bool   `json:"confirm"`
+	Name         string `json:"name"`
+	Value        string `json:"value"`
+	Confirmation string `json:"confirmation,omitempty"`
 }
 
 // SecretStatusResult lists which secrets are set and when, never their values.
@@ -231,6 +261,60 @@ type SecretStatus struct {
 	Name  string    `json:"name"`
 	Set   bool      `json:"set"`
 	SetAt time.Time `json:"set_at,omitzero"`
+}
+
+// AccessListParams pages through the web server's access log, newest first:
+// one site's requests (all sites' if empty), of one result class (all if
+// empty), newer than After and older than Before (no bound if zero), at most
+// Limit (1 to MaxAccessPage; zero means accesslog.DefaultPage).
+type AccessListParams struct {
+	SiteID string    `json:"site_id"`
+	Class  string    `json:"class"`
+	After  time.Time `json:"after,omitzero"`
+	Before time.Time `json:"before,omitzero"`
+	Limit  int       `json:"limit"`
+}
+
+// MaxAccessPage bounds one access.list answer.
+const MaxAccessPage = accesslog.MaxPage
+
+// AccessListResult is one page of requests, newest first. Every field of an
+// entry is attacker-influenced text for display only (S-34). Skipped counts
+// log lines that were not valid entries; More says older entries may exist.
+type AccessListResult struct {
+	Entries []AccessEntry `json:"entries"`
+	Skipped int           `json:"skipped"`
+	More    bool          `json:"more"`
+}
+
+// AccessEntry is one request with the site it was for (empty if the host
+// matched no site) and, for a request the firewall blocked or would have
+// blocked, the rules that matched.
+type AccessEntry struct {
+	accesslog.Entry
+	SiteID   string         `json:"site_id,omitempty"`
+	Firewall *FirewallMatch `json:"firewall,omitempty"`
+}
+
+// FirewallMatch is the firewall's verdict on one request: blocked, or
+// detected in Detect only, and the rules that matched.
+type FirewallMatch struct {
+	Action string         `json:"action"`
+	Rules  []fwevent.Rule `json:"rules"`
+}
+
+// ConfigImportParams replaces the settings with an imported copy. It always
+// needs a confirmation token, which names what the import changes (S-32).
+type ConfigImportParams struct {
+	Config       config.Config `json:"config"`
+	Confirmation string        `json:"confirmation,omitempty"`
+}
+
+// ConfigExportResult is the settings to save to a file. It never holds a
+// secret (S-40).
+type ConfigExportResult struct {
+	Revision uint64        `json:"revision"`
+	Config   config.Config `json:"config"`
 }
 
 // AuditListParams pages through the audit log.
@@ -264,6 +348,9 @@ var paramTypes = map[string]func() any{
 	MethodQuickShareStop:  func() any { return &QuickShareParams{} },
 	MethodTunnelOffline:   func() any { return &OfflineParams{} },
 	MethodFirewallEvents:  func() any { return &FirewallEventsParams{} },
+	MethodAccessList:      func() any { return &AccessListParams{} },
+	MethodConfigExport:    func() any { return &None{} },
+	MethodConfigImport:    func() any { return &ConfigImportParams{} },
 }
 
 // Methods lists every control method.
@@ -313,7 +400,7 @@ func DecodeResponse(data []byte) (Response, error) {
 // String hides the secret value, so a SecretSetParams printed by mistake
 // never shows it.
 func (p SecretSetParams) String() string {
-	return fmt.Sprintf("secret.set(name=%s confirm=%v value=REDACTED)", p.Name, p.Confirm)
+	return fmt.Sprintf("secret.set(name=%s confirmed=%v value=REDACTED)", p.Name, p.Confirmation != "")
 }
 
 // GoString hides the value from %#v as well.

@@ -195,48 +195,126 @@ func writeResponse(conn net.Conn, resp Response) error {
 	return WriteFrame(conn, b)
 }
 
-// Client is the control panel's connection to the supervisor.
+// Client is the control panel's connection to the supervisor. It is safe
+// for concurrent use; calls run one at a time. After any failed call (I/O
+// error, timeout, cancellation, a reply that does not match) the connection
+// is closed and the next call dials again, so a connection that may be out of
+// step is never reused (review finding SE-30). An error answer from the
+// supervisor leaves the connection open: both sides are still in step.
 type Client struct {
-	mu   sync.Mutex
-	conn net.Conn
-	next uint64
+	mu     sync.Mutex
+	dial   func(context.Context) (net.Conn, error)
+	conn   net.Conn
+	next   uint64
+	closed bool
+}
+
+// NewClient returns a client that connects with dial when it first needs to,
+// and again after a failed call. dial must check the pipe's owner (Dial,
+// DialFile).
+func NewClient(dial func(context.Context) (net.Conn, error)) *Client {
+	return &Client{dial: dial}
 }
 
 // DialControl connects to the control pipe at path and checks that the
 // supervisor's service account owns it.
 func DialControl(ctx context.Context, path, supervisorSID string) (*Client, error) {
-	conn, err := Dial(ctx, path, supervisorSID)
-	if err != nil {
+	c := NewClient(func(ctx context.Context) (net.Conn, error) { return Dial(ctx, path, supervisorSID) })
+	if err := c.connect(ctx); err != nil {
 		return nil, err
 	}
-	return &Client{conn: conn}, nil
+	return c, nil
 }
 
-// Close closes the connection.
-func (c *Client) Close() error { return c.conn.Close() }
+// errClientClosed is returned by calls on a closed client.
+var errClientClosed = errors.New("the connection to the SoiréeHost service is closed")
 
-// Call sends one request and decodes the result into out (which may be nil).
-// A supervisor error comes back as *Error.
-func (c *Client) Call(ctx context.Context, method string, params, out any) error {
+// Close closes the connection; later calls fail.
+func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.next++
+	c.closed = true
+	return c.drop()
+}
+
+// drop closes the current connection, if any. c.mu must be held.
+func (c *Client) drop() error {
+	if c.conn == nil {
+		return nil
+	}
+	err := c.conn.Close()
+	c.conn = nil
+	return err
+}
+
+func (c *Client) connect(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.connectLocked(ctx)
+}
+
+func (c *Client) connectLocked(ctx context.Context) error {
+	if c.closed {
+		return errClientClosed
+	}
+	if c.conn != nil {
+		return nil
+	}
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return err
+	}
+	c.conn = conn
+	return nil
+}
+
+// Call sends one request and decodes the result into out (which may be nil).
+// A supervisor error comes back as *Error. Cancelling ctx, or its deadline
+// passing, ends a call that is waiting for its answer.
+func (c *Client) Call(ctx context.Context, method string, params, out any) (err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	p, err := json.Marshal(params)
 	if err != nil {
 		return err
 	}
-	b, err := json.Marshal(Request{ID: c.next, Method: method, Params: p})
+	if err := c.connectLocked(ctx); err != nil {
+		return err
+	}
+	conn := c.conn
+	keep := false
+	defer func() {
+		if !keep {
+			_ = c.drop()
+		}
+	}()
+	c.next++
+	id := c.next
+	b, err := json.Marshal(Request{ID: id, Method: method, Params: p})
 	if err != nil {
 		return err
 	}
 	if dl, ok := ctx.Deadline(); ok {
-		_ = c.conn.SetDeadline(dl)
-		defer c.conn.SetDeadline(time.Time{}) //nolint:errcheck // best effort reset
+		_ = conn.SetDeadline(dl)
+	} else {
+		_ = conn.SetDeadline(time.Time{})
 	}
-	if err := WriteFrame(c.conn, b); err != nil {
+	// A context without a deadline can still be cancelled: closing the
+	// pipe unblocks the pending read or write.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer func() {
+		if !stop() && ctx.Err() != nil {
+			err = ctx.Err()
+			keep = false
+		}
+	}()
+	if err := WriteFrame(conn, b); err != nil {
 		return err
 	}
-	frame, err := ReadFrame(c.conn)
+	frame, err := ReadFrame(conn)
 	if err != nil {
 		return err
 	}
@@ -244,16 +322,28 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 	if err != nil {
 		return err
 	}
+	// The reply's ID is checked before anything else in it, so a stale
+	// answer, error or not, can never stand in for this call's.
+	if resp.ID != id {
+		// ID 0, never used by a client, is the server refusing the whole
+		// connection before reading a request (a caller it does not admit,
+		// a malformed request); it then closes its end.
+		if resp.ID == 0 && resp.Error != nil {
+			return resp.Error
+		}
+		return errors.New("the answer from the SoiréeHost service does not match the request")
+	}
 	if resp.Error != nil {
+		keep = true
 		return resp.Error
 	}
-	if resp.ID != c.next {
-		return errors.New("answer does not match the request")
+	if out != nil {
+		if err := json.Unmarshal(resp.Result, out); err != nil {
+			return err
+		}
 	}
-	if out == nil {
-		return nil
-	}
-	return json.Unmarshal(resp.Result, out)
+	keep = true
+	return nil
 }
 
 // WorkerConn is one end of a worker pipe. It knows the pipe's role and

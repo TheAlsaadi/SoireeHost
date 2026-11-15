@@ -1,9 +1,11 @@
 package winsec
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -196,24 +198,152 @@ const (
 	siteSupervisorAccess = "0x120080" // READ_CONTROL | SYNCHRONIZE | FILE_READ_ATTRIBUTES
 )
 
-// GrantSiteAccess adds the two entries above to path's DACL, keeping what is
-// already there. The caller must be allowed to change the folder's
-// permissions (normally its owner).
-func GrantSiteAccess(path, web, supervisor string) error {
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+// GrantSiteAccess gives the web worker and the supervisor their entries on a
+// site folder (review finding SE-07). It opens path once, without following
+// a link or junction, and refuses the folder if the handle is one; check
+// (sitecheck.CheckRoot) then runs on the handle's real path, and the folder
+// it approves must be the very folder the handle holds (same volume and file
+// id). The permissions are read and written through that one handle, so a
+// link swapped in after the check is never followed, and each entry is added
+// only if no equivalent one is there, so repeated calls add nothing. The
+// caller must be allowed to change the folder's permissions (normally its
+// owner). It returns the canonical path check approved.
+func GrantSiteAccess(path, web, supervisor string, check func(string) (string, error)) (string, error) {
+	h, info, err := openFolderNoFollow(path, windows.READ_CONTROL|windows.WRITE_DAC|windows.FILE_READ_ATTRIBUTES)
 	if err != nil {
-		return fmt.Errorf("reading permissions of %s: %w", path, err)
+		return "", err
 	}
-	sddl := sd.String() + "(A;OICI;" + siteWorkerAccess + ";;;" + web + ")(A;;" + siteSupervisorAccess + ";;;" + supervisor + ")"
-	nsd, err := windows.SecurityDescriptorFromString(sddl)
+	defer windows.CloseHandle(h) //nolint:errcheck // read-only use after the write
+	real, err := handlePath(h)
 	if err != nil {
-		return err
+		return "", err
 	}
-	dacl, _, err := nsd.DACL()
+	canon, err := check(real)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+	h2, info2, err := openFolderNoFollow(canon, windows.FILE_READ_ATTRIBUTES)
+	if err != nil {
+		return "", err
+	}
+	_ = windows.CloseHandle(h2)
+	if info.VolumeSerialNumber != info2.VolumeSerialNumber || info.FileIndexHigh != info2.FileIndexHigh || info.FileIndexLow != info2.FileIndexLow {
+		return "", fmt.Errorf("%s changed while it was being checked; try again", path)
+	}
+	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return "", fmt.Errorf("reading permissions of %s: %w", canon, err)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		return "", err
+	}
+	var add string
+	if !hasAllow(dacl, web, siteWorkerMask, windows.OBJECT_INHERIT_ACE|windows.CONTAINER_INHERIT_ACE) {
+		add += "(A;OICI;" + siteWorkerAccess + ";;;" + web + ")"
+	}
+	if !hasAllow(dacl, supervisor, siteSupervisorMask, 0) {
+		add += "(A;;" + siteSupervisorAccess + ";;;" + supervisor + ")"
+	}
+	if add == "" {
+		return canon, nil
+	}
+	nsd, err := windows.SecurityDescriptorFromString(sd.String() + add)
+	if err != nil {
+		return "", err
+	}
+	ndacl, _, err := nsd.DACL()
+	if err != nil {
+		return "", err
+	}
+	// Through the handle: Windows applies the new inheritable entry to what
+	// is inside the folder, and does not follow links or junctions inside it
+	// (TestGrantSiteAccessStaysInside).
+	if err := windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, ndacl, nil); err != nil {
+		return "", fmt.Errorf("setting permissions of %s: %w", canon, err)
+	}
+	return canon, nil
+}
+
+// Masks of the two site entries, as numbers.
+const (
+	siteWorkerMask     = 0x1200a9
+	siteSupervisorMask = 0x120080
+)
+
+// hasAllow reports whether dacl holds an explicit allow entry for sid that
+// grants at least mask with at least the given inheritance flags.
+func hasAllow(dacl *windows.ACL, sid string, mask uint32, flags uint8) bool {
+	if dacl == nil {
+		return false
+	}
+	want, err := windows.StringToSid(sid)
+	if err != nil {
+		return false
+	}
+	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if windows.GetAce(dacl, i, &ace) != nil {
+			return false
+		}
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Header.AceFlags&windows.INHERITED_ACE != 0 {
+			continue
+		}
+		if uint32(ace.Mask)&mask != mask || ace.Header.AceFlags&flags != flags {
+			continue
+		}
+		got := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+		if got.Equals(want) {
+			return true
+		}
+	}
+	return false
+}
+
+// openFolderNoFollow opens a folder without following a link or junction
+// and refuses it if it is one.
+func openFolderNoFollow(path string, access uint32) (windows.Handle, windows.ByHandleFileInformation, error) {
+	var info windows.ByHandleFileInformation
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return windows.InvalidHandle, info, errors.New("not a valid path")
+	}
+	h, err := windows.CreateFile(name, access,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		return windows.InvalidHandle, info, fmt.Errorf("cannot open %s: %w", path, err)
+	}
+	if err := windows.GetFileInformationByHandle(h, &info); err != nil {
+		_ = windows.CloseHandle(h)
+		return windows.InvalidHandle, info, fmt.Errorf("cannot read %s: %w", path, err)
+	}
+	switch {
+	case info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0:
+		_ = windows.CloseHandle(h)
+		return windows.InvalidHandle, info, fmt.Errorf("%s is a link or junction; choose the folder it points to instead", path)
+	case info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0:
+		_ = windows.CloseHandle(h)
+		return windows.InvalidHandle, info, fmt.Errorf("%s is not a folder", path)
+	}
+	return h, info, nil
+}
+
+// handlePath is the real path of an open file, in drive-letter form.
+func handlePath(h windows.Handle) (string, error) {
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	n, err := windows.GetFinalPathNameByHandle(h, &buf[0], uint32(len(buf)), 0)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve the folder: %w", err)
+	}
+	if int(n) >= len(buf) {
+		return "", errors.New("the folder path is too long")
+	}
+	p := windows.UTF16ToString(buf[:n])
+	if strings.HasPrefix(p, `\\?\UNC\`) {
+		return "", errors.New("network folders cannot be published")
+	}
+	return strings.TrimPrefix(p, `\\?\`), nil
 }
 
 // readMask is the right that lets a principal list a folder or read a file.

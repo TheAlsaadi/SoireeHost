@@ -39,11 +39,19 @@ const stopSendTimeout = 2 * time.Second
 // change that ends in any of these is undone (S-41, review finding R-22);
 // at reconnect only a refusal makes the supervisor roll back.
 type loadError struct {
-	reason  string
+	reason  string // the supervisor's own sentence
+	detail  string // the worker's cleaned detail, if any (DR-6)
 	refused bool
 }
 
 func (e *loadError) Error() string { return e.reason }
+
+// withDetail attaches the worker's own detail to an error for the control
+// panel, which shows it apart from the message (DR-6).
+func (e *loadError) withDetail(ie *ipc.Error) *ipc.Error {
+	ie.WorkerDetail = e.detail
+	return ie
+}
 
 // workerMgr starts one worker service, waits for it on its pipe, feeds it
 // loads and restarts it when it goes away.
@@ -58,6 +66,7 @@ type workerMgr struct {
 	state    string
 	since    time.Time
 	lastErr  string
+	lastDet  string // the worker's cleaned detail for lastErr (DR-6)
 	restarts int
 	pending  map[uint64]chan reply
 	nextLoad uint64
@@ -74,19 +83,23 @@ func newWorkerMgr(s *Supervisor, role, service, sid string) *workerMgr {
 	return &workerMgr{sup: s, role: role, service: service, sid: sid, state: StateStopped, since: time.Now(), pending: map[uint64]chan reply{}}
 }
 
-func (w *workerMgr) setState(state, lastErr string) {
+func (w *workerMgr) setState(state, lastErr string) { w.setStateDetail(state, lastErr, "") }
+
+// setStateDetail records a state and, with a new last error, the worker's
+// own cleaned detail for it (DR-6).
+func (w *workerMgr) setStateDetail(state, lastErr, detail string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.state, w.since = state, time.Now()
 	if lastErr != "" {
-		w.lastErr = lastErr
+		w.lastErr, w.lastDet = lastErr, detail
 	}
 }
 
 func (w *workerMgr) status() ipc.WorkerStatus {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return ipc.WorkerStatus{Role: w.role, State: w.state, Since: w.since, LastError: w.lastErr, Restarts: w.restarts}
+	return ipc.WorkerStatus{Role: w.role, State: w.state, Since: w.since, LastError: w.lastErr, LastErrorDetail: w.lastDet, Restarts: w.restarts}
 }
 
 // run keeps the worker going until ctx ends, then stops it.
@@ -213,11 +226,12 @@ func (w *workerMgr) serve(ctx context.Context, wc *ipc.WorkerConn) {
 				continue
 			}
 			if m.Type == ipc.MsgFailed {
-				reason := m.Reason
+				le := &loadError{reason: ipc.FailureSentence(m.Code), detail: ipc.CleanDetail(m.Reason), refused: true}
 				if w.role == ipc.RoleTunnel {
-					reason = tunnelRefusedReason // R-21
+					// R-21: no text from the tunnel side reaches anyone
+					le.reason, le.detail = tunnelRefusedReason, ""
 				}
-				ch <- reply{err: &loadError{reason: reason, refused: true}}
+				ch <- reply{err: le}
 			} else {
 				ch <- reply{msg: m}
 			}
@@ -279,7 +293,7 @@ func (w *workerMgr) scan(req ipc.ScanRequest, timeout time.Duration) (*ipc.Worke
 	r, err := w.request(ipc.WorkerMsg{Type: ipc.MsgScan, Scan: &req}, timeout)
 	var le *loadError
 	if errors.As(err, &le) {
-		return nil, fmt.Errorf("%w: %s", errScanFailed, le.reason)
+		return nil, fmt.Errorf("%w: %w", errScanFailed, le)
 	}
 	if err != nil {
 		return nil, err

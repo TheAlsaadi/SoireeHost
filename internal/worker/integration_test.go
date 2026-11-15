@@ -320,7 +320,8 @@ func checkSecurityHeaders(t *testing.T, what string, hdr http.Header) {
 // app's own stricter header kept, per-site overrides applied.
 func TestSecurityHeaders(t *testing.T) {
 	h := startHarness(t, func(c *config.Config) {
-		c.Sites[2].ResponseHeaders = map[string]string{"Referrer-Policy": "no-referrer", "Content-Security-Policy": ""}
+		c.Sites[2].ResponseHeaders = map[string]string{"Referrer-Policy": "no-referrer"}
+		c.Sites[2].RemoveHeaders = []string{"Content-Security-Policy"}
 	})
 	checkSecurityHeaders(t, "static 200", h.get(t, "blog.example.com", "/").header)
 	checkSecurityHeaders(t, "static 404", h.get(t, "blog.example.com", "/missing.html").header)

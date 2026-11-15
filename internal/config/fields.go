@@ -307,20 +307,128 @@ func DefaultHeaders() map[string]string {
 }
 
 // EffectiveHeaders returns the security headers a site sends: the defaults
-// with the site's overrides applied. Headers overridden with "" are left out.
+// with the site's overrides applied and its removed headers left out.
 func (s Site) EffectiveHeaders() map[string]string {
 	m := DefaultHeaders()
 	for k, v := range s.ResponseHeaders {
-		if _, ok := m[k]; !ok {
+		if _, ok := m[k]; !ok || v == "" {
 			continue
 		}
-		if v == "" {
-			delete(m, k)
-		} else {
-			m[k] = v
-		}
+		m[k] = v
+	}
+	for _, k := range s.RemoveHeaders {
+		delete(m, k)
 	}
 	return m
+}
+
+// headerPurpose says, for each managed header, what a visitor loses without
+// it.
+var headerPurpose = map[string]string{
+	"X-Content-Type-Options":  "stops browsers from guessing file types",
+	"Referrer-Policy":         "keeps the full page address from leaking to other sites",
+	"Content-Security-Policy": "stops other sites from framing this one",
+	"Permissions-Policy":      "keeps the camera, microphone and location off",
+}
+
+// WeakenedHeaders lists, sorted, the managed headers this site does not send
+// or sends with a value recognised as weaker than the default (S-16, SE-28).
+func (s Site) WeakenedHeaders() []string {
+	eff := s.EffectiveHeaders()
+	var out []string
+	for _, k := range ManagedHeaders() {
+		v, ok := eff[k]
+		if !ok || weakValue(k, v) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// weakValue recognises the weaker values of a managed header. It errs on
+// the side of warning: a framing policy it cannot read as at least as strict
+// as the default counts as weaker.
+func weakValue(name, v string) bool {
+	lv := strings.ToLower(strings.TrimSpace(v))
+	switch name {
+	case "X-Content-Type-Options":
+		return lv != "nosniff"
+	case "Referrer-Policy":
+		for _, p := range strings.Split(lv, ",") {
+			switch strings.TrimSpace(p) {
+			case "unsafe-url", "no-referrer-when-downgrade", "origin-when-cross-origin":
+				return true
+			}
+		}
+		return false
+	case "Content-Security-Policy":
+		for _, d := range strings.Split(lv, ";") {
+			f := strings.Fields(d)
+			if len(f) == 0 || f[0] != "frame-ancestors" {
+				continue
+			}
+			if len(f) == 1 {
+				return true
+			}
+			for _, src := range f[1:] {
+				if src != "'none'" && src != "'self'" {
+					return true
+				}
+			}
+			return false
+		}
+		return true // no frame-ancestors: any site may frame this one
+	}
+	return false // Permissions-Policy: which features to allow is the user's choice
+}
+
+// headerWarnings has one sentence per weakened header of s.
+func headerWarnings(s Site) []string {
+	var w []string
+	eff := s.EffectiveHeaders()
+	for _, k := range s.WeakenedHeaders() {
+		if _, sent := eff[k]; !sent {
+			w = append(w, fmt.Sprintf("Site %q does not send %s, which %s.", s.ID, k, headerPurpose[k]))
+		} else {
+			w = append(w, fmt.Sprintf("Site %q sends a weaker %s than the default, which %s.", s.ID, k, headerPurpose[k]))
+		}
+	}
+	return w
+}
+
+// optInWarnings names the per-site opt-ins that publish more than the
+// default (S-12): folder listings and the /.well-known/ folder.
+func optInWarnings(s Site) []string {
+	var w []string
+	if s.Type == TypeStatic && s.Static != nil && s.Static.DirectoryListing {
+		w = append(w, fmt.Sprintf("Site %q lists the files in any folder that has no index page.", s.ID))
+	}
+	if s.AllowWellKnown {
+		w = append(w, fmt.Sprintf("Site %q serves its /.well-known/ folder.", s.ID))
+	}
+	return w
+}
+
+// HeaderWeakenings lists, for each site of next, the headers it weakens that
+// the same site in cur did not (a new site counts against the defaults).
+func HeaderWeakenings(cur, next Config) map[string][]string {
+	before := map[string][]string{}
+	for _, s := range cur.Sites {
+		before[s.ID] = s.WeakenedHeaders()
+	}
+	out := map[string][]string{}
+	for _, s := range next.Sites {
+		var added []string
+		for _, h := range s.WeakenedHeaders() {
+			if !slices.Contains(before[s.ID], h) {
+				added = append(added, h)
+			}
+		}
+		if len(added) > 0 {
+			out[s.ID] = added
+		}
+	}
+	return out
 }
 
 func validHeaderValue(v string) error {

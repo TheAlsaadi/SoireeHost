@@ -140,6 +140,8 @@ type Supervisor struct {
 
 	tmu    sync.Mutex // guards tstate
 	tstate tunnelState
+
+	conf *confirmations // open confirmation tokens (S-32, SE-27)
 }
 
 // New checks the folders (S-22), opens the stores and verifies the audit log.
@@ -178,7 +180,7 @@ func New(opts Options) (*Supervisor, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Supervisor{opts: opts, store: store, secrets: sec, audit: al, auditRep: rep, users: users, started: time.Now()}
+	s := &Supervisor{opts: opts, store: store, secrets: sec, audit: al, auditRep: rep, users: users, started: time.Now(), conf: newConfirmations(nil)}
 	s.web = newWorkerMgr(s, ipc.RoleWeb, winsec.WebService, opts.Identity.Web)
 	s.tunnel = newWorkerMgr(s, ipc.RoleTunnel, winsec.TunnelService, opts.Identity.Tunnel)
 	return s, nil

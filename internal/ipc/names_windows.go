@@ -110,11 +110,20 @@ func dialFileWait(ctx context.Context, file, wantOwner string) (net.Conn, error)
 }
 
 // DialControlFile connects to the supervisor's control pipe, whose name it
-// reads from the control pipe-name file.
+// reads from the control pipe-name file. The client reads the file again
+// whenever it reconnects, because the supervisor picks a new name at every
+// start.
 func DialControlFile(ctx context.Context, file, supervisorSID string) (*Client, error) {
-	conn, err := DialFile(ctx, file, supervisorSID)
-	if err != nil {
+	c := ControlFileClient(file, supervisorSID)
+	if err := c.connect(ctx); err != nil {
 		return nil, err
 	}
-	return &Client{conn: conn}, nil
+	return c, nil
+}
+
+// ControlFileClient returns a client that dials the control pipe named in
+// file only when it first needs to, so the control panel can start before
+// the supervisor and connect once it is up.
+func ControlFileClient(file, supervisorSID string) *Client {
+	return NewClient(func(ctx context.Context) (net.Conn, error) { return DialFile(ctx, file, supervisorSID) })
 }

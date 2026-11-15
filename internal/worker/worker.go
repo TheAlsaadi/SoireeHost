@@ -49,6 +49,9 @@ func Load(cfg config.Config, opts Options) error {
 // exit when it sees one (review finding R-05).
 var ErrSelfCheck = errors.New("listener self-check (S-01)")
 
+// ErrStart marks a config Caddy could not start with.
+var ErrStart = errors.New("starting web server")
+
 // LoadJSON runs a Caddy JSON config and then checks that this process listens
 // on nothing but 127.0.0.1 and ::1 (S-01). If the check fails, Caddy is
 // stopped and an error wrapping ErrSelfCheck is returned; the caller must
@@ -60,7 +63,7 @@ func LoadJSON(j []byte) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if err := caddy.Load(j, true); err != nil {
-		return fmt.Errorf("starting web server: %w", err)
+		return fmt.Errorf("%w: %w", ErrStart, err)
 	}
 	if err := CheckOwnListeners(); err != nil {
 		stopErr := caddy.Stop()

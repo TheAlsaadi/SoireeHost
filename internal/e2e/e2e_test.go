@@ -33,6 +33,7 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/setup"
+	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 	"github.com/TheAlsaadi/SoireeHost/internal/supervisor"
 	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
@@ -269,7 +270,7 @@ func TestServesThroughInstalledServices(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("E2E-STATIC"), 0o644); err != nil { //nolint:gosec // G306: a published page
 		t.Fatal(err)
 	}
-	if err := winsec.GrantSiteAccess(root, winsec.ServiceSID(winsec.WebService), winsec.ServiceSID(winsec.SupervisorService)); err != nil {
+	if _, err := winsec.GrantSiteAccess(root, winsec.ServiceSID(winsec.WebService), winsec.ServiceSID(winsec.SupervisorService), checkRoot(t)); err != nil {
 		t.Fatal(err)
 	}
 	static := config.Site{ID: "files", Name: "Files", Enabled: true, Hostnames: []string{"files.e2e.example"},
@@ -486,7 +487,10 @@ func TestTunnelTokenCanary(t *testing.T) {
 	err := call(t, c, ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok}, nil)
 	var e *ipc.Error
 	if errors.As(err, &e) && e.Code == ipc.CodeConfirmationRequired {
-		err = call(t, c, ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok, Confirm: true}, nil)
+		if e.Confirmation == nil {
+			t.Fatal("confirmation_required without a token")
+		}
+		err = call(t, c, ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok, Confirmation: e.Confirmation.Token}, nil)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -678,4 +682,15 @@ func backupRead(path string) ([]byte, error) {
 	f := os.NewFile(uintptr(h), path)
 	defer func() { _ = f.Close() }()
 	return io.ReadAll(f)
+}
+
+// checkRoot is the S-11 check the control panel runs before it grants a
+// folder to the web worker (SE-07).
+func checkRoot(t *testing.T) func(string) (string, error) {
+	t.Helper()
+	loc, err := sitecheck.DefaultLocations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(p string) (string, error) { return sitecheck.CheckRoot(p, loc) }
 }
