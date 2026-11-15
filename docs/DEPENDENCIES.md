@@ -2,7 +2,7 @@
 
 Every dependency needs a reason, a pinned version, a licence check and a `govulncheck` or `npm audit` pass (plan section 1 rule 5, S-70, S-75). Update this file in the same change that adds or upgrades a dependency.
 
-Last reviewed: 12 Nov 2026 (Phase 1).
+Last reviewed: 15 Nov 2026 (OpenTelemetry v1.47.0 upgrade).
 
 ## Linked into soireehost.exe (Go)
 
@@ -22,6 +22,10 @@ Linked in with Caddy (Phase 1): 150 Go modules in all, counted from `go version 
 Upgraded in Phase 1 above what Caddy selects, to clear `govulncheck` findings: `github.com/klauspost/compress` v1.20.1 to v1.20.4 (GO-2026-6865, a panic reachable from both the Wails updater path and Caddy; fixed in v1.20.2), `golang.org/x/net` to v0.62.0 (GO-2026-6866, GO-2026-6860, not reachable), `golang.org/x/crypto` to v0.59.0 (GO-2026-5932, not reachable). Also moved to the newest releases: `golang.org/x/sync` v0.25.0, `golang.org/x/term` v0.48.0, `golang.org/x/text` v0.44.0.
 
 `govulncheck ./...` (v1.9.0, 12 Nov 2026): no vulnerabilities found.
+
+Upgraded on 15 Nov 2026 above what Caddy selects, to clear GHSA-q7gw-24fr-5p69 (Medium: `AttributeValueLengthLimit` fully bypassed by attribute values of valid U+FFFD runes; published 13 Nov 2026, fixed in v1.47.0). It affects `go.opentelemetry.io/otel/sdk`, `otel/sdk/log` and `otel/trace` v1.46.0 / v0.22.0, which Caddy's `caddyhttp` pulls in for tracing. `govulncheck` never reported it reachable, because SoiréeHost never configures tracing; the Phase 4 supply-chain audit (pull request 11) had recorded it as an accepted finding until this upgrade. All OpenTelemetry Go modules from the same upstream release move together so they stay consistent: the v1 modules (`otel`, `metric`, `trace`, `sdk`, `sdk/metric` and the OTLP and stdout metric and trace exporters) from v1.46.0 to v1.47.0, `otel/log` and `otel/sdk/log` from v0.22.0 to v1.47.0 (both now stable), the log exporters from v0.22.0 to v0.23.0, and `otel/exporters/prometheus` from v0.68.0 to v0.69.0. Minimal version selection also raised `github.com/prometheus/common` v0.71.0 to v0.72.0 and `google.golang.org/genproto/googleapis/api` and `rpc` to the 28 Sep 2026 pseudo-version. All are Apache-2.0, unchanged. `go.opentelemetry.io/contrib` stays at v0.71.0: nothing requires its newer release, and v0.71.0 has no advisory.
+
+`govulncheck -tags no_fs_access ./...` (v1.9.0, Go 1.27.4, 15 Nov 2026, database updated 11 Nov 2026): no vulnerabilities found. That database predates the advisory, so the fix was also checked against its OSV ranges: every affected module is now at the fixed v1.47.0. `go mod verify`, `go vet`, `go test`, golangci-lint, staticcheck and gosec pass.
 
 ## Embedded executable
 
