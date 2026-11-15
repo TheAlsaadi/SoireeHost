@@ -1,6 +1,6 @@
 # ADR-0008: Web application firewall, firewall event log and exposure check
 
-**Status:** Proposed
+**Status:** Accepted by the owner on 15 Nov 2026
 **Date:** 15 Nov 2026
 **Deciders:** Owner
 
@@ -255,7 +255,7 @@ Left in the backlog because this phase does not change that code:
 
 ## Action items
 
-1. [ ] Owner: accept or amend this record.
+1. [x] Owner: accept or amend this record. Accepted 15 Nov 2026.
 2. [x] Build it, with the firewall attack and normal request sets from `docs/TEST_PLAN.md` (`waf` `TestAttackSetBlocked`, `TestNormalSetPasses`; `worker` `TestFirewallInChain`), fuzz targets for every new parser (`FuzzParseLine`, `FuzzClean`, `FuzzURI`, `FuzzStripForwarded`; `FuzzDecodeWorkerMsg` and `FuzzDecodeRequest` gained the new messages), and the memory measurements.
 3. [x] CI: `GOFLAGS` with `no_fs_access`, the `check-crs` step, the firewall checks in the isolation job.
 4. [x] Record S-14 (and the S-18, S-21, S-31, S-32 additions) in `docs/SECURITY_CHECKLIST.md` with test names and run numbers. (pull request 11, run 43704274901)
