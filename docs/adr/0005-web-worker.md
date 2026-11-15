@@ -74,5 +74,5 @@ The two extensions above the plan's lists came from the pre-commit code review o
 
 1. [x] Owner: accept or amend this record. Accepted 12 Nov 2026.
 2. [x] Owner: decide whether `/.well-known/` stays blocked. Decided 12 Nov 2026: per-site opt-in, off by default.
-3. [ ] Phase 2: the supervisor runs `sitecheck.CheckRoot` before saving a site and stores the canonical path; the worker receives the Caddy JSON over its pipe.
+3. [x] Phase 2: the supervisor runs `sitecheck.CheckRoot` before saving a site and stores the canonical path; the worker receives the Caddy JSON over its pipe. Done in Phase 2 (ADR-0006, pull request 2).
 4. [ ] Phase 4: Coraza joins the handler chain after the guard.

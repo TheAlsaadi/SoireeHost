@@ -517,7 +517,7 @@ Audience, source, UI framework, Windows version, signing route, domain and a zer
 | UI framework | Svelte or React | Decided: Svelte | Phase 0 |
 | Windows versions | Windows 11 and Server 2022 or newer; Windows 10; ARM64 | Decided: Windows 11 on x64. Other versions are untested and unsupported | Phase 0 |
 | Domain | Use a domain on Cloudflare, or quick share only | Do not buy one. Use quick share, or a domain the owner already has. After 1.0, evaluate Tailscale Funnel as a second tunnel option: it offers a stable ts.net address on its free personal plan (check current terms) | Phase 3 |
-| Firewall default | Block from day one, or Detect only for a site's first week | Block from day one | Phase 4 |
+| Firewall default | Block from day one, or Detect only for a site's first week | Decided 15 Nov 2026: block from day one. Every new site starts in Block mode at paranoia level 1 (S-14); a site can be switched to Detect only or Off by hand, and Off shows a standing warning | Phase 4 |
 | Serving `/.well-known/` | Always blocked as a dotfile path; always allowed; allowed per site | Decided 12 Nov 2026: per site, off by default (`allow_well_known`) | Phase 1 |
 | Languages | English only, or more in version 1 | English first; the UI rules in section 7 keep other languages and right-to-left possible | Phase 5 |
 | Signing identity | Individual or organisation, and country | Ship unsigned with checksums first; apply to SignPath Foundation after the first release (section 11) | Phase 6 |
