@@ -3,6 +3,8 @@
 package sitecheck
 
 import (
+	"errors"
+	"net/url"
 	"path"
 	"strings"
 	"unicode/utf8"
@@ -94,16 +96,55 @@ func (ru Rules) exempt(i int, seg string) bool {
 	return ru.AllowWellKnown && i == 0 && seg == WellKnown
 }
 
+// Path is a request path in the two forms the rules compare: decoded, the
+// percent-decoded path the server and the app act on (r.URL.Path), and raw,
+// the path as sent on the wire (the request target before '?'). It is built
+// only by ParseTarget or NamePath, so both forms always come from the same
+// request and cannot be swapped by a caller (SE-25). The zero Path is
+// refused.
+type Path struct{ decoded, raw string }
+
+// errNotOriginForm is returned for a request target that does not start
+// with '/'.
+var errNotOriginForm = errors.New("request target is not in origin form")
+
+// ParseTarget builds the Path of an origin-form request target as sent on
+// the wire (r.RequestURI). It decodes the target as net/http does, so
+// Decoded equals the r.URL.Path Go's server set for that target.
+func ParseTarget(target string) (Path, error) {
+	if !strings.HasPrefix(target, "/") {
+		return Path{}, errNotOriginForm
+	}
+	u, err := url.ParseRequestURI(target)
+	if err != nil {
+		return Path{}, err
+	}
+	raw, _, _ := strings.Cut(target, "?")
+	return Path{decoded: u.Path, raw: raw}, nil
+}
+
+// NamePath builds the Path a browser sends for rel, a '/'-separated name
+// relative to a site root: every segment percent-encoded.
+func NamePath(rel string) Path {
+	segs := strings.Split(rel, "/")
+	for i, seg := range segs {
+		segs[i] = url.PathEscape(seg)
+	}
+	return Path{decoded: "/" + rel, raw: "/" + strings.Join(segs, "/")}
+}
+
+// Decoded returns the percent-decoded path.
+func (p Path) Decoded() string { return p.decoded }
+
 // CheckStatic applies the default rules for a static site.
-func CheckStatic(decoded, raw string) Verdict { return Rules{}.Static(decoded, raw) }
+func CheckStatic(p Path) Verdict { return Rules{}.Static(p) }
 
 // CheckProxy applies the default rules for a proxied app.
-func CheckProxy(decoded, raw string) Verdict { return Rules{}.Proxy(decoded, raw) }
+func CheckProxy(p Path) Verdict { return Rules{}.Proxy(p) }
 
-// Static applies every rule for a static site. decoded is the
-// percent-decoded request path (r.URL.Path); raw is the path as sent on the
-// wire, before decoding (the part of the request target before '?').
-func (ru Rules) Static(decoded, raw string) Verdict {
+// Static applies every rule for a static site.
+func (ru Rules) Static(p Path) Verdict {
+	decoded, raw := p.decoded, p.raw
 	if v := checkCommon(decoded, raw); v != Allow {
 		return v
 	}
@@ -146,8 +187,9 @@ func (ru Rules) Static(decoded, raw string) Verdict {
 // the file system, which strips trailing dots and spaces, resolves ::$DATA and
 // expands 8.3 short names, so the never-serve check looks at each segment the
 // way Windows would open it.
-func (ru Rules) Proxy(decoded, raw string) Verdict {
-	if v := checkCommon(decoded, raw); v != Allow {
+func (ru Rules) Proxy(p Path) Verdict {
+	decoded := p.decoded
+	if v := checkCommon(decoded, p.raw); v != Allow {
 		return v
 	}
 	for i, seg := range strings.Split(decoded[1:], "/") {
@@ -184,7 +226,7 @@ func looksLikeShortName(seg string) bool {
 // CheckName reports whether a single file name may be served from a static
 // site; it is used to filter directory listings.
 func CheckName(name string) bool {
-	return CheckStatic("/"+name, "/"+name) == Allow
+	return CheckStatic(NamePath(name)) == Allow
 }
 
 func checkCommon(decoded, raw string) Verdict {

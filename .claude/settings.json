@@ -29,6 +29,7 @@
     "testing-handbook-skills@trailofbits": true,
     "cc-skills-golang@samber": true,
     "wails@go-skills": true,
-    "go-release@go-skills": true
+    "go-release@go-skills": true,
+    "frontend-design@claude-plugins-official": true
   }
 }

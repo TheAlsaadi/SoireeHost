@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -158,12 +157,7 @@ func (s *scanner) walk(dir string, depth int) {
 // servable reports whether a request for rel would pass the static path
 // rules, as the browser would send it (each segment percent-encoded).
 func (s *scanner) servable(rel string) bool {
-	segs := strings.Split(rel, "/")
-	enc := make([]string, len(segs))
-	for i, seg := range segs {
-		enc[i] = url.PathEscape(seg)
-	}
-	return s.rules.Static("/"+rel, "/"+strings.Join(enc, "/")) == Allow
+	return s.rules.Static(NamePath(rel)) == Allow
 }
 
 // keyMarkers are byte strings that start a private key or a password store.

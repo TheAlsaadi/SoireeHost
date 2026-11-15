@@ -135,14 +135,22 @@ func (g Guard) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 	if strings.Contains(raw, "#") {
 		return caddyhttp.Error(http.StatusBadRequest, errors.New("raw '#' in the request target"))
 	}
-	raw, _, _ = strings.Cut(raw, "?")
+	// SE-25: both forms of the path come from the target as sent, and the
+	// decoded one must be the path the handlers after this one act on
+	p, err := sitecheck.ParseTarget(raw)
+	if err != nil {
+		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("request target does not parse: %w", err))
+	}
+	if p.Decoded() != r.URL.Path {
+		return caddyhttp.Error(http.StatusBadRequest, errors.New("request path differs from what its target decodes to"))
+	}
 	rules := sitecheck.Rules{AllowWellKnown: g.AllowWellKnown}
 	var v sitecheck.Verdict
 	switch g.Mode {
 	case "static":
-		v = rules.Static(r.URL.Path, raw)
+		v = rules.Static(p)
 	case "proxy":
-		v = rules.Proxy(r.URL.Path, raw)
+		v = rules.Proxy(p)
 	default:
 		// Provision refuses other modes; refuse here too (SE-26)
 		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("unknown guard mode %q", g.Mode))
