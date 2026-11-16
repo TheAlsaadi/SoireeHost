@@ -82,3 +82,4 @@ A change that touches one of these updates it in the same pull request:
 - [TEST_PLAN.md](TEST_PLAN.md): which kind of test proves what, and where it runs.
 - [DEPENDENCIES.md](DEPENDENCIES.md): every dependency with its version, licence and reason.
 - [adr/](adr/): a new record, or a dated note on an existing one, when a design decision changes.
+- [HISTORY.md](HISTORY.md): a section per phase (pull requests, CI runs, owner decisions). The Status section of `CLAUDE.md` stays short: done, next, open.

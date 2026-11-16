@@ -72,7 +72,7 @@ Read the reference that matches the task:
 5. Before committing: the pre-merge code review (`code-review` at `high`) and the end-of-phase security review (`security-review`, or a security-focused subagent), and fix what they find, including findings just under their reporting bar when they are real.
 6. Commit on a branch, never on `main` directly for a phase. No AI attribution of any kind in commits or pull requests. Open the pull request with the GitHub CLI at `C:\Program Files\GitHub CLI\gh.exe` (signed in as the owner), then bind it in the app and offer Auto-fix.
 7. Read CI failures with `gh run view <id> --log` or `--log-failed`; the isolation job prints the services' event-log entries on failure.
-8. When CI is green, record it: `docs/SECURITY_CHECKLIST.md` rows (test names and run number), the phase checkboxes in `docs/PLAN.md`, `docs/TEST_PLAN.md`, the status in `CLAUDE.md`, and the ADR status once the owner accepts it.
+8. When CI is green, record it: `docs/SECURITY_CHECKLIST.md` rows (test names and run number), the phase checkboxes in `docs/PLAN.md`, `docs/TEST_PLAN.md`, the phase's section in `docs/HISTORY.md` (pull requests, runs, owner decisions), the short status in `CLAUDE.md` (done, next, open; no history there), and the ADR status once the owner accepts it.
 9. **Before pushing anything after the pull request was opened, check whether it has been merged** (`gh pr view N --json state`). A commit pushed to an already-merged branch never reaches `main`; it then has to be cherry-picked and the branch looks unmerged on GitHub.
 10. Report, then wait. The next phase starts only when the owner says so.
 
