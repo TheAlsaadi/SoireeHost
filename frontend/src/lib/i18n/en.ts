@@ -111,9 +111,6 @@ export const en = {
   "site.removeTitle": "Remove {name}?",
   "site.removeBody": "SoiréeHost stops serving it and forgets its settings. The folder or app itself is not touched.",
   "site.removeKeep": "Keep site",
-  "site.exposureTitle": "Files checked before going live",
-  "site.exposureNone": "No risky files found.",
-  "site.exposureBlocked": "{path} (never served)",
 
   "form.addTitle": "Add site",
   "form.editTitle": "Edit {name}",
