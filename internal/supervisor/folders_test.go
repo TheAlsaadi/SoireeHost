@@ -39,7 +39,6 @@ func installFolders(t *testing.T, sid string, tweak func(i int, f *Folder) bool)
 	}
 	// children first, so no parent's entries are in force yet
 	for _, f := range slices.Backward(folders) {
-
 		if skip[f.Path] {
 			continue
 		}
