@@ -2,6 +2,8 @@
 
 Every dependency needs a reason, a pinned version, a licence check and a `govulncheck` or `npm audit` pass (plan section 1 rule 5, S-70, S-75). Update this file in the same change that adds or upgrades a dependency.
 
+Dependabot proposes weekly version updates for Go modules, npm packages and GitHub Actions (`.github/dependabot.yml`), and security updates as they appear. Its pull requests do not touch this file: after merging one, bring the versions here up to date. The vendored Core Rule Set and the embedded cloudflared are outside it (S-65).
+
 Last reviewed: 16 Nov 2026 (quality review: every direct Go module is at its newest release; ESLint raised to 10.15.0 on the owner's word; TypeScript 7 is held back, below).
 
 ## Linked into soireehost.exe (Go)

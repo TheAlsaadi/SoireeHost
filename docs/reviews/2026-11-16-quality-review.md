@@ -88,7 +88,7 @@ This is **proposed**: enabling them changes the lint gate, so the owner decides.
 | # | Severity | Finding | Outcome |
 | --- | --- | --- | --- |
 | QR-23 | Low | No CI job had a timeout, so a hung job would run for GitHub's six-hour default | **Fixed**: each job's limit is about three times its recent run time (Go 30, frontend 15, build 30, secrets 10, Semgrep 15, isolation 90, nightly fuzz 300, CodeQL 45 minutes) |
-| QR-24 | Low | `CONTRIBUTING.md` says pull requests stay open "so the project's own update automation can propose dependency updates". Only Dependabot security updates are on (`REPO_SETUP.md`); there is no `.github/dependabot.yml` for version updates | **Deferred** (owner, 16 Nov 2026): add `dependabot.yml` (`github-actions`, `gomod`, `npm`, weekly, grouped, free) later. Dependabot alerts and security updates were off in the settings too; the owner turned them on the same day (QR-32) |
+| QR-24 | Low | `CONTRIBUTING.md` says pull requests stay open "so the project's own update automation can propose dependency updates". Only Dependabot security updates are on (`REPO_SETUP.md`); there is no `.github/dependabot.yml` for version updates | **Fixed** (owner, 16 Nov 2026): `.github/dependabot.yml` for `github-actions`, `gomod` and `npm`: weekly, minor and patch grouped, a 7-day cooldown, TypeScript majors ignored. Free. Dependabot alerts and security updates were off in the settings too; the owner turned them on the same day (QR-32) |
 | QR-25 | Low | Dependencies: every direct Go module is at its newest release. npm has ESLint 10.15.0 (10.14.0 pinned) and TypeScript 7 (held at 6.0.x on purpose, `DEPENDENCIES.md`) | **Fixed** (owner, 16 Nov 2026): ESLint 10.15.0. `npm audit` shows only the recorded low `deepmerge` advisory, as before |
 | QR-26 | Low | CI was otherwise in good order: actions pinned by SHA, a read-only token, `persist-credentials: false`, tool versions pinned in one `env` block, the bindings checked against the Go code | No action |
 
@@ -121,9 +121,7 @@ This is **proposed**: enabling them changes the lint gate, so the owner decides.
 
 ## Waiting on the owner
 
-Decided on 16 Nov 2026 (see each finding): QR-04, QR-15, QR-19, QR-25, QR-31 and QR-32 done, the five linters enabled, QR-24 deferred. Still open:
-
-1. QR-24: Dependabot version updates, later. Dependabot alerts and security updates are on since 16 Nov 2026.
+Decided on 16 Nov 2026 (see each finding): QR-04, QR-15, QR-19, QR-24, QR-25, QR-31 and QR-32 done, and the five linters enabled. Nothing is left open.
 
 **For Phase 6.**
 

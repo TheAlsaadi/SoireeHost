@@ -86,5 +86,5 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
   - remove the unused exposure-report message keys;
   - accept ADR-0001 and ADR-0003;
   - remove the leftover worktrees and merged branches;
-  - add Dependabot version updates later, not now;
+  - Dependabot version updates: first deferred, then added the same day (`.github/dependabot.yml`);
   - the owner brought the GitHub settings back in line with `docs/REPO_SETUP.md`; read back and ticked the same day.

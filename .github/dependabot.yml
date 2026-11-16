@@ -1,0 +1,52 @@
+# Weekly version-update pull requests (QR-24, owner's decision of 16 Nov 2026).
+# Security updates are a separate repository setting (docs/REPO_SETUP.md) and
+# are not delayed by the cooldown below.
+#
+# Nothing merges on its own: CI runs on each pull request and the owner
+# reviews and merges it (S-65, S-70). Dependabot only moves dependencies that
+# are already here; a new one still needs its reason in DEPENDENCIES.md (S-75).
+#
+# Not covered: the vendored Core Rule Set and the embedded cloudflared, which
+# are not Go modules (build/crs.lock, Phase 6 upstream watcher, S-65).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # A week's wait before a new release is proposed, so a bad or hijacked
+    # release has time to be noticed and pulled first
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    groups:
+      # Minor and patch releases in one pull request; a major one gets its own
+      go-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    ignore:
+      # TypeScript stays on 6.0.x until svelte-check and typescript-eslint
+      # support 7 (DEPENDENCIES.md)
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
