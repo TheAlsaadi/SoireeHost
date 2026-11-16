@@ -34,7 +34,7 @@ A Windows app that turns a PC into a web host reachable through Cloudflare Tunne
 Go is installed per user at `%LOCALAPPDATA%\Programs\go`; tools are in `%USERPROFILE%\go\bin`.
 
 - Full build (bindings, frontend checks, frontend build, Go binary): `powershell -File build\build.ps1 [-Version 1.2.3] [-Dev] [-SkipChecks]` → `bin\soireehost.exe`
-- Go checks, with `GOFLAGS=-mod=readonly -tags=no_fs_access` set (a command with its own `-tags` must list `no_fs_access` too): `go vet ./...`, `go test ./...`, `golangci-lint run ./...`, `staticcheck -tags no_fs_access ./...`, `gosec -quiet -tags no_fs_access -exclude-dir=.semgrep ./...`, `govulncheck -tags no_fs_access ./...`
+- Go checks, with `GOFLAGS=-mod=readonly -tags=no_fs_access` set (a command with its own `-tags` must list `no_fs_access` too): `go vet ./...`, `go test ./...`, `golangci-lint run ./...` (and `golangci-lint run --build-tags no_fs_access,e2e ./internal/e2e/...`), `staticcheck -tags no_fs_access ./...`, `gosec -quiet -tags no_fs_access -exclude-dir=.semgrep ./...`, `govulncheck -tags no_fs_access ./...`
 - Vendored Core Rule Set against its signed release: `powershell -File build\check-crs.ps1` (`-Update` to move to the release in `build/crs.lock`)
 - Race tests need cgo and a C compiler; they run in CI only.
 - Frontend (in `frontend/`): `npm ci --ignore-scripts`, `npm run check`, `npm run lint`, `npm test`, `npm run build`

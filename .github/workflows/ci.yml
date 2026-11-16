@@ -78,6 +78,13 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
+      - name: golangci-lint (installed-system tests)
+        # internal/e2e builds only with the e2e tag; --build-tags replaces the
+        # config's list, so no_fs_access is named again (ADR-0008)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --build-tags no_fs_access,e2e ./internal/e2e/...
       - name: staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@${{ env.STATICCHECK_VERSION }} -tags no_fs_access ./...
       - name: gosec
