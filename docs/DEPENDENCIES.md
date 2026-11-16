@@ -2,7 +2,7 @@
 
 Every dependency needs a reason, a pinned version, a licence check and a `govulncheck` or `npm audit` pass (plan section 1 rule 5, S-70, S-75). Update this file in the same change that adds or upgrades a dependency.
 
-Last reviewed: 16 Nov 2026 (quality review: every direct Go module is at its newest release; npm has ESLint 10.15.0 available and TypeScript 7, held back below).
+Last reviewed: 16 Nov 2026 (quality review: every direct Go module is at its newest release; ESLint raised to 10.15.0 on the owner's word; TypeScript 7 is held back, below).
 
 ## Linked into soireehost.exe (Go)
 
@@ -85,7 +85,7 @@ Also vendored as data: 26 icons of Fluent System Icons (Microsoft, MIT), path da
 
 ## Build and test tools only (not shipped)
 
-Pinned exactly in `frontend/package.json` and `frontend/package-lock.json`: Vite 8.3.8, `@sveltejs/vite-plugin-svelte` 7.3.1, TypeScript 6.0.3, `svelte-check` 4.7.8, ESLint 10.14.0, `eslint-plugin-svelte` 3.24.1, `typescript-eslint` 8.72.2, Vitest 5.1.0, `globals` 17.14.0, `@eslint/js` 10.0.1. Licences across the lockfile: MIT, Apache-2.0, ISC, BSD-2/3-Clause, 0BSD, BlueOak-1.0.0 and MPL-2.0 (Vite's CSS tooling). None of these is shipped.
+Pinned exactly in `frontend/package.json` and `frontend/package-lock.json`: Vite 8.3.8, `@sveltejs/vite-plugin-svelte` 7.3.1, TypeScript 6.0.3, `svelte-check` 4.7.8, ESLint 10.15.0, `eslint-plugin-svelte` 3.24.1, `typescript-eslint` 8.72.2, Vitest 5.1.0, `globals` 17.14.0, `@eslint/js` 10.0.1. Licences across the lockfile: MIT, Apache-2.0, ISC, BSD-2/3-Clause, 0BSD, BlueOak-1.0.0 and MPL-2.0 (Vite's CSS tooling). None of these is shipped.
 
 Added in Phase 5 (16 Nov 2026): `happy-dom` 21.0.4 (MIT), a DOM for the Vitest component tests, including the Phase 5 acceptance check that attacker text shows as text in Activity. Chosen over `jsdom` 31.0.1 for its smaller tree (7 direct dependencies against 18); both had no known advisory and publish with provenance (`supply-chain-risk-auditor` 2.0.4). Development only, never in the bundle. `npm audit`: no new finding.
 

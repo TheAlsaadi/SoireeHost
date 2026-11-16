@@ -16,7 +16,7 @@ import (
 // for a while.
 func TestControlPanelOpensNoPort(t *testing.T) {
 	waitAllRunning(t)
-	cmd := exec.Command(layout(t).Exe(), "gui", "--tray") // #nosec G204 -- the installed program, fixed arguments
+	cmd := exec.CommandContext(t.Context(), layout(t).Exe(), "gui", "--tray") // #nosec G204 -- the installed program, fixed arguments
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

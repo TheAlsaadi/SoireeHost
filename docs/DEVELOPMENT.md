@@ -30,7 +30,7 @@ To work on the control panel without the service, run `npm run dev:fake` in `fro
 | What | Command |
 | --- | --- |
 | Go tests | `go test ./...` (race tests need cgo and run in CI only) |
-| Go static analysis | `go vet ./...`, `golangci-lint run ./...`, `staticcheck -tags no_fs_access ./...`, `gosec -quiet -tags no_fs_access -exclude-dir=.semgrep ./...` |
+| Go static analysis | `go vet ./...`, `golangci-lint run ./...`, `golangci-lint run --build-tags no_fs_access,e2e ./internal/e2e/...`, `staticcheck -tags no_fs_access ./...`, `gosec -quiet -tags no_fs_access -exclude-dir=.semgrep ./...` |
 | Known vulnerabilities | `govulncheck -tags no_fs_access ./...`; `npm audit` in `frontend/` |
 | Frontend | in `frontend/`: `npm ci --ignore-scripts`, `npm run check`, `npm run lint`, `npm test` |
 | Fuzzing | `powershell -File build\fuzz.ps1 -Duration 30s` (every target, one after another) |
@@ -82,3 +82,4 @@ A change that touches one of these updates it in the same pull request:
 - [TEST_PLAN.md](TEST_PLAN.md): which kind of test proves what, and where it runs.
 - [DEPENDENCIES.md](DEPENDENCIES.md): every dependency with its version, licence and reason.
 - [adr/](adr/): a new record, or a dated note on an existing one, when a design decision changes.
+- [HISTORY.md](HISTORY.md): a section per phase (pull requests, CI runs, owner decisions). The Status section of `CLAUDE.md` stays short: done, next, open.

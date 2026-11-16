@@ -210,7 +210,7 @@ func (f Firewall) process(tx types.Transaction, r *http.Request) (*types.Interru
 		if err != nil {
 			return nil, nil, err
 		}
-		if multipartTextOver(buffered, boundary, TextInspectBytes) {
+		if multipartTextOver(buffered, boundary) {
 			if block {
 				return tooMuchText(), textLimitHit(), nil
 			}

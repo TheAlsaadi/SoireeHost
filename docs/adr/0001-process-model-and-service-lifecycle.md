@@ -1,6 +1,6 @@
 # ADR-0001: Process model and service lifecycle
 
-**Status:** Proposed
+**Status:** Accepted by the owner on 16 Nov 2026
 **Date:** 12 Nov 2026
 **Deciders:** Owner
 

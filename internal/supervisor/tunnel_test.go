@@ -37,7 +37,7 @@ func (h *harness) status() ipc.StatusResult {
 
 // S-50: only a Cloudflare Tunnel token is stored.
 func TestSecretSetRefusesNonTunnelToken(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	for _, v := range []string{"1234567890abcdef1234567890abcdef12345", "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-Ab", canary, ""} {
 		var e *ipc.Error
 		err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: v}, nil)
@@ -57,7 +57,7 @@ func TestSecretSetRefusesNonTunnelToken(t *testing.T) {
 // GO-6: two first sets at the same time are serialised, so exactly one
 // skips confirmation, and the tunnel ends on the token that was stored.
 func TestConcurrentTokenSets(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	for round := range 5 {
 		h.svc.plansMu.Lock()
 		h.svc.plans = nil
@@ -127,7 +127,7 @@ func TestTunnelReasonNeverEchoed(t *testing.T) {
 // hostname cloudflared was given, the share's port serves that hostname,
 // and only that one (S-06); the link is labelled temporary (S-51).
 func TestQuickShareFlow(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	root := testutil.SiteDir(t)
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("SHARED-PAGE"), 0o600); err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func TestQuickShareFlow(t *testing.T) {
 }
 
 func TestQuickShareRefusals(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	var e *ipc.Error
 	if err := h.call(ipc.MethodQuickShareStart, ipc.QuickShareParams{SiteID: "nope"}, nil); !errors.As(err, &e) || e.Code != ipc.CodeNotFound {
 		t.Fatalf("unknown site: %v", err)
@@ -240,7 +240,7 @@ func TestQuickShareRefusals(t *testing.T) {
 
 // The offline switch: no tunnel runs, and it is audited both ways.
 func TestOfflineSwitch(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: canaryToken(t, 4)}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestOfflineSwitch(t *testing.T) {
 
 // S-23: a refused cloudflared shows as Repair needed, in plain words.
 func TestRepairNeededInStatus(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	h.report(ipc.TunnelReport{Tunnels: []ipc.TunnelState{{Kind: ipc.TunnelKindToken, State: ipc.TunnelRefused, Problems: []string{ipc.ProblemBinaryMismatch}}}})
 	deadline := time.Now().Add(10 * time.Second)
 	for {

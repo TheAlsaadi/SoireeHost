@@ -18,11 +18,11 @@ func multipartBoundary(contentType string) (string, bool) {
 	return b, b != ""
 }
 
-// multipartTextOver reports whether a multipart body holds more than limit
-// bytes in parts that are not files. A body that cannot be parsed counts as
-// over the limit, so its text cannot slip past by confusing the count: the
-// firewall's own parser may still read it as fields.
-func multipartTextOver(body io.Reader, boundary string, limit int64) bool {
+// multipartTextOver reports whether a multipart body holds more than
+// TextInspectBytes in parts that are not files. A body that cannot be parsed
+// counts as over the limit, so its text cannot slip past by confusing the
+// count: the firewall's own parser may still read it as fields.
+func multipartTextOver(body io.Reader, boundary string) bool {
 	mr := multipart.NewReader(body, boundary)
 	var text int64
 	for {
@@ -37,10 +37,10 @@ func multipartTextOver(body io.Reader, boundary string, limit int64) bool {
 			_ = p.Close()
 			continue
 		}
-		n, err := io.Copy(io.Discard, io.LimitReader(p, limit-text+1))
+		n, err := io.Copy(io.Discard, io.LimitReader(p, TextInspectBytes-text+1))
 		_ = p.Close()
 		text += n
-		if text > limit {
+		if text > TextInspectBytes {
 			return true
 		}
 		if err != nil {

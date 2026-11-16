@@ -1,6 +1,6 @@
 # ADR-0003: UI shell is Wails v3 with Svelte 5
 
-**Status:** Proposed (framework choice already decided by the owner: Svelte)
+**Status:** Accepted by the owner on 16 Nov 2026 (the framework, Svelte, was decided by the owner earlier)
 **Date:** 12 Nov 2026
 **Deciders:** Owner
 

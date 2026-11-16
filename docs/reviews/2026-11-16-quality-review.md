@@ -38,8 +38,8 @@ Coverage per package, baseline → after: `logread` 0% → 86.5%, `fsutil` 0% �
 | QR-01 | Medium | There was no developer guide. Two package maps existed: plan section 4 (missing 11 of the 22 packages) and the conventions skill (missing 10). A newcomer could not find the build or the layout from the README | **Fixed**: `docs/DEVELOPMENT.md` covers the tools, build, checks, full package map and the records to keep. The README links to it; plan section 4 points to it; the skill's table lists every package |
 | QR-02 | Low | `internal/ipc` imports `accesslog`, `audit` and `fwevent` for their entry types. The protocol package therefore depends on the log readers, and the control panel links that code | **Kept**: the types belong to the packages that produce and validate them. `ipc` only assembles the contract, and moving the types would split each validator from its type. No cycle, and nothing outside the supervisor calls the readers |
 | QR-03 | Low | `internal/supervisor` imports `internal/worker` | **Kept**: it uses only `BuildCaddyJSON` and `Scan` (config building), never Caddy at run time; tests use the rest |
-| QR-04 | Low | ADR-0001 and ADR-0003 still say "Proposed", although Phases 1 to 5 are built on them | **Proposed**: the owner accepts them, or says what is still open. ADR-0004 (updates) stays Proposed until Phase 6 |
-| QR-15 | Low | Two leftover worktrees in `.claude/worktrees/` (`fix-firewall-memory-flake`, `deps-otel-1.47`) and several local branches, all for merged pull requests | **Proposed**: remove them; this needs the owner's word |
+| QR-04 | Low | ADR-0001 and ADR-0003 still say "Proposed", although Phases 1 to 5 are built on them | **Fixed** (owner, 16 Nov 2026): both accepted. ADR-0004 (updates) stays Proposed until Phase 6 |
+| QR-15 | Low | Two leftover worktrees in `.claude/worktrees/` (`fix-firewall-memory-flake`, `deps-otel-1.47`) and several local branches, all for merged pull requests | **Fixed** (owner, 16 Nov 2026): both worktrees and the 16 local branches merged into `main` removed. Two empty folders remain under `.claude/worktrees/` while another process holds them open |
 
 ### Go code
 
@@ -58,7 +58,7 @@ The lint probe enabled 26 extra linters for one run, without changing `.golangci
 | QR-13 | Low | `procGetExtendedTcpTable` and `procGetExtendedUdpTable` do not follow Go's initialism style | **Kept**: they mirror the Windows API names, which helps anyone checking them against Microsoft's documentation |
 | QR-14 | Low | `os.MkdirTemp` in `testutil.SiteDir` and one sitecheck test, where `t.TempDir` would be usual | **Kept**: deliberate. `t.TempDir` is under `AppData`, which S-11 refuses to publish (conventions skill rule 11) |
 
-**Linters to keep these rules from now on.** Proposed for `.golangci.yml`, all free and already inside golangci-lint v2.15.0:
+**Linters to keep these rules from now on.** Enabled in `.golangci.yml` on the owner's word (16 Nov 2026), with the test findings below fixed and modernize's `stringsbuilder` check off for the SDDL builders (QR-09). They were proposed, all free and already inside golangci-lint v2.15.0:
 
 - `modernize` and `intrange`: no findings left.
 - `revive` with `exported`, `package-comments` and `redefines-builtin-id`: no findings left except QR-13, which would take one `//nolint` with its reason.
@@ -72,7 +72,7 @@ This is **proposed**: enabling them changes the lint gate, so the owner decides.
 | --- | --- | --- | --- |
 | QR-16 | Low | When the service did not answer, a failed action showed "Something went wrong" instead of the catalogue's purpose-written "SoiréeHost's service is not answering…" sentence. `toApiError` falls back to code `unavailable` with no message, and the callers used only the generic fallback. The sentence was in the catalogue, unused | **Fixed**: `errorText` in `lib/errors.ts`, used by the toasts, the first run and the site form, with a test |
 | QR-18 | Low | Six message keys nothing used (`common.save`, `common.copy`, `common.loading`, `common.tryAgain`, `common.warnings`, `site.permanent.hostnames`) | **Fixed**: removed |
-| QR-19 | Low | Three keys for an exposure-check section (`site.exposureTitle`, `site.exposureNone`, `site.exposureBlocked`) are unused. The supervisor returns the exposure report in every `site.put` and `site.set_enabled` result (ADR-0008), but the control panel shows only the warnings that come with it | **Proposed**: show the report in the site's detail pane after a change, or remove the keys. The warnings already say what was found; the report adds the list of never-served files |
+| QR-19 | Low | Three keys for an exposure-check section (`site.exposureTitle`, `site.exposureNone`, `site.exposureBlocked`) are unused. The supervisor returns the exposure report in every `site.put` and `site.set_enabled` result (ADR-0008), but the control panel shows only the warnings that come with it | **Fixed** (owner, 16 Nov 2026): the three keys are removed. Showing the report, with its list of never-served files, can come in a later phase |
 | QR-20 | Low | Four selection and blocked-row bars used a literal `3px`, and the dialog backdrop a literal colour | **Fixed**: `--marker-width` and `--scrim` tokens. The other pixel values are 1–2 px optical adjustments and the QR code's fixed black on white |
 
 ### Tests
@@ -88,8 +88,8 @@ This is **proposed**: enabling them changes the lint gate, so the owner decides.
 | # | Severity | Finding | Outcome |
 | --- | --- | --- | --- |
 | QR-23 | Low | No CI job had a timeout, so a hung job would run for GitHub's six-hour default | **Fixed**: each job's limit is about three times its recent run time (Go 30, frontend 15, build 30, secrets 10, Semgrep 15, isolation 90, nightly fuzz 300, CodeQL 45 minutes) |
-| QR-24 | Low | `CONTRIBUTING.md` says pull requests stay open "so the project's own update automation can propose dependency updates". Only Dependabot security updates are on (`REPO_SETUP.md`); there is no `.github/dependabot.yml` for version updates | **Proposed**: add `dependabot.yml` for `github-actions`, `gomod` and `npm`, weekly and grouped (free). Or keep security updates only and leave the wording. Owner's call: it opens pull requests on the repository |
-| QR-25 | Low | Dependencies: every direct Go module is at its newest release. npm has ESLint 10.15.0 (10.14.0 pinned) and TypeScript 7 (held at 6.0.x on purpose, `DEPENDENCIES.md`) | **Proposed**: raise ESLint to 10.15.0, with `npm audit` and the frontend checks, on the owner's word |
+| QR-24 | Low | `CONTRIBUTING.md` says pull requests stay open "so the project's own update automation can propose dependency updates". Only Dependabot security updates are on (`REPO_SETUP.md`); there is no `.github/dependabot.yml` for version updates | **Deferred** (owner, 16 Nov 2026): add `dependabot.yml` (`github-actions`, `gomod`, `npm`, weekly, grouped, free) later. Dependabot alerts and security updates are also off in the settings today (QR-32) |
+| QR-25 | Low | Dependencies: every direct Go module is at its newest release. npm has ESLint 10.15.0 (10.14.0 pinned) and TypeScript 7 (held at 6.0.x on purpose, `DEPENDENCIES.md`) | **Fixed** (owner, 16 Nov 2026): ESLint 10.15.0. `npm audit` shows only the recorded low `deepmerge` advisory, as before |
 | QR-26 | Low | CI was otherwise in good order: actions pinned by SHA, a read-only token, `persist-credentials: false`, tool versions pinned in one `env` block, the bindings checked against the Go code | No action |
 
 ### Documents and records
@@ -100,8 +100,8 @@ This is **proposed**: enabling them changes the lint gate, so the owner decides.
 | QR-28 | Low | Stale record headers: `SECURITY_CHECKLIST.md` "Last updated: 12 Nov 2026, end of Phase 2"; `TEST_PLAN.md` "Current coverage (end of Phase 2)"; `DEPENDENCIES.md` "Pending: supply-chain-risk-auditor not installed", although it ran in Phase 4 | **Fixed** |
 | QR-29 | Low | The S-06 status cell repeated its whole test list instead of the quick share result, a copying slip in the Phase 3 records | **Fixed**: it now reads "quick share part: Pass in CI 14 Nov 2026 (pull request 7, run 43620617955)", the run that recorded every other Phase 3 result |
 | QR-30 | Low | The conventions skill said "What Phases 1 and 2 taught". Its DLL rule described only the call in `main`, not `internal/dllsearch` (R-20), and it had no rule for the control panel's text | **Fixed**: package table, rule 9, and new rules 23 (control panel text) and 24 (QR-05) |
-| QR-31 | Medium | The Status paragraph in `CLAUDE.md` has grown into a 600-word history of every pull request and run number. It loads into every session and is hard to read | **Proposed**: keep a five-line status in `CLAUDE.md` (current phase, what is next, open owner decisions) and move the history to `docs/HISTORY.md`, dated by phase. Change only on the owner's approval |
-| QR-32 | Low | The boxes in `docs/REPO_SETUP.md` are unticked, although `CLAUDE.md` records the owner applied the settings on 12 Nov 2026 | **Proposed**: the owner ticks what was applied. The tag ruleset and repository description are not recorded either way |
+| QR-31 | Medium | The Status paragraph in `CLAUDE.md` has grown into a 600-word history of every pull request and run number. It loads into every session and is hard to read | **Fixed** (owner, 16 Nov 2026): `CLAUDE.md` keeps a short status (done, next, open); the history is in `docs/HISTORY.md`, a section per phase |
+| QR-32 | Low | The boxes in `docs/REPO_SETUP.md` are unticked, although `CLAUDE.md` records the owner applied the settings on 12 Nov 2026 | **Open**, waiting on the owner. A read of the settings through the API on 16 Nov 2026 found: issues on, discussions off, private vulnerability reporting, secret scanning and push protection on, no CodeQL default setup, the actions allow list exact, read-only workflow token, fork runs need approval, the `main` and `v*` rulesets in place. Not as recorded: SHA pinning required **off** (S-72), Dependabot alerts and security updates **off**, Actions may create and approve pull requests **on**, wiki and projects on, automatic deletion of head branches off, and the description and topics differ. The owner changes them in GitHub; then the boxes are ticked after a second read |
 | QR-33 | Low | `THREAT_MODEL.md` is dated 12 Nov 2026 | **Kept**: it already covers quick share, the control panel and the firewall, and records later changes with dates. Plan Phase 7 reviews it in full |
 
 ## Security regression check
@@ -121,14 +121,10 @@ This is **proposed**: enabling them changes the lint gate, so the owner decides.
 
 ## Waiting on the owner
 
-1. QR-31: shorten the `CLAUDE.md` status and move the history to `docs/HISTORY.md`.
-2. The linters proposed under "Go code": `modernize`, `intrange`, `revive` (three rules), `errname`, `unparam`.
-3. QR-24: a `dependabot.yml` for version updates, or keep security updates only.
-4. QR-25: ESLint 10.14.0 to 10.15.0.
-5. QR-19: show the exposure report in the site's detail pane, or remove its three message keys.
-6. QR-04: accept ADR-0001 and ADR-0003.
-7. QR-32: tick the applied settings in `docs/REPO_SETUP.md`.
-8. QR-15: remove the two leftover worktrees and the merged local branches.
+Decided on 16 Nov 2026 (see each finding): QR-04, QR-15, QR-19, QR-25 and QR-31 done, the five linters enabled, QR-24 deferred. Still open:
+
+1. QR-32: the owner brings the GitHub settings in line with `docs/REPO_SETUP.md`; the boxes are then ticked after a second read through the API.
+2. QR-24: Dependabot version updates, later.
 
 **For Phase 6.**
 

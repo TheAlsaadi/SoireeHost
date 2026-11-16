@@ -9,18 +9,34 @@ linters:
   default: standard
   enable:
     - bodyclose
+    - errname
     - errorlint
     - gocritic
     - gosec
+    - intrange
     - misspell
+    - modernize
     - noctx
     - nolintlint
+    - revive
     - unconvert
+    - unparam
     - usestdlibvars
   settings:
     nolintlint:
       require-explanation: true
       require-specific: true
+    modernize:
+      disable:
+        # The SDDL builders keep "+=": easier to check against the access
+        # lists they build (QR-09)
+        - stringsbuilder
+    revive:
+      # Only these rules; revive's defaults overlap staticcheck (QR-10)
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: redefines-builtin-id
 
 formatters:
   enable:
