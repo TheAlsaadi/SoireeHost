@@ -13,6 +13,27 @@ export interface Said {
   params?: Record<string, string | number>;
 }
 
+// The supervisor saves each version with the name of the change that made
+// it; Backups shows these as sentences instead.
+const changeNames: Record<string, MessageKey> = {
+  "site.put": "backups.change.sitePut",
+  "site.remove": "backups.change.siteRemove",
+  "site.set_enabled": "backups.change.siteEnabled",
+  "quickshare.start": "backups.change.quickShareStart",
+  "quickshare.stop": "backups.change.quickShareStop",
+  "tunnel.set_offline": "backups.change.offline",
+  "config.import": "backups.change.import",
+  "Restored the settings before a change the web server refused": "backups.change.autoRestore",
+};
+
+/** A saved version's summary in plain words, or undefined to show it as it is. */
+export function revisionSummary(summary: string): { key: MessageKey; params?: Record<string, string | number> } | undefined {
+  const key = Object.hasOwn(changeNames, summary) ? changeNames[summary] : undefined;
+  if (key) return { key };
+  const n = /^Rolled back to revision (\d+)$/.exec(summary)?.[1];
+  return n ? { key: "backups.change.rollback", params: { n } } : undefined;
+}
+
 function quickTunnel(site: config.Site, st: ipc.StatusResult | undefined): ipc.TunnelView | undefined {
   return st?.tunnel.tunnels.find((t) => t.kind === "quick" && t.site_id === site.id);
 }

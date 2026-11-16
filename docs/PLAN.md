@@ -406,10 +406,10 @@ Build in this order: design tokens and three static screens (Sites with its deta
 Done when:
 
 - [x] The owner approved the static screens before implementation began. (15 Nov 2026: tokens and the Sites, Activity and Security screens in light, dark and contrast, `docs/design/phase5-static`, after the design critique and accessibility pass in its `REVIEW.md`)
-- [ ] Nothing from the banned list in section 7 appears.
-- [ ] The accessibility review passes at AA and the whole app works by keyboard.
-- [ ] A request with script in its path and user agent shows as plain text in Activity.
-- [ ] Tests pass for S-33 to S-35.
+- [x] Nothing from the banned list in section 7 appears. (16 Nov 2026: checked on the static screens in `docs/design/phase5-static/REVIEW.md`, on the built screens through the development fake, and by a sweep of `frontend/src` for gradients, blur, glow, animation and emoji, which found none; merged through pull request 15)
+- [x] The accessibility review passes at AA and the whole app works by keyboard. (16 Nov 2026: the static screens passed the review in `REVIEW.md`; the owner checked the built app with a Windows contrast theme, the Windows text-size setting and the keyboard; a keyboard and accessibility-tree pass over every screen and dialog on the development fake found every control named, a logical tab order with a visible focus ring, arrow keys in the Sites and Activity tables, and modal dialogs that keep focus, close on Esc and return focus. It found one problem, fixed: at 200% text the Sites table cut off the Serving switches. A screen reader (NVDA or Narrator) was not run by a person)
+- [x] A request with script in its path and user agent shows as plain text in Activity. (16 Nov 2026, pull request 15, run 43764597327: `frontend/src/screens/Activity.test.ts` mounts the real Activity screen; the path, user agent and rule message show as literal text and no element, attribute or handler comes from them)
+- [x] Tests pass for S-33 to S-35. (16 Nov 2026, pull request 15, run 43764597327, every job green including the isolation job's `TestControlPanelOpensNoPort`; ADR-0009 accepted by the owner 16 Nov 2026)
 
 ### Phase 6: Setup, signing and updates
 

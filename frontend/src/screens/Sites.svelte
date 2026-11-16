@@ -103,12 +103,12 @@
     <div class="split" class:split-single={!paneOpen || !selected}>
       <div class="list-region">
         <table class="table table-fixed" role="grid" aria-label={t("sites.list")}>
-          <colgroup><col class="col-name" /><col class="col-address" /><col class="col-type" /><col class="col-status" /><col class="col-switch" /></colgroup>
+          <colgroup><col class="col-name" /><col class="col-address" /><col class="col-type cell-type" /><col class="col-status" /><col class="col-switch" /></colgroup>
           <thead>
             <tr>
               <th scope="col">{t("sites.col.name")}</th>
               <th scope="col" class="cell-address">{t("sites.col.address")}</th>
-              <th scope="col">{t("sites.col.type")}</th>
+              <th scope="col" class="cell-type">{t("sites.col.type")}</th>
               <th scope="col">{t("sites.col.status")}</th>
               <th scope="col">{t("sites.col.serving")}</th>
             </tr>
@@ -129,7 +129,7 @@
                 {:else}
                   <td class="secondary cell-address">{t("sites.noAddress")}</td>
                 {/if}
-                <td>{site.type === "static" ? t("site.type.static") : t("site.type.proxy")}</td>
+                <td class="cell-type">{site.type === "static" ? t("site.type.static") : t("site.type.proxy")}</td>
                 <td><StatusMark tone={said.tone} text={t(said.key, said.params)} /></td>
                 <td>
                   <Switch checked={site.enabled} label={t("sites.serve", { name: site.name })} onchange={(on) => setEnabled(site, on)} />

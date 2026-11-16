@@ -1,6 +1,6 @@
 # ADR-0009: Control panel
 
-**Status:** Proposed
+**Status:** Accepted by the owner on 16 Nov 2026
 **Date:** 15 Nov 2026
 **Deciders:** Owner
 
