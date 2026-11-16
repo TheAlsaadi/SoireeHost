@@ -5,7 +5,7 @@ description: Conventions, pitfalls and the working process for the SoiréeHost r
 
 # SoiréeHost conventions
 
-What Phases 1 and 2 taught, so later phases do not relearn it. `CLAUDE.md` and `docs/PLAN.md` are the brief and win over this skill; the decision records in `docs/adr/` explain the design. This file says how to work inside that design without falling into the holes we already found.
+What Phases 1 to 5 taught, so later phases do not relearn it. `docs/DEVELOPMENT.md` has the build, the checks and the full package map. `CLAUDE.md` and `docs/PLAN.md` are the brief and win over this skill; the decision records in `docs/adr/` explain the design. This file says how to work inside that design without falling into the holes we already found.
 
 Read the reference that matches the task:
 
@@ -24,6 +24,12 @@ Read the reference that matches the task:
 | `internal/supervisor` | Service core, control handlers, worker managers | `ServiceControl` interface lets tests run workers in-process |
 | `internal/secrets`, `internal/audit` | DPAPI store, hash-chained audit log | Secret values never appear in errors, logs or audit details |
 | `internal/svcrun` | Running a role as a Windows service; SCM client | Must never import Caddy (see below) |
+| `internal/waf` | Coraza and the vendored Core Rule Set as a Caddy handler | Needs the `no_fs_access` tag (rule 17) |
+| `internal/tunnel` | Tunnel launcher: embedded cloudflared, confined | Never passes cloudflared's text on (rule 15) |
+| `internal/gui` | Control panel: Wails window, tray, UI bindings | Holds no secrets, opens no port; every change goes through `ipc` |
+| `internal/accesslog`, `internal/fwevent`, `internal/logread` | Reading the worker's logs back | The worker may write anything there: decode with limits, validate every line |
+| `internal/redact` | Masking request data before it is logged | No dependencies, shared by every log writer |
+| `internal/dllsearch` | DLL search limited to System32 from a package init | Must stay free of imports other than `syscall` (rule 9) |
 | `internal/setup` | Elevated install and uninstall | Runs only on CI runners or a VM, never on the owner's PC |
 | `internal/e2e` | Tests against an installed system | Build tag `e2e`, CI isolation job only |
 | `internal/testutil` | Test helpers (junctions, publishable site folders) | Imported only from tests |
@@ -38,7 +44,7 @@ Read the reference that matches the task:
 6. **Open append-only files with `CreateFile(FILE_APPEND_DATA | SYNCHRONIZE)`** (see `audit.openAppendOnly`). `os.OpenFile` with `O_APPEND` also asks for write-attributes, write-EA and read-permissions, which an append-only ACE does not grant; the first open of a new file still works, which hides the bug until the second write.
 7. **Pipe clients ask for `winsec.PipeClientAccess` (`0x12008b`), and descriptors grant that, never `GRGW`.** On a pipe, the append bit inside generic write is `FILE_CREATE_PIPE_INSTANCE`, which would let a client stand up a rogue instance of the server's pipe.
 8. **Every pipe client checks the pipe's owner** (`ipc.Dial` with the supervisor's service SID) before sending anything; the server identifies the caller after the first frame (Windows refuses earlier) at Identification level.
-9. **Load DLLs only with `windows.NewLazySystemDLL`.** Every role calls `winsec.RestrictDLLSearch` first thing in `main`; WebView2 works under it.
+9. **Load DLLs only with `windows.NewLazySystemDLL`.** `internal/dllsearch` limits the DLL search to System32 from its `init`, before Wails' own `init` loads `uxtheme.dll` by bare name (R-20), and every role still calls `winsec.RestrictDLLSearch` first thing in `main`; WebView2 works under it.
 10. **Caddy keeps a log file open for the life of the process** once it has written to it, shared across reloads. Tests must use one log folder per test run (cleared in `TestMain`), never `t.TempDir()`, whose cleanup would fail.
 11. **`t.TempDir()` is under `AppData`, which S-11 refuses to publish.** Static site fixtures come from `testutil.SiteDir`.
 12. **Never write a secret where it can be printed.** Types that carry one (`ipc.WorkerMsg`, `ipc.SecretSetParams`) implement `String`/`GoString` that redact it; keep that true for any new one, and keep canary sweeps in tests.
@@ -54,6 +60,8 @@ Read the reference that matches the task:
 20. **Firewall cost is CPU, not memory.** CRS costs about 12 s of CPU per MB of body text, so text over 128 KB is refused in Block mode and inspections are capped at half the cores; measure before raising any firewall limit.
 21. **Key-shaped test fixtures** (PEM blocks) are built from pieces at run time, or gitleaks fails the build.
 22. **Request path checks take one `sitecheck.Path`**, built by `sitecheck.ParseTarget` from the request target as sent or by `sitecheck.NamePath` from a file name under a site root (SE-25). Never build the decoded and raw forms separately; the guard also refuses a request whose `r.URL.Path` is not what its target decodes to.
+23. **Control panel text comes from one place and stays text.** Every string is a key in `frontend/src/lib/i18n/en.ts`; outside text (paths, hostnames, user agents, site names) goes through `VisibleText`; never `{@html}` or `innerHTML` (S-34, enforced by ESLint and Semgrep). Colours, sizes and spacing come from `frontend/src/styles/tokens.css`.
+24. **A test that re-runs its own binary as a confined child passes it `TEMP`** (`winsec` `childTemp`). The child's environment is explicit, and with `go test -cover` a child with no temporary folder fails to create its coverage folder and exits with status 2.
 
 ## How a phase runs
 

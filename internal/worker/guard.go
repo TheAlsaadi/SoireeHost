@@ -10,6 +10,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 )
 
@@ -37,11 +38,16 @@ func (Guard) CaddyModule() caddy.ModuleInfo {
 
 // Provision checks the mode.
 func (g *Guard) Provision(caddy.Context) error {
-	if g.Mode != "static" && g.Mode != "proxy" {
+	if g.Mode != config.TypeStatic && g.Mode != config.TypeProxy {
 		return fmt.Errorf("soireehost_guard: unknown mode %q", g.Mode)
 	}
 	return nil
 }
+
+// clientIPHeader is the one header that names the client (S-05), in its
+// canonical spelling: cloudflared sets it, and Caddy reads it for the client
+// address.
+const clientIPHeader = "Cf-Connecting-Ip"
 
 // isForwardingName reports whether a header name is one a client can use to
 // claim another address or host (S-05). cloudflared on loopback is the only
@@ -72,7 +78,7 @@ func isForwardingName(k string) bool {
 // to build correct links.
 func StripForwarded(h http.Header) {
 	for k := range h {
-		if k == "Cf-Connecting-Ip" || k == "X-Forwarded-Proto" {
+		if k == clientIPHeader || k == "X-Forwarded-Proto" {
 			continue
 		}
 		if isForwardingName(k) {
@@ -147,9 +153,9 @@ func (g Guard) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 	rules := sitecheck.Rules{AllowWellKnown: g.AllowWellKnown}
 	var v sitecheck.Verdict
 	switch g.Mode {
-	case "static":
+	case config.TypeStatic:
 		v = rules.Static(p)
-	case "proxy":
+	case config.TypeProxy:
 		v = rules.Proxy(p)
 	default:
 		// Provision refuses other modes; refuse here too (SE-26)

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"path/filepath"
 	"slices"
@@ -154,7 +155,7 @@ func ValidateHostname(h string) error {
 		if l[0] == '-' || l[len(l)-1] == '-' {
 			return errors.New("a label starts or ends with '-'")
 		}
-		for i := 0; i < len(l); i++ {
+		for i := range len(l) {
 			c := l[i]
 			if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
 				return fmt.Errorf("character %q is not allowed; use lower-case a-z, 0-9 and '-' (xn-- form for other scripts)", rune(c))
@@ -300,9 +301,7 @@ func ManagedHeaders() []string {
 // DefaultHeaders returns a copy of the default security headers.
 func DefaultHeaders() map[string]string {
 	m := make(map[string]string, len(defaultHeaders))
-	for k, v := range defaultHeaders {
-		m[k] = v
-	}
+	maps.Copy(m, defaultHeaders)
 	return m
 }
 
@@ -354,7 +353,7 @@ func weakValue(name, v string) bool {
 	case "X-Content-Type-Options":
 		return lv != "nosniff"
 	case "Referrer-Policy":
-		for _, p := range strings.Split(lv, ",") {
+		for p := range strings.SplitSeq(lv, ",") {
 			switch strings.TrimSpace(p) {
 			case "unsafe-url", "no-referrer-when-downgrade", "origin-when-cross-origin":
 				return true
@@ -362,7 +361,7 @@ func weakValue(name, v string) bool {
 		}
 		return false
 	case "Content-Security-Policy":
-		for _, d := range strings.Split(lv, ";") {
+		for d := range strings.SplitSeq(lv, ";") {
 			f := strings.Fields(d)
 			if len(f) == 0 || f[0] != "frame-ancestors" {
 				continue
@@ -435,7 +434,7 @@ func validHeaderValue(v string) error {
 	if len(v) > maxHeaderValueLen {
 		return fmt.Errorf("longer than %d characters", maxHeaderValueLen)
 	}
-	for i := 0; i < len(v); i++ {
+	for i := range len(v) {
 		if v[i] < 0x20 || v[i] > 0x7e {
 			return errors.New("only printable ASCII is allowed in a header value")
 		}

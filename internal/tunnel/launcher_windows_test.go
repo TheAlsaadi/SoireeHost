@@ -158,7 +158,7 @@ func one(r ipc.TunnelReport) (ipc.TunnelState, bool) {
 	return r.Tunnels[0], true
 }
 
-func plan(t *testing.T) ipc.TunnelPlan {
+func plan() ipc.TunnelPlan {
 	return ipc.TunnelPlan{ListenPort: 8787, MetricsPort: 20241}
 }
 
@@ -166,7 +166,7 @@ func plan(t *testing.T) ipc.TunnelPlan {
 // cloudflared's own output, and its connections; going offline stops it.
 func TestLauncherQuickShare(t *testing.T) {
 	h := start(t, "quick", nil)
-	p := plan(t)
+	p := plan()
 	p.Shares = []ipc.SharePlan{{SiteID: "blog", Port: 8788, MetricsPort: 20242}}
 	if err := h.l.Apply(p); err != nil {
 		t.Fatal(err)
@@ -195,7 +195,7 @@ func TestLauncherQuickShare(t *testing.T) {
 // cloudflared repeats it is scrubbed before it reaches the log.
 func TestLauncherTokenNeverLeaks(t *testing.T) {
 	h := start(t, "token", nil)
-	p := plan(t)
+	p := plan()
 	p.Token = testToken(t)
 	if err := h.l.Apply(p); err != nil {
 		t.Fatal(err)
@@ -225,7 +225,7 @@ func TestLauncherTokenNeverLeaks(t *testing.T) {
 // not match the pin never runs, and the tunnel reports Repair needed.
 func TestLauncherRefusesTamperedBinary(t *testing.T) {
 	h := start(t, "quick", func(o *Options) { o.SHA256 = strings.Repeat("0", 64) })
-	p := plan(t)
+	p := plan()
 	p.Token = testToken(t)
 	if err := h.l.Apply(p); err != nil {
 		t.Fatal(err)
@@ -241,7 +241,7 @@ func TestLauncherRefusesTamperedBinary(t *testing.T) {
 
 func TestLauncherMissingBinary(t *testing.T) {
 	h := start(t, "quick", func(o *Options) { o.Exe = filepath.Join(t.TempDir(), ExeName) })
-	p := plan(t)
+	p := plan()
 	p.Shares = []ipc.SharePlan{{SiteID: "blog", Port: 8788, MetricsPort: 20242}}
 	if err := h.l.Apply(p); err != nil {
 		t.Fatal(err)
@@ -255,7 +255,7 @@ func TestLauncherMissingBinary(t *testing.T) {
 // TestLauncherRestartsAfterExit: a cloudflared that exits is restarted.
 func TestLauncherRestartsAfterExit(t *testing.T) {
 	h := start(t, "exit", nil)
-	p := plan(t)
+	p := plan()
 	p.Shares = []ipc.SharePlan{{SiteID: "blog", Port: 8788, MetricsPort: 20242}}
 	if err := h.l.Apply(p); err != nil {
 		t.Fatal(err)
@@ -273,7 +273,7 @@ func TestLauncherRestartsAfterExit(t *testing.T) {
 // TestLauncherStopsUDP (S-01): a cloudflared with a UDP socket is stopped.
 func TestLauncherStopsUDP(t *testing.T) {
 	h := start(t, "udp", nil)
-	p := plan(t)
+	p := plan()
 	p.Shares = []ipc.SharePlan{{SiteID: "blog", Port: 8788, MetricsPort: 20242}}
 	if err := h.l.Apply(p); err != nil {
 		t.Fatal(err)

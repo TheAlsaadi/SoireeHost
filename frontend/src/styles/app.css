@@ -128,7 +128,7 @@ body {
   position: absolute;
   inset-inline-start: 0;
   inset-block: var(--space-2);
-  inline-size: 3px;
+  inline-size: var(--marker-width);
   border-radius: 2px;
   background: currentColor;
 }
@@ -396,7 +396,7 @@ button.switch {
 }
 
 .table tbody tr[aria-selected="true"] td:first-child {
-  box-shadow: inset 3px 0 0 currentColor;
+  box-shadow: inset var(--marker-width) 0 0 currentColor;
 }
 
 /* In right-to-left the bar moves to the other edge. */
@@ -634,7 +634,7 @@ button.switch {
 }
 
 .log tr.is-blocked td:first-child {
-  box-shadow: inset 3px 0 0 var(--status-danger);
+  box-shadow: inset var(--marker-width) 0 0 var(--status-danger);
 }
 
 [dir="rtl"] .log tr.is-blocked td:first-child {
@@ -810,7 +810,7 @@ button.switch {
   }
 
   .log tr.is-blocked td:first-child {
-    border-inline-start: 3px solid CanvasText;
+    border-inline-start: var(--marker-width) solid CanvasText;
   }
 }
 

@@ -15,6 +15,7 @@ import (
 	"math"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -248,12 +249,12 @@ func Read(dir string, q Query) (Page, error) {
 		}
 		budget -= used
 		page.Skipped += skipped
-		for i := len(entries) - 1; i >= 0; i-- {
+		for _, e := range slices.Backward(entries) {
 			if len(page.Entries) == q.Limit {
 				page.More = true
 				break
 			}
-			page.Entries = append(page.Entries, entries[i])
+			page.Entries = append(page.Entries, e)
 		}
 		if len(page.Entries) == q.Limit {
 			page.More = true

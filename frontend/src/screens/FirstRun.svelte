@@ -5,7 +5,7 @@
   import { t } from "../lib/i18n";
   import { Declined, app, applyConfig, refreshPorts, refreshStatus, toastError, withConfirmation } from "../lib/state.svelte";
   import { idFromName, proxyTarget } from "../lib/status";
-  import { toApiError } from "../lib/errors";
+  import { errorText, toApiError } from "../lib/errors";
 
   // First run reaches a live site in three steps: choose a folder or a
   // port, choose quick share or tunnel, go live (plan section 6).
@@ -67,7 +67,7 @@
     } catch (e) {
       if (e instanceof Declined) return;
       const err = toApiError(e);
-      problem = err.message || t("error.generic");
+      problem = errorText(err, t("error.generic"));
       if (err.workerDetail) problem += " " + t("common.workerSaid") + " " + err.workerDetail;
     } finally {
       busy = false;

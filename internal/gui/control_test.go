@@ -71,10 +71,9 @@ func TestTunnelTokenIsWriteOnly(t *testing.T) {
 		t.Fatal("the params print the token")
 	}
 	// no bound method can read a secret back
-	for i := range reflect.TypeOf(c).NumMethod() {
-		m := reflect.TypeOf(c).Method(i)
-		for j := range m.Type.NumOut() {
-			if out := m.Type.Out(j); out == reflect.TypeOf(ipc.SecretSetParams{}) {
+	for m := range reflect.TypeOf(c).Methods() {
+		for out := range m.Type.Outs() {
+			if out == reflect.TypeFor[ipc.SecretSetParams]() {
 				t.Errorf("%s returns secret params", m.Name)
 			}
 		}

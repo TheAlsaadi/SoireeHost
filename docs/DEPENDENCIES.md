@@ -2,7 +2,7 @@
 
 Every dependency needs a reason, a pinned version, a licence check and a `govulncheck` or `npm audit` pass (plan section 1 rule 5, S-70, S-75). Update this file in the same change that adds or upgrades a dependency.
 
-Last reviewed: 15 Nov 2026 (Phase 4, then the OpenTelemetry v1.47.0 upgrade).
+Last reviewed: 16 Nov 2026 (quality review: every direct Go module is at its newest release; npm has ESLint 10.15.0 available and TypeScript 7, held back below).
 
 ## Linked into soireehost.exe (Go)
 
@@ -119,6 +119,3 @@ CI runs `npm audit --audit-level=moderate`, so this low finding does not fail th
 - `github.com/mholt/caddy-ratelimit`: not adopted (ADR-0005). Its only tag is v0.1.0 from August 2024; the rate limiter is in-house. Revisit if it starts tagging releases.
 - `frontend/node_modules` can contain Go source (for example `flatted`). `go.mod` has `ignore ./frontend/node_modules` so `./...` never compiles it.
 
-## Pending
-
-`supply-chain-risk-auditor` (Trail of Bits) is approved but not installed yet. Run it over the Go and npm dependencies once the owner installs the plugin (docs/SKILLS.md).

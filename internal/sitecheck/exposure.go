@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 )
@@ -224,12 +225,7 @@ func ValidateExposureReport(r ExposureReport) error {
 }
 
 func validKind(k string) bool {
-	for _, x := range ExposureKinds {
-		if k == x {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ExposureKinds, k)
 }
 
 func validFindingPath(p string) error {
@@ -239,7 +235,7 @@ func validFindingPath(p string) error {
 	if strings.HasPrefix(p, "/") || strings.ContainsAny(p, `\:`) {
 		return errors.New("finding path is not relative")
 	}
-	for _, seg := range strings.Split(p, "/") {
+	for seg := range strings.SplitSeq(p, "/") {
 		if seg == "" || seg == "." || seg == ".." {
 			return errors.New("finding path is not clean")
 		}

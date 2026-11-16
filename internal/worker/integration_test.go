@@ -511,7 +511,7 @@ func TestLogRedaction(t *testing.T) {
 		all += string(worker)
 	}
 	if strings.Contains(all, secretMarker) {
-		for _, line := range strings.Split(all, "\n") {
+		for line := range strings.SplitSeq(all, "\n") {
 			if strings.Contains(line, secretMarker) {
 				t.Errorf("secret in log: %s", line)
 			}

@@ -308,8 +308,7 @@ func TestSiteValidation(t *testing.T) {
 			if err == nil {
 				t.Fatal("accepted")
 			}
-			var fe *FieldError
-			if !errors.As(err, &fe) {
+			if _, ok := errors.AsType[*FieldError](err); !ok {
 				t.Fatalf("error has no field path: %v", err)
 			}
 		})

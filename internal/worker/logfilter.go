@@ -25,16 +25,16 @@ const Redacted = redact.Masked
 // out. An allow-list fails closed: a new credential header is never logged by
 // accident.
 var loggedHeaders = map[string]bool{
-	"Accept":           true,
-	"Accept-Encoding":  true,
-	"Accept-Language":  true,
-	"Cf-Connecting-Ip": true,
-	"Cf-Ipcountry":     true,
-	"Cf-Ray":           true,
-	"Content-Length":   true,
-	"Content-Type":     true,
-	"Referer":          true,
-	"User-Agent":       true,
+	"Accept":          true,
+	"Accept-Encoding": true,
+	"Accept-Language": true,
+	clientIPHeader:    true,
+	"Cf-Ipcountry":    true,
+	"Cf-Ray":          true,
+	"Content-Length":  true,
+	"Content-Type":    true,
+	"Referer":         true,
+	"User-Agent":      true,
 }
 
 // HeaderFilter is a Caddy log field filter that keeps only allow-listed

@@ -2,7 +2,7 @@
 
 **Local Hosting Control Center.** Host websites and local apps from a Windows PC, reachable from the internet through Cloudflare Tunnel, without opening any inbound port.
 
-**Status: early development (Phase 0 of 8). Not usable yet.**
+**Status: in development, not ready for use.** Phases 0 to 5 of the [plan](docs/PLAN.md) are built: the web worker, the supervisor, the tunnel, the firewall and the control panel. The installer, signing and updates come next.
 
 - One program, `soireehost.exe`, for Windows 11 x64.
 - Sites are published only through an outbound tunnel; your home IP stays hidden.
@@ -17,7 +17,7 @@ Early releases are **not code-signed**, so Windows SmartScreen will warn when yo
 
 ## Building
 
-See [docs/PLAN.md](docs/PLAN.md) for the design. Build instructions arrive with the first working build.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the tools, the build, the checks and a map of the code, and [docs/PLAN.md](docs/PLAN.md) for the design.
 
 ## Licence
 

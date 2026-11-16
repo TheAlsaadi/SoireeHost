@@ -3,6 +3,8 @@
 // text (S-34); workerDetail is the web server's own words and is always
 // shown apart, labelled as coming from it (DR-6).
 
+import { t } from "./i18n";
+
 export interface Confirmation {
   token: string;
   sentences: string[];
@@ -57,6 +59,15 @@ export function toApiError(e: unknown): ApiError {
     if (got) return got;
   }
   return { code: "unavailable", message: "" };
+}
+
+/**
+ * The sentence to show for an error: the supervisor's own message, else the
+ * catalogue's sentence for a service that does not answer, else fallback.
+ */
+export function errorText(e: ApiError, fallback: string): string {
+  if (e.message) return e.message;
+  return e.code === "unavailable" ? t("error.unavailable") : fallback;
 }
 
 /** Whether the error offers a confirmation for a weakening change (S-32). */

@@ -89,7 +89,7 @@ func TestFirewallInChain(t *testing.T) {
 				continue
 			}
 			checkSecurityHeaders(t, name+" 403", r.header)
-			site := strings.Split(host, ".")[0]
+			site, _, _ := strings.Cut(host, ".")
 			e := waitEvent(t, site, mark)
 			if e.Action != fwevent.ActionBlocked || e.Status != 403 || e.ClientIP != "203.0.113.9" || len(e.Rules) == 0 {
 				t.Errorf("%s on %s: event %+v", name, host, e)

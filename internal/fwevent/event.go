@@ -180,7 +180,7 @@ func (e Event) Validate() error {
 // query, if any, is masked whole. CleanURI(CleanURI(u)) == CleanURI(u).
 func CleanURI(u string) string {
 	var b strings.Builder
-	for i := 0; i < len(u); i++ {
+	for i := range len(u) {
 		c := u[i]
 		if c <= 0x20 || c >= 0x7f {
 			fmt.Fprintf(&b, "%%%02X", c)
@@ -207,7 +207,7 @@ func cleanMethod(m string) string {
 	if m == "" || len(m) > MaxMethodLen {
 		return "OTHER"
 	}
-	for i := 0; i < len(m); i++ {
+	for i := range len(m) {
 		c := m[i]
 		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && (c < '0' || c > '9') && !strings.ContainsRune("!#$%&'*+-.^_`|~", rune(c)) {
 			return "OTHER"
@@ -250,7 +250,7 @@ func validMsg(m string) bool {
 	if m == "" || len(m) > MaxMsgLen {
 		return false
 	}
-	for i := 0; i < len(m); i++ {
+	for i := range len(m) {
 		if m[i] < 0x20 || m[i] >= 0x7f {
 			return false
 		}
@@ -263,7 +263,7 @@ func validWhere(w string) bool {
 	if w == "" || len(w) > maxWhereLen {
 		return false
 	}
-	for i := 0; i < len(w); i++ {
+	for i := range len(w) {
 		c := w[i]
 		if (c < 'A' || c > 'Z') && c != '_' {
 			return false

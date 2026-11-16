@@ -6,7 +6,7 @@
   import { t } from "../lib/i18n";
   import { Declined, app, applyConfig, refreshPorts, refreshStatus, toastDone, toastError, withConfirmation } from "../lib/state.svelte";
   import { idFromName, proxyPort, proxyTarget } from "../lib/status";
-  import { toApiError } from "../lib/errors";
+  import { errorText, toApiError } from "../lib/errors";
 
   let {
     open = $bindable(false),
@@ -106,7 +106,7 @@
     } catch (e) {
       if (e instanceof Declined) return;
       const err = toApiError(e);
-      if (err.code) problem = err.message || t("error.generic");
+      if (err.code) problem = errorText(err, t("error.generic"));
       if (err.workerDetail) problem += " " + t("common.workerSaid") + " " + err.workerDetail;
     } finally {
       busy = false;

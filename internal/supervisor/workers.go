@@ -291,8 +291,7 @@ var errScanFailed = errors.New("the folder could not be checked")
 // scan asks the web worker to run the exposure check on a folder.
 func (w *workerMgr) scan(req ipc.ScanRequest, timeout time.Duration) (*ipc.WorkerMsg, error) {
 	r, err := w.request(ipc.WorkerMsg{Type: ipc.MsgScan, Scan: &req}, timeout)
-	var le *loadError
-	if errors.As(err, &le) {
+	if le, ok := errors.AsType[*loadError](err); ok {
 		return nil, fmt.Errorf("%w: %w", errScanFailed, le)
 	}
 	if err != nil {

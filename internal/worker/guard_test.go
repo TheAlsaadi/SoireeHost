@@ -86,8 +86,7 @@ func TestGuardRefusesTargets(t *testing.T) {
 		}
 		rec := httptest.NewRecorder()
 		err := g.ServeHTTP(rec, r, next)
-		var he caddyhttp.HandlerError
-		if errors.As(err, &he) {
+		if he, ok := errors.AsType[caddyhttp.HandlerError](err); ok {
 			return he.StatusCode
 		}
 		return rec.Code

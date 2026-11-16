@@ -55,7 +55,7 @@ func checkDescriptor(sd *windows.SECURITY_DESCRIPTOR, path string, owners, allow
 	if err != nil || dacl == nil {
 		return fmt.Errorf("%s has no access list, so everyone may write to it", path)
 	}
-	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
+	for i := range uint32(dacl.AceCount) {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &ace); err != nil {
 			return fmt.Errorf("reading access list of %s: %w", path, err)
@@ -214,11 +214,11 @@ func GrantSiteAccess(path, web, supervisor string, check func(string) (string, e
 		return "", err
 	}
 	defer windows.CloseHandle(h) //nolint:errcheck // read-only use after the write
-	real, err := handlePath(h)
+	resolved, err := handlePath(h)
 	if err != nil {
 		return "", err
 	}
-	canon, err := check(real)
+	canon, err := check(resolved)
 	if err != nil {
 		return "", err
 	}
@@ -281,7 +281,7 @@ func hasAllow(dacl *windows.ACL, sid string, mask uint32, flags uint8) bool {
 	if err != nil {
 		return false
 	}
-	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
+	for i := range uint32(dacl.AceCount) {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if windows.GetAce(dacl, i, &ace) != nil {
 			return false
@@ -366,7 +366,7 @@ func GrantsRead(path string, sids ...string) (bool, error) {
 		return true, nil // a NULL DACL grants everything
 	}
 	allowed := false
-	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
+	for i := range uint32(dacl.AceCount) {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &ace); err != nil {
 			return false, err

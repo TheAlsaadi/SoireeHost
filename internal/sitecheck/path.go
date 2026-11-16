@@ -240,7 +240,7 @@ func checkCommon(decoded, raw string) Verdict {
 	if strings.Contains(raw, `\`) || strings.Contains(lowRaw, "%5c") || strings.Contains(lowRaw, "%00") {
 		return BadRequest
 	}
-	for i := 0; i < len(decoded); i++ {
+	for i := range len(decoded) {
 		c := decoded[i]
 		if c < 0x20 || c == 0x7f || c == '\\' {
 			return BadRequest

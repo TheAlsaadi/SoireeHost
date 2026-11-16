@@ -24,7 +24,7 @@ func TestInitRunsBeforeCaddy(t *testing.T) {
 	if err != nil {
 		t.Skipf("go list unavailable: %v", err)
 	}
-	for _, dep := range strings.Fields(string(out)) {
+	for dep := range strings.FieldsSeq(string(out)) {
 		if strings.HasPrefix(dep, caddyPackage) {
 			t.Fatalf("svcrun depends on %s, so Caddy's init could run first", dep)
 		}

@@ -520,7 +520,7 @@ func validID(id string) bool {
 	if id == "" || len(id) > maxIDLen || id[0] == '-' {
 		return false
 	}
-	for i := 0; i < len(id); i++ {
+	for i := range len(id) {
 		c := id[i]
 		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
 			return false

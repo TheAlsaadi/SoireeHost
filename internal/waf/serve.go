@@ -102,8 +102,7 @@ func (f Firewall) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyht
 		return caddyhttp.Error(http.StatusServiceUnavailable, errBusy)
 	}
 	if perr != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(perr, &tooBig) {
+		if _, ok := errors.AsType[*http.MaxBytesError](perr); ok {
 			// the site's own body limit, applied before the firewall
 			return caddyhttp.Error(http.StatusRequestEntityTooLarge, perr)
 		}

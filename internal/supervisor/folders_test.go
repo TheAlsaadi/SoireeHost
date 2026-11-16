@@ -6,6 +6,7 @@ package supervisor
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,8 +38,7 @@ func installFolders(t *testing.T, sid string, tweak func(i int, f *Folder) bool)
 		}
 	}
 	// children first, so no parent's entries are in force yet
-	for i := len(folders) - 1; i >= 0; i-- {
-		f := folders[i]
+	for _, f := range slices.Backward(folders) {
 		if skip[f.Path] {
 			continue
 		}
@@ -53,7 +53,7 @@ func TestFolderCheckAcceptsInstalledTable(t *testing.T) {
 	me, _ := winsec.CurrentCaller()
 	p := installFolders(t, me.SID, nil)
 	id := Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID}
-	if err := checkFolders(p, id, nil); err != nil {
+	if err := checkFolders(p, id); err != nil {
 		t.Fatalf("installed folders refused: %v", err)
 	}
 }
@@ -72,7 +72,7 @@ func TestFolderCheckRefusesWritableFolder(t *testing.T) {
 				}
 				return false
 			})
-			err := checkFolders(p, id, nil)
+			err := checkFolders(p, id)
 			if err == nil || !strings.Contains(err.Error(), "refusing to run") || !strings.Contains(err.Error(), winsec.SIDUsers) {
 				t.Fatalf("%s writable by Users: %v", rel, err)
 			}
@@ -94,7 +94,7 @@ func TestFolderCheckRefusesJunction(t *testing.T) {
 		}
 		return false
 	})
-	if err := checkFolders(p, id, nil); err == nil || !strings.Contains(err.Error(), "not a plain folder") {
+	if err := checkFolders(p, id); err == nil || !strings.Contains(err.Error(), "not a plain folder") {
 		t.Fatalf("junction accepted: %v", err)
 	}
 }
@@ -104,7 +104,7 @@ func TestFolderCheckRefusesMissingFolder(t *testing.T) {
 	me, _ := winsec.CurrentCaller()
 	id := Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID}
 	p := installFolders(t, me.SID, func(_ int, f *Folder) bool { return strings.HasSuffix(f.Path, `\pipe-web`) })
-	if err := checkFolders(p, id, nil); err == nil || !strings.Contains(err.Error(), "run setup again") {
+	if err := checkFolders(p, id); err == nil || !strings.Contains(err.Error(), "run setup again") {
 		t.Fatalf("missing folder accepted: %v", err)
 	}
 }

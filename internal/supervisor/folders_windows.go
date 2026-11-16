@@ -53,8 +53,9 @@ func (p Paths) Folders(id Identity, controlUsers []string) []Folder {
 // R-25). Its owner must be SYSTEM, Administrators or the supervisor (SYSTEM
 // or the supervisor for secrets): setup names Administrators or SYSTEM, and
 // an owner of any other account means someone else created the folder.
-func checkFolders(p Paths, id Identity, controlUsers []string) error {
-	for _, f := range p.Folders(id, controlUsers) {
+// Readers are not checked, so the control pipe's readers do not matter here.
+func checkFolders(p Paths, id Identity) error {
+	for _, f := range p.Folders(id, nil) {
 		name, err := windows.UTF16PtrFromString(f.Path)
 		if err != nil {
 			return err
