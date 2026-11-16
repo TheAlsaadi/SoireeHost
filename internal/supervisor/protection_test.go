@@ -44,7 +44,7 @@ func wantConfirm(t *testing.T, err error, what string) {
 // confirmation and are audited, from site.put, for a new site, and on
 // rollback; Off shows a standing warning.
 func TestFirewallWeakeningNeedsConfirmation(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "OK") }))
 	defer app.Close()
 	site := h.proxySite("app", app.Listener.Addr().String())
@@ -102,7 +102,7 @@ func TestFirewallWeakeningNeedsConfirmation(t *testing.T) {
 func TestExposureCheckBeforeLive(t *testing.T) {
 	// the folder first, so it is removed after the web server let go of it
 	root := filepath.Join(testutil.SiteDir(t), "site")
-	h := start(t, nil)
+	h := start(t)
 	for name, content := range map[string]string{
 		"index.html": "HOME", ".env": "DB_PASSWORD=x", "server.key": "k",
 		"backup/notes.txt": "-----BEGIN RSA " + "PRIVATE KEY-----\nMIIE\n-----END RSA " + "PRIVATE KEY-----\n",
@@ -198,7 +198,7 @@ func TestExposureCheckFailsClosed(t *testing.T) {
 // firewall.events (S-31): typed, validated in the supervisor, and returns
 // the events the web worker wrote, newest first.
 func TestFirewallEventsMethod(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "OK") }))
 	defer app.Close()
 	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("app", app.Listener.Addr().String())}, nil); err != nil {

@@ -63,7 +63,7 @@ func TestWeakeningMethodsTakeConfirmation(t *testing.T) {
 // SE-29: an unknown method is refused before any handler runs, and a caller
 // that is no longer admitted is refused on its next call.
 func TestPolicyRefusesUnknownAndUnadmitted(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	me, err := winsec.CurrentCaller()
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +92,7 @@ func confirmationOf(t *testing.T, err error) *ipc.Confirmation {
 
 // SE-27: a confirmation token works once, for the same call only.
 func TestConfirmationTokenSingleUseAndBound(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	nas := h.proxySite("nas", "192.168.1.20:5000")
 	nas.Proxy.AllowLAN = true
 	other := h.proxySite("nas", "192.168.1.21:5000")
@@ -170,7 +170,7 @@ func TestConfirmationStore(t *testing.T) {
 // SE-28: removing a security header is a weakening change that needs
 // confirmation, and the warning names it.
 func TestRemovingHeaderNeedsConfirmation(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	site := h.proxySite("app", "127.0.0.1:3000")
 	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site}, nil); err != nil {
 		t.Fatal(err)
@@ -224,7 +224,7 @@ func accessLine(t *testing.T, ts time.Time, host, uri, ua string, status int) st
 // firewall rule that fired, and returns attacker text as data (S-34): the
 // script stays a literal string for the control panel to show as text.
 func TestAccessListJoinsFirewallEvents(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	site := h.proxySite("app", "127.0.0.1:3000")
 	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site}, nil); err != nil {
 		t.Fatal(err)
@@ -281,7 +281,7 @@ func TestAccessListJoinsFirewallEvents(t *testing.T) {
 // config.import always needs confirmation (S-32) and brings static sites in
 // switched off, so each folder is checked before it goes live (ADR-0008).
 func TestConfigImport(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	root := testutil.SiteDir(t)
 	cfg := config.Default()
 	cfg.Sites = []config.Site{
@@ -320,7 +320,7 @@ func TestConfigImport(t *testing.T) {
 // SE-28, S-32: going back to a revision that sent fewer security headers
 // needs the same confirmation as removing one (security review, 16 Nov 2026).
 func TestRollbackToWeakerHeadersNeedsConfirmation(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	site := h.proxySite("app", "127.0.0.1:3000")
 	site.RemoveHeaders = []string{"Referrer-Policy"}
 	var weak ipc.ConfigResult

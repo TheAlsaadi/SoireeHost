@@ -447,8 +447,7 @@ func serviceAccess(name string, access uint32) error {
 
 func readDir(path string) error {
 	_, err := os.ReadDir(path)
-	var pe *fs.PathError
-	if errors.As(err, &pe) {
+	if pe, ok := errors.AsType[*fs.PathError](err); ok {
 		return pe.Err
 	}
 	return err

@@ -18,7 +18,7 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 )
 
-func provisionedRootFS(t *testing.T) (*RootFS, string) {
+func provisionedRootFS(t *testing.T) *RootFS {
 	t.Helper()
 	base := testutil.SiteDir(t)
 	root := filepath.Join(base, "site")
@@ -33,11 +33,11 @@ func provisionedRootFS(t *testing.T) (*RootFS, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = rfs.Cleanup() })
-	return rfs, root
+	return rfs
 }
 
 func TestRootFSOpenAndStat(t *testing.T) {
-	rfs, _ := provisionedRootFS(t)
+	rfs := provisionedRootFS(t)
 	for _, name := range []string{"index.html", `dir\a.txt`, "dir/a.txt", "./index.html"} {
 		f, err := rfs.Open(name)
 		if err != nil {
@@ -73,7 +73,7 @@ func TestRootFSOpenAndStat(t *testing.T) {
 }
 
 func TestRootFSListingFiltered(t *testing.T) {
-	rfs, _ := provisionedRootFS(t)
+	rfs := provisionedRootFS(t)
 	f, err := rfs.Open("dir")
 	if err != nil {
 		t.Fatal(err)

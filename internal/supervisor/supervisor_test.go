@@ -204,9 +204,10 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
-func start(t *testing.T, checkRoot func(string) (string, error)) *harness {
+// start starts a supervisor with fake workers and the real root check.
+func start(t *testing.T) *harness {
 	t.Helper()
-	return startWith(t, &fakeServices{}, checkRoot, 20*time.Second)
+	return startWith(t, &fakeServices{}, nil, 20*time.Second)
 }
 
 // startWith starts a supervisor whose workers are svc (its hooks set by the
@@ -398,7 +399,7 @@ func get(t *testing.T, addr, host, path string) (int, string) {
 }
 
 func TestControlFlowServesSites(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "FROM-APP") }))
 	defer app.Close()
 
@@ -465,7 +466,7 @@ func TestControlFlowServesSites(t *testing.T) {
 
 // S-11 through the control API: a blocked folder is refused before saving.
 func TestSitePutRefusesBlockedFolder(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	loc, _ := sitecheck.DefaultLocations()
 	site := config.Site{ID: "win", Name: "Win", Enabled: true, Hostnames: []string{"win.example.com"},
 		Type: config.TypeStatic, Static: &config.Static{Root: loc.Windows}}
@@ -478,7 +479,7 @@ func TestSitePutRefusesBlockedFolder(t *testing.T) {
 // ADR-0006: a folder the web worker may not read is refused before saving,
 // with a message that says how to fix it.
 func TestSitePutRefusesUnreadableFolder(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	h.sup.opts.WorkerCanRead = func(string) (bool, error) { return false, nil }
 	root := testutil.SiteDir(t)
 	site := config.Site{ID: "x", Name: "X", Enabled: true, Hostnames: []string{"x.example.com"},
@@ -495,7 +496,7 @@ func TestSitePutRefusesUnreadableFolder(t *testing.T) {
 
 // S-32: a LAN target needs confirmation and is audited as weakening.
 func TestWeakeningNeedsConfirmation(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	site := h.proxySite("nas", "192.168.1.20:5000")
 	site.Proxy.AllowLAN = true
 	var e *ipc.Error
@@ -566,7 +567,7 @@ func TestRefusedConfigIsRolledBack(t *testing.T) {
 // S-35, S-40, S-32: the tunnel token is write-only, reaches only the tunnel
 // worker, needs confirmation to replace, and never appears in clear on disk.
 func TestTunnelTokenWriteOnly(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	var st ipc.SecretStatusResult
 	tok := canaryToken(t, 1)
 	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok}, &st); err != nil {
@@ -604,7 +605,7 @@ func TestTunnelTokenWriteOnly(t *testing.T) {
 
 // ADR-0001: a dead worker is restarted and brought up to date.
 func TestWorkerRestarted(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "OK") }))
 	defer app.Close()
 	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("app", app.Listener.Addr().String())}, nil); err != nil {
@@ -631,7 +632,7 @@ func TestWorkerRestarted(t *testing.T) {
 
 // Plan Phase 2: stopping the supervisor ends both workers.
 func TestStoppingSupervisorEndsWorkers(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	if !h.svc.running(winsec.WebService) || !h.svc.running(winsec.TunnelService) {
 		t.Fatal("workers not running")
 	}
@@ -695,7 +696,7 @@ func TestReadControlUsers(t *testing.T) {
 // to a revision that forwards to a LAN device the current settings do not
 // needs the same confirmation, and is audited as weakening.
 func TestRollbackToLANNeedsConfirmation(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	site := h.proxySite("nas", "192.168.1.20:5000")
 	site.Proxy.AllowLAN = true
 	var withLAN ipc.ConfigResult
@@ -709,13 +710,13 @@ func TestRollbackToLANNeedsConfirmation(t *testing.T) {
 	if err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: withLAN.Revision}, nil); !errors.As(err, &e) || e.Code != ipc.CodeConfirmationRequired {
 		t.Fatalf("unconfirmed rollback to a LAN target: %v", err)
 	}
-	if _, ids := siteIDs(h); len(ids) != 0 {
+	if ids := siteIDs(h); len(ids) != 0 {
 		t.Fatalf("the unconfirmed rollback was applied: %v", ids)
 	}
 	if err := h.confirmed(ipc.MethodConfigRollback, &ipc.RollbackParams{Revision: withLAN.Revision}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, ids := siteIDs(h); len(ids) != 1 || ids[0] != "nas" {
+	if ids := siteIDs(h); len(ids) != 1 || ids[0] != "nas" {
 		t.Fatalf("confirmed rollback not applied: %v", ids)
 	}
 	var al ipc.AuditListResult

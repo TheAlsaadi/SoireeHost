@@ -29,7 +29,7 @@ import (
 var (
 	wafOnce sync.Once
 	wafs    = map[string]*Firewall{}
-	wafErr  error
+	errWAF  error
 )
 
 // testFirewall returns a handler for mode and level whose events go to the
@@ -41,20 +41,20 @@ func testFirewall(t *testing.T, mode string, level int) (*Firewall, *observer.Ob
 			for l := 1; l <= 4; l++ {
 				d, err := directives(m, l)
 				if err != nil {
-					wafErr = err
+					errWAF = err
 					return
 				}
 				w, err := NewWAF(d)
 				if err != nil {
-					wafErr = fmt.Errorf("%s/%d: %w", m, l, err)
+					errWAF = fmt.Errorf("%s/%d: %w", m, l, err)
 					return
 				}
 				wafs[fmt.Sprintf("%s-%d", m, l)] = &Firewall{Site: "blog", Mode: m, ParanoiaLevel: l, waf: w}
 			}
 		}
 	})
-	if wafErr != nil {
-		t.Fatal(wafErr)
+	if errWAF != nil {
+		t.Fatal(errWAF)
 	}
 	core, logs := observer.New(zapcore.DebugLevel)
 	f := *wafs[fmt.Sprintf("%s-%d", mode, level)]
@@ -344,14 +344,14 @@ func TestInspectionSlots(t *testing.T) {
 
 func TestMultipartTextCount(t *testing.T) {
 	small := multipartBody(t, map[string]string{"a": "short", "b": strings.Repeat("x", 1000)}, map[string]int{"f.bin": 1 << 20})
-	if over := multipartTextOver(strings.NewReader(small.body), boundaryOf(t, small.ct), TextInspectBytes); over {
+	if over := multipartTextOver(strings.NewReader(small.body), boundaryOf(t, small.ct)); over {
 		t.Fatal("small text fields counted as over the limit")
 	}
 	big := multipartBody(t, map[string]string{"a": strings.Repeat("x", int(TextInspectBytes)+1)}, nil)
-	if !multipartTextOver(strings.NewReader(big.body), boundaryOf(t, big.ct), TextInspectBytes) {
+	if !multipartTextOver(strings.NewReader(big.body), boundaryOf(t, big.ct)) {
 		t.Fatal("a large text field was not counted")
 	}
-	if !multipartTextOver(strings.NewReader("--x"+string(rune(13))+string(rune(10))+"not a part"), "x", TextInspectBytes) {
+	if !multipartTextOver(strings.NewReader("--x"+string(rune(13))+string(rune(10))+"not a part"), "x") {
 		t.Fatal("a body that cannot be parsed must count as over the limit")
 	}
 }

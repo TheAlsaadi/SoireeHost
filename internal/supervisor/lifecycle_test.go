@@ -32,8 +32,8 @@ func okApp(t *testing.T) *httptest.Server {
 	return app
 }
 
-// siteIDs returns the current revision and the IDs of its sites.
-func siteIDs(h *harness) (uint64, []string) {
+// siteIDs returns the IDs of the current revision's sites.
+func siteIDs(h *harness) []string {
 	h.t.Helper()
 	var cur ipc.ConfigResult
 	if err := h.call(ipc.MethodConfigGet, ipc.None{}, &cur); err != nil {
@@ -43,7 +43,7 @@ func siteIDs(h *harness) (uint64, []string) {
 	for _, s := range cur.Config.Sites {
 		ids = append(ids, s.ID)
 	}
-	return cur.Revision, ids
+	return ids
 }
 
 // loadsWith makes the web worker run fn on loads whose Caddy config holds
@@ -73,7 +73,7 @@ func TestWorkerCrashOnChangeIsUndone(t *testing.T) {
 	if err == nil {
 		t.Fatal("a change that killed the web worker was reported as applied")
 	}
-	if _, ids := siteIDs(h); slices.Contains(ids, "crash") {
+	if ids := siteIDs(h); slices.Contains(ids, "crash") {
 		t.Fatalf("the change stayed current: %v", ids)
 	}
 	h.waitWorkers(StateRunning)
@@ -103,7 +103,7 @@ func TestWorkerTimeoutOnChangeIsUndone(t *testing.T) {
 	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("slow", app.Listener.Addr().String())}, nil); err == nil {
 		t.Fatal("a change the worker never confirmed was reported as applied")
 	}
-	if _, ids := siteIDs(h); slices.Contains(ids, "slow") {
+	if ids := siteIDs(h); slices.Contains(ids, "slow") {
 		t.Fatalf("the change stayed current: %v", ids)
 	}
 }
@@ -127,7 +127,7 @@ func TestRefusedChangeRestoresWhenLastGoodUnreadable(t *testing.T) {
 	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("refuse", app.Listener.Addr().String())}, nil); err == nil {
 		t.Fatal("refused change reported as applied")
 	}
-	_, ids := siteIDs(h)
+	ids := siteIDs(h)
 	if slices.Contains(ids, "refuse") || !slices.Contains(ids, "app") {
 		t.Fatalf("after the refusal the sites are %v; want the settings before the change", ids)
 	}
@@ -144,7 +144,7 @@ func TestRefusedChangeIsUndone(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("refuse", app.Listener.Addr().String())}, nil)
-	if _, ids := siteIDs(h); slices.Contains(ids, "refuse") || err == nil {
+	if ids := siteIDs(h); slices.Contains(ids, "refuse") || err == nil {
 		t.Fatalf("explicit refusal not restored: %v %v", ids, err)
 	}
 }
@@ -212,7 +212,7 @@ func TestStopIsSentToWorkers(t *testing.T) {
 // R-24 (4): an idle control connection does not hold up the supervisor's
 // exit (it used to wait up to ipc.IdleTimeout, 5 minutes).
 func TestIdleControlConnectionDoesNotStallExit(t *testing.T) {
-	h := start(t, nil)
+	h := start(t)
 	me, _ := winsec.CurrentCaller()
 	dctx, dcancel := context.WithTimeout(t.Context(), 5*time.Second)
 	idle, err := ipc.DialControl(dctx, h.sup.opts.Pipes.Control, me.SID)
