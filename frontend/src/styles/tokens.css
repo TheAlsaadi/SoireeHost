@@ -105,6 +105,8 @@
   --border-width: 1px;
   --focus-width: 2px;
   --focus-offset: 2px;
+  --marker-width: 3px;  /* bar marking the current page, selected row or blocked row */
+  --scrim: rgb(0 0 0 / 30%);  /* behind a modal dialog */
 
   /* ---- Depth: only menus and dialogs ---- */
   --shadow-menu: 0 2px 8px rgb(0 0 0 / 14%), 0 0 1px rgb(0 0 0 / 20%);

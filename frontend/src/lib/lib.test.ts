@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { segments, visibleText } from "./visible";
-import { needsConfirmation, toApiError } from "./errors";
+import { errorText, needsConfirmation, toApiError } from "./errors";
 import { idFromName, proxyPort, siteAddress, siteOnline, siteStatus, statusLine } from "./status";
 import { t } from "./i18n";
 import { en } from "./i18n/en";
@@ -42,6 +42,12 @@ describe("errors", () => {
     expect(toApiError({ cause: '{"code":"invalid","message":"No."}' }).message).toBe("No.");
     expect(toApiError({ cause: { code: "pwned", message: "x" } }).code).toBe("unavailable");
     expect(toApiError(new Error("boom")).code).toBe("unavailable");
+  });
+
+  it("says the service is not answering when nothing better is known", () => {
+    expect(errorText(toApiError(new Error("boom")), "Fallback.")).toBe(en["error.unavailable"]);
+    expect(errorText({ code: "invalid", message: "" }, "Fallback.")).toBe("Fallback.");
+    expect(errorText({ code: "unavailable", message: "Busy." }, "Fallback.")).toBe("Busy.");
   });
 });
 

@@ -4,7 +4,7 @@
 // window is visible, the settings every 10.
 
 import { api, type config, type gui, type ipc } from "./api";
-import { needsConfirmation, toApiError, type ApiError } from "./errors";
+import { errorText, needsConfirmation, toApiError, type ApiError } from "./errors";
 
 export const app = $state({
   status: undefined as ipc.StatusResult | undefined,
@@ -143,7 +143,7 @@ export function toastDone(text: string): void {
 export function toastError(e: unknown, fallback: string): void {
   if (e instanceof Declined) return;
   const err: ApiError = toApiError(e);
-  toasts.push({ id: nextToast++, kind: "error", text: err.message || fallback, detail: err.workerDetail });
+  toasts.push({ id: nextToast++, kind: "error", text: errorText(err, fallback), detail: err.workerDetail });
 }
 
 export function dismissToast(id: number): void {

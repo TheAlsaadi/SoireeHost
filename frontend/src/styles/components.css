@@ -227,7 +227,7 @@ textarea.input-text {
 }
 
 .dialog::backdrop {
-  background: rgb(0 0 0 / 30%);
+  background: var(--scrim);
 }
 
 .dialog-title {
