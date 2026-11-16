@@ -12,7 +12,7 @@ All ticked lines were read back through the GitHub API on 16 Nov 2026 (QR-32 in 
 ## Security (Settings > Advanced Security, or Code security)
 
 - [x] Private vulnerability reporting: **on** (CONTRIBUTING.md points people to it).
-- [x] Dependabot alerts: **on**. Dependabot security updates: **on** (they arrive as pull requests for review).
+- [x] Dependabot alerts: **on**. Dependabot security updates: **on** (they arrive as pull requests for review). Weekly version updates are set in `.github/dependabot.yml`, in the code, not here.
 - [x] Secret scanning: **on**. Push protection: **on**.
 - [x] Code scanning: keep the repository's own `.github/workflows/codeql.yml`. Do **not** enable CodeQL "default setup", which conflicts with it.
 
