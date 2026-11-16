@@ -74,7 +74,7 @@ func TestPlantedDLLNotLoadedBeforeMain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("child failed: %v\n%s", err, out)
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if _, p, ok := strings.Cut(line, "UXTHEME="); ok {
 			p = strings.TrimSpace(p)
 			if !strings.EqualFold(filepath.Dir(p), sys) {

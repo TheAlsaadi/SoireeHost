@@ -91,8 +91,7 @@ func (s *Supervisor) exposureCheck(site config.Site, w *weakenings, detail map[s
 			"The web server is not running, so the folder cannot be checked before it goes live. Try again when it is running, or save the site switched off.")
 	case err != nil:
 		e := ipc.Errorf(ipc.CodeInvalid, "The folder could not be checked before it goes live: %s.", trimReason(err))
-		var le *loadError
-		if errors.As(err, &le) {
+		if le, ok := errors.AsType[*loadError](err); ok {
 			e = le.withDetail(e)
 		}
 		return nil, nil, e

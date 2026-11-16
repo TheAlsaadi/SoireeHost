@@ -45,7 +45,7 @@ func ServiceSID(name string) string {
 	sum := sha1.Sum(buf) // #nosec G401 -- see the import comment
 	var sb strings.Builder
 	sb.WriteString("S-1-5-80")
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		fmt.Fprintf(&sb, "-%d", binary.LittleEndian.Uint32(sum[4*i:]))
 	}
 	return sb.String()

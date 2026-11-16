@@ -48,7 +48,7 @@ func accessLogLines(t *testing.T, h *harness, marker string) []string {
 		t.Fatal(err)
 	}
 	var out []string
-	for _, l := range strings.Split(string(b), "\n") {
+	for l := range strings.SplitSeq(string(b), "\n") {
 		if strings.Contains(l, marker) {
 			out = append(out, l)
 		}

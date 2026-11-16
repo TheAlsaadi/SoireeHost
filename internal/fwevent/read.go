@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/logread"
@@ -102,12 +103,12 @@ func Read(dir string, q Query) (Page, error) {
 		budget -= used
 		page.Skipped += skipped
 		// newest first: this file's events reversed, after the newer files'
-		for i := len(evs) - 1; i >= 0; i-- {
+		for _, ev := range slices.Backward(evs) {
 			if len(page.Events) == q.Limit {
 				page.More = true
 				break
 			}
-			page.Events = append(page.Events, evs[i])
+			page.Events = append(page.Events, ev)
 		}
 		if len(page.Events) == q.Limit {
 			page.More = true

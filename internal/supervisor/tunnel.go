@@ -106,8 +106,7 @@ func (s *Supervisor) withTunnel(res any, e *ipc.Error) (any, *ipc.Error) {
 }
 
 func tunnelErrText(err error) string {
-	var le *loadError
-	if errors.As(err, &le) {
+	if le, ok := errors.AsType[*loadError](err); ok {
 		return le.reason
 	}
 	return tunnelRefusedReason

@@ -104,12 +104,10 @@ func ServeControl(ctx context.Context, ln net.Listener, auth Authorizer, h Handl
 			_ = conn.Close()
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			defer func() { <-slots }()
 			serveConn(ctx, conn, auth, h)
-		}()
+		})
 	}
 }
 

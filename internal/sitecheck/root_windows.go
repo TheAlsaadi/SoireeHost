@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"golang.org/x/sys/windows"
@@ -42,10 +43,8 @@ func (loc Locations) check() error {
 	if loc.Windows == "" || loc.ProgramData == "" || loc.UserProfiles == "" || len(loc.ProgramFiles) == 0 {
 		return errors.New("the blocked system folders are not known, so no folder can be checked")
 	}
-	for _, p := range loc.ProgramFiles {
-		if p == "" {
-			return errors.New("the blocked system folders are not known, so no folder can be checked")
-		}
+	if slices.Contains(loc.ProgramFiles, "") {
+		return errors.New("the blocked system folders are not known, so no folder can be checked")
 	}
 	return nil
 }

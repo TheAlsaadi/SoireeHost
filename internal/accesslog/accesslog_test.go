@@ -2,6 +2,7 @@ package accesslog
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,9 +15,7 @@ import (
 func line(t testing.TB, fields map[string]any) []byte {
 	t.Helper()
 	base := map[string]any{"level": "info", "ts": 1794700000.25, "logger": "http.log.access.access", "msg": "handled request", "status": 200, "size": 5, "duration": 0.004}
-	for k, v := range fields {
-		base[k] = v
-	}
+	maps.Copy(base, fields)
 	b, err := json.Marshal(base)
 	if err != nil {
 		t.Fatal(err)
