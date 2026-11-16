@@ -129,9 +129,9 @@ func TestReadNewestFirstAcrossFiles(t *testing.T) {
 		}
 	}
 	base := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
-	at := func(min int, site string) Event {
+	at := func(mins int, site string) Event {
 		e := sample()
-		e.Time, e.Site = base.Add(time.Duration(min)*time.Minute), site
+		e.Time, e.Site = base.Add(time.Duration(mins)*time.Minute), site
 		return e
 	}
 	write("firewall-2026-11-14T00-00-00.000.log", base.Add(-time.Hour), at(1, "blog"), at(2, "shop"))

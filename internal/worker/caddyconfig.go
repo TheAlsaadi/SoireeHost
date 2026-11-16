@@ -230,7 +230,7 @@ func httpServer(listen string, s config.ServerLimits, routes, errRoutes []any) o
 		// S-05: only cloudflared on loopback talks to the worker, and the
 		// client address it vouches for is CF-Connecting-IP
 		"trusted_proxies":   obj{"source": "static", "ranges": []string{"127.0.0.1/32", "::1/128"}},
-		"client_ip_headers": []string{"Cf-Connecting-Ip"},
+		"client_ip_headers": []string{clientIPHeader},
 		"routes":            routes,
 		"errors":            obj{"routes": errRoutes},
 		"logs":              obj{"default_logger_name": "access"},

@@ -157,7 +157,7 @@ func New(opts Options) (*Supervisor, error) {
 	}
 	if opts.CheckACLs {
 		// the check reads writers only, so the control users do not matter
-		if err := checkFolders(opts.Paths, opts.Identity, nil); err != nil {
+		if err := checkFolders(opts.Paths, opts.Identity); err != nil {
 			return nil, err
 		}
 	}

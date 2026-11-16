@@ -11,7 +11,7 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 )
 
-// ErrAgentExit, wrapped in an error from Load, makes RunAgent report the
+// ErrAgentExit is what Load wraps in its error to make RunAgent report the
 // failure and then return it, so the worker process ends (S-01: a worker
 // whose listener self-check fails must exit).
 var ErrAgentExit = errors.New("the worker must exit")
@@ -67,6 +67,10 @@ func RunAgent(ctx context.Context, o AgentOptions) error {
 	if o.Stop != nil {
 		defer o.Stop()
 	}
+	// ends the goroutine below that closes the pipe, also when the caller's
+	// context never ends
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	dctx, cancel := context.WithTimeout(ctx, o.DialTimeout)
 	var conn net.Conn
 	var err error

@@ -79,13 +79,15 @@ func WorkerServiceSDDL(supervisor string) string {
 // creates a file to reading its permissions, so a file's creator cannot grant
 // itself more.
 
-// ConfigFolderSDDL: SYSTEM and Administrators full, supervisor modify.
+// ConfigFolderSDDL is the config folder: SYSTEM and Administrators full,
+// supervisor modify.
 func ConfigFolderSDDL(supervisor string) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FA;;;%s)(A;OICI;%s;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, SIDAdministrators, fileModify, supervisor, SIDOwnerRights)
 }
 
-// SecretsFolderSDDL: SYSTEM full, supervisor modify, nobody else.
+// SecretsFolderSDDL is the secrets folder: SYSTEM full, supervisor modify,
+// nobody else.
 func SecretsFolderSDDL(supervisor string) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;%s;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, fileModify, supervisor, SIDOwnerRights)
@@ -106,14 +108,15 @@ func AuditFolderSDDL(supervisor string) string {
 		SIDSystem, SIDAdministrators, dirReadAddFile, supervisor, fileReadAppend, supervisor, SIDOwnerRights)
 }
 
-// WorkerLogFolderSDDL: the worker modifies its own log folder; the supervisor
-// and Administrators read it.
+// WorkerLogFolderSDDL is a worker's log folder: the worker modifies it; the
+// supervisor and Administrators read it.
 func WorkerLogFolderSDDL(supervisor, worker string) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FR;;;%s)(A;OICI;FR;;;%s)(A;OICI;%s;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, SIDAdministrators, supervisor, fileModify, worker, SIDOwnerRights)
 }
 
-// UpdatesFolderSDDL: supervisor modify, Administrators read (S-63).
+// UpdatesFolderSDDL is the updates folder: supervisor modify, Administrators
+// read (S-63).
 func UpdatesFolderSDDL(supervisor string) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FR;;;%s)(A;OICI;%s;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, SIDAdministrators, fileModify, supervisor, SIDOwnerRights)
