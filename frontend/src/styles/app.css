@@ -850,6 +850,12 @@ button.switch {
     grid-template-columns: 3.5rem minmax(0, 1fr);
   }
 
+  /* At 200% text the Serving switches must stay in view; the type is in
+     the detail pane. */
+  .cell-type {
+    display: none;
+  }
+
   .rail {
     padding-inline: var(--space-1);
   }

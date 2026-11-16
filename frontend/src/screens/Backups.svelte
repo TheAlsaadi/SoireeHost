@@ -5,7 +5,12 @@
   import { api, type config } from "../lib/api";
   import { t } from "../lib/i18n";
   import { app, applyConfig, refreshStatus, toastDone, toastError, withConfirmation } from "../lib/state.svelte";
-  import { dateTime } from "../lib/status";
+  import { dateTime, revisionSummary } from "../lib/status";
+
+  function summaryOf(r: config.Record): string {
+    const s = revisionSummary(r.summary);
+    return s ? t(s.key, s.params) : r.summary;
+  }
 
   let revisions = $state<config.Record[]>([]);
   let busy = $state(false);
@@ -96,7 +101,7 @@
             <li class="check check-wide">
               <span class="check-name">{t("backups.revision", { n: r.revision })}</span>
               <div>
-                <p class="check-what"><VisibleText text={t("backups.by", { summary: r.summary, date: dateTime(r.saved_at) })} /></p>
+                <p class="check-what"><VisibleText text={t("backups.by", { summary: summaryOf(r), date: dateTime(r.saved_at) })} /></p>
               </div>
               {#if r.revision === app.revision}
                 <span class="secondary">{t("backups.current")}</span>

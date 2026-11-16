@@ -131,7 +131,7 @@ Every Go command needs the `no_fs_access` tag; CI sets it in `GOFLAGS`.
 | Installed system (CI admin runner only) | `internal/e2e` (build tag `e2e`), run by the `isolation` CI job between `setup install` and `setup uninstall --purge`: service configuration, serving through the installed services, a second local user locked out, workers in job objects, token canary in files and command lines, killing and stopping the supervisor ends both workers, ACL drift refused, and nothing left after uninstall |
 | Control panel (S-33, S-34, S-35) | `internal/gui` (CSP and nosniff on every asset response, closed links, write-only tunnel token, typed errors), `frontend` (`Activity.test.ts` acceptance check, `source-rules.test.ts`, `lint-rules.test.ts`, `lib.test.ts`), `scripts/check-bundle.mjs` on every build, and `e2e` `TestControlPanelOpensNoPort` on the isolation job |
 
-Gap: that the window opens and shows the version is still checked by hand; that it owns no TCP or UDP endpoint is automated since Phase 5 (`TestControlPanelOpensNoPort`). The accessibility pass on the real window (contrast theme, NVDA, text size) is a manual check by the owner.
+Gap: that the window opens and shows the version is still checked by hand; that it owns no TCP or UDP endpoint is automated since Phase 5 (`TestControlPanelOpensNoPort`). The accessibility pass on the built app (contrast theme, text size, keyboard) was done by the owner on 16 Nov 2026, with a scripted keyboard and accessibility-tree pass on the development fake; no person has yet run a screen reader over it.
 
 Two kinds of test run only on CI runners, which have admin rights and no desktop:
 

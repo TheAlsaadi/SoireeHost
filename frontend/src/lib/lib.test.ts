@@ -116,6 +116,25 @@ describe("message catalogue", () => {
   });
 });
 
+describe("saved version summaries", () => {
+  it("names each change in plain words and leaves other text as it is", async () => {
+    const { revisionSummary } = await import("./status");
+    const said = (s: string) => {
+      const r = revisionSummary(s);
+      return r ? t(r.key, r.params) : s;
+    };
+    for (const name of ["site.put", "site.remove", "site.set_enabled", "quickshare.start", "quickshare.stop", "tunnel.set_offline", "config.import"]) {
+      expect(said(name), name).not.toMatch(/\.|_/);
+    }
+    expect(said("Rolled back to revision 7")).toBe("Version 7 restored");
+    expect(said("Restored the settings before a change the web server refused")).toBe(
+      "Earlier settings put back after the web server refused a change",
+    );
+    expect(said("toString")).toBe("toString");
+    expect(said("<b>x</b>")).toBe("<b>x</b>");
+  });
+});
+
 describe("proxy target", () => {
   it("forwards to [::1] when the app listens on the IPv6 loopback only", async () => {
     const { proxyTarget } = await import("./status");
