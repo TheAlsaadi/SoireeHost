@@ -129,8 +129,9 @@ Every Go command needs the `no_fs_access` tag; CI sets it in `GOFLAGS`.
 | Control API and pipes (S-30, S-31, S-35) | `internal/ipc`: strict decoding tables, `FuzzDecodeRequest`, `FuzzDecodeWorkerMsg`, real pipes for caller identity, owner check against squatting, exclusive creation |
 | Supervisor (S-22, S-32, S-40, S-41) | `internal/supervisor`: the real supervisor in-process with real pipes and real Caddy (web worker) and a stand-in tunnel worker: control flow, blocked folders, confirmation, rollback of a refused config, token canary, worker restart, workers ending with the supervisor, folder refusal |
 | Installed system (CI admin runner only) | `internal/e2e` (build tag `e2e`), run by the `isolation` CI job between `setup install` and `setup uninstall --purge`: service configuration, serving through the installed services, a second local user locked out, workers in job objects, token canary in files and command lines, killing and stopping the supervisor ends both workers, ACL drift refused, and nothing left after uninstall |
+| Control panel (S-33, S-34, S-35) | `internal/gui` (CSP and nosniff on every asset response, closed links, write-only tunnel token, typed errors), `frontend` (`Activity.test.ts` acceptance check, `source-rules.test.ts`, `lint-rules.test.ts`, `lib.test.ts`), `scripts/check-bundle.mjs` on every build, and `e2e` `TestControlPanelOpensNoPort` on the isolation job |
 
-Gap: the GUI window itself is checked by hand (it opens, shows the version, owns no TCP or UDP endpoint). Automating that waits for Phase 5.
+Gap: that the window opens and shows the version is still checked by hand; that it owns no TCP or UDP endpoint is automated since Phase 5 (`TestControlPanelOpensNoPort`). The accessibility pass on the real window (contrast theme, NVDA, text size) is a manual check by the owner.
 
 Two kinds of test run only on CI runners, which have admin rights and no desktop:
 
