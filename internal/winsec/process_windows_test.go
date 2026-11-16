@@ -26,6 +26,7 @@ func TestStartConfinedChild(t *testing.T) {
 			"SystemRoot=" + os.Getenv("SystemRoot"),
 			"SOIREEHOST_CHILD_HELPER=1",
 			"SOIREEHOST_CHILD_SECRET=CANARY-ENV-ONLY",
+			childTemp(t),
 		},
 		Limits: Limits{MemoryBytes: 256 << 20, ActiveProcesses: 1},
 	})
@@ -66,6 +67,14 @@ func TestStartConfinedChild(t *testing.T) {
 			t.Errorf("missing %q in child output:\n%s", want, all)
 		}
 	}
+}
+
+// childTemp gives a child test binary a temporary folder. Without one a
+// binary built with -cover tries to create its coverage folder under the
+// Windows folder, fails, and exits with status 2.
+func childTemp(t *testing.T) string {
+	t.Helper()
+	return "TEMP=" + t.TempDir()
 }
 
 // TestConfinedChildHelper does something only when started by

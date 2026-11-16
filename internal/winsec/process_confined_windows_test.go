@@ -45,7 +45,7 @@ func TestConfinedLauncherHelper(t *testing.T) {
 	p, err := StartConfined(ProcessSpec{
 		Path:   self,
 		Args:   []string{"-test.run=^TestConfinedChildHelper$", "-test.v"},
-		Env:    []string{"SystemRoot=" + os.Getenv("SystemRoot"), "SOIREEHOST_CHILD_HELPER=1"},
+		Env:    []string{"SystemRoot=" + os.Getenv("SystemRoot"), "SOIREEHOST_CHILD_HELPER=1", childTemp(t)},
 		Limits: Limits{MemoryBytes: 256 << 20, ActiveProcesses: 1},
 	})
 	if err != nil {
