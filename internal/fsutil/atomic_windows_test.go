@@ -15,7 +15,7 @@ func TestWriteAtomic(t *testing.T) {
 		if err := WriteAtomic(path, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
-		got, err := os.ReadFile(path)
+		got, err := os.ReadFile(path) // #nosec G304 -- the test's own temporary file
 		if err != nil {
 			t.Fatal(err)
 		}

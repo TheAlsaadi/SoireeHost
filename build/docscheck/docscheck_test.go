@@ -3,7 +3,6 @@ package docscheck
 import (
 	"io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -35,21 +34,28 @@ var skipDirs = []string{".git", ".claude", "node_modules", "dist", "bin", ".cach
 // TestDocumentedTestsExist fails when a document names a test that no test
 // file defines (CLAUDE.md: every S-ID maps to a test).
 func TestDocumentedTestsExist(t *testing.T) {
+	root, err := os.OpenRoot(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close() //nolint:errcheck // read-only
+	repo := root.FS()
+
 	goTests := map[string]bool{}
 	tsFiles := map[string]bool{}
-	err := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(repo, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			if path != repoRoot && slices.Contains(skipDirs, d.Name()) {
-				return filepath.SkipDir
+			if path != "." && slices.Contains(skipDirs, d.Name()) {
+				return fs.SkipDir
 			}
 			return nil
 		}
 		switch {
 		case strings.HasSuffix(path, "_test.go"):
-			src, err := os.ReadFile(path)
+			src, err := fs.ReadFile(repo, path)
 			if err != nil {
 				return err
 			}
@@ -70,26 +76,25 @@ func TestDocumentedTestsExist(t *testing.T) {
 
 	named := 0
 	for _, pattern := range documents {
-		paths, err := filepath.Glob(filepath.Join(repoRoot, filepath.FromSlash(pattern)))
+		paths, err := fs.Glob(repo, pattern)
 		if err != nil || len(paths) == 0 {
 			t.Fatalf("no document matches %s (%v)", pattern, err)
 		}
 		for _, path := range paths {
-			text, err := os.ReadFile(path)
+			text, err := fs.ReadFile(repo, path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			rel, _ := filepath.Rel(repoRoot, path)
 			for _, m := range docGoTest.FindAllSubmatch(text, -1) {
 				named++
 				if !goTests[string(m[1])] {
-					t.Errorf("%s names %s, which no test file defines", filepath.ToSlash(rel), m[1])
+					t.Errorf("%s names %s, which no test file defines", path, m[1])
 				}
 			}
 			for _, m := range docTSTest.FindAllSubmatch(text, -1) {
 				named++
 				if !tsFiles[string(m[1])] {
-					t.Errorf("%s names %s, which does not exist", filepath.ToSlash(rel), m[1])
+					t.Errorf("%s names %s, which does not exist", path, m[1])
 				}
 			}
 		}
