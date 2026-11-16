@@ -88,7 +88,7 @@ This is **proposed**: enabling them changes the lint gate, so the owner decides.
 | # | Severity | Finding | Outcome |
 | --- | --- | --- | --- |
 | QR-23 | Low | No CI job had a timeout, so a hung job would run for GitHub's six-hour default | **Fixed**: each job's limit is about three times its recent run time (Go 30, frontend 15, build 30, secrets 10, Semgrep 15, isolation 90, nightly fuzz 300, CodeQL 45 minutes) |
-| QR-24 | Low | `CONTRIBUTING.md` says pull requests stay open "so the project's own update automation can propose dependency updates". Only Dependabot security updates are on (`REPO_SETUP.md`); there is no `.github/dependabot.yml` for version updates | **Deferred** (owner, 16 Nov 2026): add `dependabot.yml` (`github-actions`, `gomod`, `npm`, weekly, grouped, free) later. Dependabot alerts and security updates are also off in the settings today (QR-32) |
+| QR-24 | Low | `CONTRIBUTING.md` says pull requests stay open "so the project's own update automation can propose dependency updates". Only Dependabot security updates are on (`REPO_SETUP.md`); there is no `.github/dependabot.yml` for version updates | **Deferred** (owner, 16 Nov 2026): add `dependabot.yml` (`github-actions`, `gomod`, `npm`, weekly, grouped, free) later. Dependabot alerts and security updates were off in the settings too; the owner turned them on the same day (QR-32) |
 | QR-25 | Low | Dependencies: every direct Go module is at its newest release. npm has ESLint 10.15.0 (10.14.0 pinned) and TypeScript 7 (held at 6.0.x on purpose, `DEPENDENCIES.md`) | **Fixed** (owner, 16 Nov 2026): ESLint 10.15.0. `npm audit` shows only the recorded low `deepmerge` advisory, as before |
 | QR-26 | Low | CI was otherwise in good order: actions pinned by SHA, a read-only token, `persist-credentials: false`, tool versions pinned in one `env` block, the bindings checked against the Go code | No action |
 
@@ -101,7 +101,7 @@ This is **proposed**: enabling them changes the lint gate, so the owner decides.
 | QR-29 | Low | The S-06 status cell repeated its whole test list instead of the quick share result, a copying slip in the Phase 3 records | **Fixed**: it now reads "quick share part: Pass in CI 14 Nov 2026 (pull request 7, run 43620617955)", the run that recorded every other Phase 3 result |
 | QR-30 | Low | The conventions skill said "What Phases 1 and 2 taught". Its DLL rule described only the call in `main`, not `internal/dllsearch` (R-20), and it had no rule for the control panel's text | **Fixed**: package table, rule 9, and new rules 23 (control panel text) and 24 (QR-05) |
 | QR-31 | Medium | The Status paragraph in `CLAUDE.md` has grown into a 600-word history of every pull request and run number. It loads into every session and is hard to read | **Fixed** (owner, 16 Nov 2026): `CLAUDE.md` keeps a short status (done, next, open); the history is in `docs/HISTORY.md`, a section per phase |
-| QR-32 | Low | The boxes in `docs/REPO_SETUP.md` are unticked, although `CLAUDE.md` records the owner applied the settings on 12 Nov 2026 | **Open**, waiting on the owner. A read of the settings through the API on 16 Nov 2026 found: issues on, discussions off, private vulnerability reporting, secret scanning and push protection on, no CodeQL default setup, the actions allow list exact, read-only workflow token, fork runs need approval, the `main` and `v*` rulesets in place. Not as recorded: SHA pinning required **off** (S-72), Dependabot alerts and security updates **off**, Actions may create and approve pull requests **on**, wiki and projects on, automatic deletion of head branches off, and the description and topics differ. The owner changes them in GitHub; then the boxes are ticked after a second read |
+| QR-32 | Low | The boxes in `docs/REPO_SETUP.md` are unticked, although `CLAUDE.md` records the owner applied the settings on 12 Nov 2026 | **Fixed** (owner, 16 Nov 2026): the owner changed the settings that differed, a second read through the API found every line as recorded, and the boxes are ticked. The first read of the settings through the API on 16 Nov 2026 found: issues on, discussions off, private vulnerability reporting, secret scanning and push protection on, no CodeQL default setup, the actions allow list exact, read-only workflow token, fork runs need approval, the `main` and `v*` rulesets in place. Not as recorded: SHA pinning required **off** (S-72), Dependabot alerts and security updates **off**, Actions may create and approve pull requests **on**, wiki and projects on, automatic deletion of head branches off, and the description and topics differ. |
 | QR-33 | Low | `THREAT_MODEL.md` is dated 12 Nov 2026 | **Kept**: it already covers quick share, the control panel and the firewall, and records later changes with dates. Plan Phase 7 reviews it in full |
 
 ## Security regression check
@@ -121,10 +121,9 @@ This is **proposed**: enabling them changes the lint gate, so the owner decides.
 
 ## Waiting on the owner
 
-Decided on 16 Nov 2026 (see each finding): QR-04, QR-15, QR-19, QR-25 and QR-31 done, the five linters enabled, QR-24 deferred. Still open:
+Decided on 16 Nov 2026 (see each finding): QR-04, QR-15, QR-19, QR-25, QR-31 and QR-32 done, the five linters enabled, QR-24 deferred. Still open:
 
-1. QR-32: the owner brings the GitHub settings in line with `docs/REPO_SETUP.md`; the boxes are then ticked after a second read through the API.
-2. QR-24: Dependabot version updates, later.
+1. QR-24: Dependabot version updates, later. Dependabot alerts and security updates are on since 16 Nov 2026.
 
 **For Phase 6.**
 

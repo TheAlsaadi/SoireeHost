@@ -48,5 +48,5 @@ Release builds use `-tags production` (developer tools off, dev-server redirect 
 
 - **Done:** Phases 0 to 5 and the quality review after Phase 5 (16 Nov 2026). The history, with pull requests, CI runs and the owner's decisions, is in [docs/HISTORY.md](docs/HISTORY.md); add to it when a phase completes.
 - **Next:** Phase 6 (installer, signing, updates) starts only when the owner says so. ADR-0004 (updates) is the design to settle first.
-- **Open:** tunnel-token mode with a real hostname is not verified (no domain). The GitHub settings in `docs/REPO_SETUP.md` wait for the owner (QR-32). Dependabot version updates are deferred (QR-24).
+- **Open:** tunnel-token mode with a real hostname is not verified (no domain). Dependabot version updates are deferred (QR-24).
 - Vetted plugins are declared in `.claude/settings.json` and load in a new session. See the checklist at the end of each phase in docs/PLAN.md section 9.

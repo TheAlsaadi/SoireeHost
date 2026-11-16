@@ -7,7 +7,7 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
 ## Phase 0: foundations (12 Nov 2026)
 
 - Built and pushed to GitHub on 12 Nov 2026; CI and CodeQL green on Windows runners. CI failures are also published as annotations, readable through the public API without signing in.
-- The owner applied the GitHub repository settings: an Actions allow list with SHA pinning, the security features, and a `main` ruleset. A check on 16 Nov 2026 found some of these no longer match `docs/REPO_SETUP.md`; see QR-32 in `docs/reviews/2026-11-16-quality-review.md`.
+- The owner applied the GitHub repository settings: an Actions allow list with SHA pinning, the security features, and a `main` ruleset. A check on 16 Nov 2026 found some of these no longer matched `docs/REPO_SETUP.md` (SHA pinning and Dependabot among them). The owner fixed them the same day, and a second read found every line as recorded (QR-32).
 - Threat model accepted 12 Nov 2026.
 
 ## Phase 1: web worker (12 Nov 2026)
@@ -87,4 +87,4 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
   - accept ADR-0001 and ADR-0003;
   - remove the leftover worktrees and merged branches;
   - add Dependabot version updates later, not now;
-  - the owner brings the GitHub settings back in line with `docs/REPO_SETUP.md`, then the boxes are ticked.
+  - the owner brought the GitHub settings back in line with `docs/REPO_SETUP.md`; read back and ticked the same day.
