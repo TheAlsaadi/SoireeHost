@@ -42,6 +42,7 @@ jobs:
   go:
     name: Go checks
     runs-on: windows-2025
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -87,6 +88,7 @@ jobs:
   frontend:
     name: Frontend checks
     runs-on: windows-2025
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -112,6 +114,7 @@ jobs:
   build:
     name: Build soireehost.exe
     runs-on: windows-2025
+    timeout-minutes: 30
     needs: [go, frontend]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -138,6 +141,7 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: windows-2025
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -159,6 +163,7 @@ jobs:
     # login, token or cloud platform is used.
     name: Semgrep (project rules)
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -180,6 +185,7 @@ jobs:
     # Phase 2, docs/TEST_PLAN.md "Isolation". Never run on a developer PC.
     name: Isolation (installs services on the runner)
     runs-on: windows-2025
+    timeout-minutes: 90
     needs: [go]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -295,6 +301,7 @@ jobs:
     name: Fuzz (nightly, 10 minutes per target)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
