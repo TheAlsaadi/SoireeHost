@@ -140,6 +140,8 @@ build/                 signing, release and CI scripts
 docs/                  PLAN.md, THREAT_MODEL.md, decision records
 ```
 
+The layout as built has more, smaller packages (the firewall, the log readers, redaction and others; 16 Nov 2026). `docs/DEVELOPMENT.md` keeps the current map.
+
 ## 5. Security
 
 Security here means four things at once: nothing on the PC is reachable from the internet, the code that handles traffic is boxed in, secrets and settings are out of reach of other local programs, and updates cannot be forged. Each requirement below has an ID; every ID must map to a test or a documented manual check before release.

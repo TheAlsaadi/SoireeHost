@@ -110,7 +110,7 @@ Plant canary tokens as the tunnel token and in site config, run the app through 
 
 Every Go command needs the `no_fs_access` tag; CI sets it in `GOFLAGS`.
 
-## Current coverage (end of Phase 2)
+## Current coverage (16 Nov 2026, end of Phase 5)
 
 | Area | Tests |
 | --- | --- |
@@ -120,6 +120,7 @@ Every Go command needs the `no_fs_access` tag; CI sets it in `GOFLAGS`.
 | Version label in UI | `frontend/src/lib/version.test.ts`, including HTML payloads |
 | S-34 lint rules | `frontend/src/lint-rules.test.ts` |
 | S-24 binary flags (ASLR, DEP, high-entropy VA) | `build/pecheck` in CI; unit tests in `build/pecheck/main_test.go` |
+| Records (every S-ID maps to a test) | `build/docscheck` `TestDocumentedTestsExist`: every Go test, fuzz target and frontend test file named in this file, `SECURITY_CHECKLIST.md`, `PLAN.md` or an ADR exists |
 | Config schema and validation (S-01, S-03, S-06, S-10) | `internal/config`: table tests with hostile values, strict decoding, fuzz targets `FuzzDecode`, `FuzzHostname`, `FuzzTarget`, `FuzzRootSyntax`. Coverage 94.8% |
 | Path rules and static roots (S-11, S-12, S-13) | `internal/sitecheck`: path tables, `FuzzCheckStatic`, `FuzzCheckProxy`, root checks against fake and real system folders, junctions. Coverage 85.2% |
 | Web worker (S-01, S-04, S-05, S-06, S-12, S-15, S-16, S-18) | `internal/worker`: in-process worker on a random loopback port with a static site, a proxy site and a listing site, driven by raw TCP requests (path traversal suite, headers, limits, forwarding, host check, log redaction, listener self-check); unit tests for the limiter, filters, file system and config builder. Coverage 86.0% |
