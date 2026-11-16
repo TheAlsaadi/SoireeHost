@@ -88,3 +88,11 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
   - remove the leftover worktrees and merged branches;
   - Dependabot version updates: first deferred, then added the same day (`.github/dependabot.yml`);
   - the owner brought the GitHub settings back in line with `docs/REPO_SETUP.md`; read back and ticked the same day.
+
+## Roadmap after 1.0 (17 Nov 2026)
+
+- Owner decisions of 17 Nov 2026, recorded in `docs/PLAN.md` sections 6 and 9:
+  - six features come after 1.0, in this order: Doctor, a permanent free address through Tailscale Funnel, Windows notifications, password-protected sites, scheduled backups, an app runner;
+  - each gets its own decision record and the owner's decisions before any code;
+  - no AI assistant; Doctor uses fixed checks;
+  - game server hosting set aside: the free relay was too slow for players in the same town, and port forwarding conflicts with S-02 and S-03.
