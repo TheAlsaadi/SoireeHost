@@ -409,7 +409,7 @@ Done when:
 - [x] Nothing from the banned list in section 7 appears. (16 Nov 2026: checked on the static screens in `docs/design/phase5-static/REVIEW.md`, on the built screens through the development fake, and by a sweep of `frontend/src` for gradients, blur, glow, animation and emoji, which found none; merged through pull request 15)
 - [ ] The accessibility review passes at AA and the whole app works by keyboard. (Open: the static screens passed the review in `REVIEW.md`; the owner's check of the real window with a Windows contrast theme, NVDA and the text-size setting is still to come)
 - [x] A request with script in its path and user agent shows as plain text in Activity. (16 Nov 2026, pull request 15, run 43764597327: `frontend/src/screens/Activity.test.ts` mounts the real Activity screen; the path, user agent and rule message show as literal text and no element, attribute or handler comes from them)
-- [x] Tests pass for S-33 to S-35. (16 Nov 2026, pull request 15, run 43764597327, every job green including the isolation job's `TestControlPanelOpensNoPort`; ADR-0009 awaits the owner's acceptance)
+- [x] Tests pass for S-33 to S-35. (16 Nov 2026, pull request 15, run 43764597327, every job green including the isolation job's `TestControlPanelOpensNoPort`; ADR-0009 accepted by the owner 16 Nov 2026)
 
 ### Phase 6: Setup, signing and updates
 
