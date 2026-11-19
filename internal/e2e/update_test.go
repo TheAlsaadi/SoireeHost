@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -42,6 +41,27 @@ func stageUpdate(t *testing.T, manifest, exe []byte, ver string) {
 	t.Helper()
 	clearStaged(t)
 	dir := supervisor.Paths{Root: layout(t).DataRoot}.Updates()
+	// Administrators may only read the updates folder, and backup semantics
+	// do not let them add a file to it. The folder is opened up for them
+	// while the files are written, and its exact descriptor is put back
+	// before anything else runs, so the supervisor's S-22 check never sees
+	// the change.
+	if err := winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege"); err != nil {
+		t.Fatal(err)
+	}
+	sd, err := windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := sd.String()
+	if err := winsec.ForceSDDL(dir, orig+"(A;;0x1301bf;;;"+winsec.SIDAdministrators+")"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := winsec.ForceSDDL(dir, orig); err != nil {
+			t.Fatalf("restoring the updates folder's descriptor: %v", err)
+		}
+	}()
 	if exe != nil {
 		writeAsSupervisor(t, filepath.Join(dir, "soireehost-"+ver+".exe"), exe)
 	}
@@ -50,39 +70,14 @@ func stageUpdate(t *testing.T, manifest, exe []byte, ver string) {
 	}
 }
 
-// writeAsSupervisor creates path in the updates folder, which
-// Administrators may only read, owned by the supervisor's service SID as
-// the supervisor's own downloads are. SeRestorePrivilege lets an elevated
-// process create a file there and name another owner, but only for a file
-// opened with backup semantics.
+// writeAsSupervisor creates path owned by the supervisor's service SID, as
+// the supervisor's own downloads are; naming another owner needs
+// SeRestorePrivilege.
 func writeAsSupervisor(t *testing.T, path string, data []byte) {
 	t.Helper()
-	if err := winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege"); err != nil {
-		t.Fatal(err)
-	}
 	sup := winsec.ServiceSID(winsec.SupervisorService)
-	sd, err := windows.SecurityDescriptorFromString("O:" + sup + "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;" + sup + ")")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sa := windows.SecurityAttributes{SecurityDescriptor: sd}
-	sa.Length = uint32(unsafe.Sizeof(sa))
-	p, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := windows.CreateFile(p, windows.GENERIC_WRITE, 0, &sa, windows.CREATE_NEW,
-		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
-	if err != nil {
-		t.Fatalf("creating %s: %v", path, err)
-	}
-	f := os.NewFile(uintptr(h), path)
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
+	if err := winsec.WriteFileSDDL(path, "O:"+sup+"D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;"+sup+")", data); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
 	}
 }
 
