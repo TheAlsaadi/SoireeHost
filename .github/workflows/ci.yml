@@ -353,6 +353,24 @@ jobs:
             Write-Output "::error title=signed update tests failed::$msg"
             exit $code
           }
+      - name: Outbound traffic capture (S-42, ADR-0004)
+        # A network trace while a quick share serves the site and the
+        # supervisor checks for updates: each process may reach only what
+        # S-42 allows. Runs with the release-style test build installed
+        # above, so the update check really runs.
+        shell: pwsh
+        run: |
+          $env:SOIREEHOST_E2E = '1'
+          $env:SOIREEHOST_S42_E2E = '1'
+          $out = go test -tags e2e,no_fs_access -count=1 -v -timeout 20m -run '^TestOutboundTraffic$' ./internal/e2e/ 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|error|S-42|--- |\.go:\d+' } | Select-Object -First 40
+            $msg = ($lines -join '%0A') -replace '::', ': :'
+            Write-Output "::error title=traffic capture failed::$msg"
+            exit $code
+          }
       - name: Service state on failure
         if: failure()
         shell: pwsh
