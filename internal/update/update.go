@@ -213,9 +213,10 @@ func Open(envelope []byte, keys KeySet) ([]byte, error) {
 	return payload, nil
 }
 
+// signedMessage is what the key signs: the context, then the payload. Both
+// callers bound the payload by MaxManifestSize first.
 func signedMessage(payload []byte) []byte {
-	msg := make([]byte, 0, len(signingContext)+len(payload))
-	return append(append(msg, signingContext...), payload...)
+	return append([]byte(signingContext), payload...)
 }
 
 // DecodePayload decodes a payload strictly: exactly the manifest's fields,
@@ -275,6 +276,11 @@ func Sign(payload []byte, priv ed25519.PrivateKey) ([]byte, error) {
 	}
 	if len(payload) == 0 {
 		return nil, malformed("empty payload")
+	}
+	// the envelope's base64 is a third larger, so a payload this size can
+	// never fit; refusing it here keeps every signed message bounded
+	if len(payload) > MaxManifestSize {
+		return nil, ErrTooLarge
 	}
 	pub, _ := priv.Public().(ed25519.PublicKey)
 	env := struct {
