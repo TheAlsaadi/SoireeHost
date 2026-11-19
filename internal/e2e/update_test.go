@@ -99,7 +99,7 @@ func sign(t *testing.T, ver string, exe []byte, priv ed25519.PrivateKey) []byte 
 	t.Helper()
 	sum := sha256.Sum256(exe)
 	p, err := update.EncodePayload(update.Manifest{
-		Product: update.Product, Channel: update.Channel, Version: ver, MinFrom: "1.0.0",
+		Product: update.Product, Channel: update.Channel, Version: ver, MinFrom: "0.1.0",
 		Published: time.Now().UTC(),
 		Artifact: update.Artifact{Name: update.ArtifactName, URL: update.ReleaseURL + ver + "/" + update.ArtifactName,
 			Size: int64(len(exe)), SHA256: hex.EncodeToString(sum[:])},
