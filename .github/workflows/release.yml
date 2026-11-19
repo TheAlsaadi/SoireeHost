@@ -103,7 +103,10 @@ jobs:
           Pop-Location
           if ($code -ne 0) { exit 1 }
           Push-Location dist
-          Get-ChildItem -File | Sort-Object Name | ForEach-Object { "$((Get-FileHash $_.Name -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Out-File -Encoding ascii SHA256SUMS
+          # hash the files first, then write the list, so SHA256SUMS is
+          # neither open nor listed while the hashes are taken
+          $sums = @(Get-ChildItem -File | Where-Object Name -ne 'SHA256SUMS' | Sort-Object Name | ForEach-Object { "$((Get-FileHash $_.Name -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" })
+          $sums | Out-File -Encoding ascii SHA256SUMS
           Get-Content SHA256SUMS
           Pop-Location
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
