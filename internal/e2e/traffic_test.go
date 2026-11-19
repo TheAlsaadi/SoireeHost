@@ -45,6 +45,20 @@ func TestOutboundTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := version.Release(st.Version)
+	// Quick shares left by earlier tests in this job would come back with
+	// this test's share, and trycloudflare.com answers 429 to too many
+	// quick tunnels from one address: start from this test's share only.
+	var cur ipc.ConfigResult
+	if err := call(t, c, ipc.MethodConfigGet, nil, &cur); err != nil {
+		t.Fatal(err)
+	}
+	for _, site := range cur.Config.Sites {
+		if site.QuickShare != nil {
+			if err := call(t, c, ipc.MethodQuickShareStop, ipc.QuickShareParams{SiteID: site.ID}, nil); err != nil {
+				t.Fatalf("stopping the leftover quick share of %s: %v", site.ID, err)
+			}
+		}
+	}
 
 	dir := t.TempDir()
 	etl := filepath.Join(dir, "s42.etl")
@@ -69,7 +83,8 @@ func TestOutboundTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = call(t, c, ipc.MethodQuickShareStop, ipc.QuickShareParams{SiteID: id}, nil) })
-	ts := waitTunnel(t, c, 3*time.Minute, "a quick share link", func(ts ipc.TunnelStatus) bool {
+	// five minutes: cloudflared retries while a 429 from trycloudflare.com clears
+	ts := waitTunnel(t, c, 5*time.Minute, "a quick share link", func(ts ipc.TunnelStatus) bool {
 		v, ok := quickView(ts, id)
 		return ok && v.URL != "" && v.State == ipc.TunnelConnected
 	})
