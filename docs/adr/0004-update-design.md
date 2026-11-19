@@ -152,7 +152,7 @@ The downloaded file is never run before both checks pass: the supervisor's at do
 
 ### Release workflow (`.github/workflows/release.yml`)
 
-**Triggers.** A `v*` tag (tags are limited to the owner by the tag ruleset), or `workflow_dispatch` as a dry run. In Phase 6 only the dry run is used.
+**Triggers.** A `v*` tag (tags are limited to the owner by the tag ruleset), or `workflow_dispatch` as a dry run. A pull request that changes the workflow, `build/` or `internal/update/` also runs the dry run (without provenance), so the release path is tested before it reaches `main`, where `workflow_dispatch` becomes available. In Phase 6 only the dry run is used. Note added 19 Nov 2026.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
@@ -160,13 +160,13 @@ The downloaded file is never run before both checks pass: the supervisor's at do
 | `authenticode` | `contents: read` | Skipped unless `SIGNING_ENABLED` (S-61, S-72) |
 | `attest` | `id-token: write`, `attestations: write`, `contents: read` | `actions/attest-build-provenance` on the exe (S-73) |
 | `manifest` | `contents: read`; environment `release` | Signs `manifest.json` with `build/signmanifest`, then verifies the result with `internal/update`, the same code the app runs. This job runs no action other than `actions/checkout` and `actions/setup-go`. On a dry run there is no `release` environment (it allows `v*` tags only), so a key pair made in the job signs and verifies instead |
-| `publish` | `contents: write`; tags only | `gh release create` with `soireehost.exe`, `manifest.json`, `SHA256SUMS` and the SBOMs, using the GitHub CLI already on the runner. A dry run uploads the same files as workflow artifacts, so the owner can use that build for the VM check |
+| `publish` | `contents: write`; tags only | `gh release create --draft` with `soireehost.exe`, `manifest.json`, `SHA256SUMS` and the SBOMs, using the GitHub CLI already on the runner. The release stays a draft until the owner publishes it, and `releases/latest` ignores drafts. A dry run keeps the same files as workflow artifacts, so the owner can use that build for the VM check |
 
 **Other rules:**
 
 - **SBOM (S-73).** No new tool: `build/sbom` reads the module list and `go.sum` hashes from the built exe with `debug/buildinfo`. It writes CycloneDX 1.6 JSON with cloudflared and the Core Rule Set added as components from their lock files. The frontend's SBOM comes from `npm sbom --sbom-format cyclonedx`, which is built into npm.
 - **Secrets (S-72).** No pull-request build sees a secret. The signing key exists only in the `release` environment, and only the `manifest` job uses it, passed as an environment variable and never as an argument.
-- **Allow list.** The owner adds `actions/attest-build-provenance@*`, `actions/attest@*` (which the provenance action calls), `actions/create-github-app-token@*` and `actions/upload-artifact@*` (dry-run outputs) to the repository's Actions allow list. All are GitHub's own, pinned by commit SHA.
+- **Allow list.** The owner adds `actions/attest-build-provenance@*`, `actions/attest@*` (which the provenance action calls), `actions/create-github-app-token@*` and `actions/upload-artifact@*` (dry-run outputs) to the repository's Actions allow list. All are GitHub's own, pinned by commit SHA. Later jobs fetch the build with `gh run download`, so `actions/download-artifact` is not needed.
 
 ### Signing key
 

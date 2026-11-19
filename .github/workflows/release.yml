@@ -1,0 +1,255 @@
+# Release (ADR-0004). A v* tag builds, attests, signs the update manifest
+# and creates a draft GitHub release; the owner publishes it by hand. A run
+# started by hand (workflow_dispatch), or a pull request that changes the
+# release path, is a dry run: the same build and checks, a manifest signed
+# with a key made in the job, and the files kept as workflow artifacts.
+# Nothing is published from a dry run (owner decision, 16 Nov 2026).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - build/**
+      - internal/update/**
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: -mod=readonly -tags=no_fs_access
+  NODE_VERSION: "26"
+  WAILS_VERSION: v3.1.0
+  # the oldest version a release may update from (ADR-0004); raise it when a
+  # release can no longer read older settings
+  MIN_FROM: "0.1.0"
+
+jobs:
+  build:
+    name: Build twice and compare (S-74), SBOM (S-73)
+    runs-on: windows-2025
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install wails3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+        env:
+          GOFLAGS: ""
+      - name: Version
+        id: version
+        shell: pwsh
+        env:
+          REF: ${{ github.ref }}
+          RUN: ${{ github.run_number }}
+        run: |
+          if ($env:REF -like 'refs/tags/v*') { $v = $env:REF.Substring('refs/tags/v'.Length) } else { $v = "0.0.0-dryrun.$env:RUN" }
+          if ($v -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$') { Write-Output "::error::'$v' is not a valid version"; exit 1 }
+          "version=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+      - name: Build
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./build/build.ps1 -SkipChecks -Cloudflared -Version $env:VERSION
+      - name: Build again from a fresh clone in another folder, and compare (S-74)
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $rb = Join-Path $env:RUNNER_TEMP 'rebuild'
+          git clone --quiet --no-hardlinks . $rb
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Push-Location $rb
+          ./build/build.ps1 -SkipChecks -Cloudflared -Version $env:VERSION
+          Pop-Location
+          $a = (Get-FileHash bin/soireehost.exe -Algorithm SHA256).Hash
+          $b = (Get-FileHash (Join-Path $rb 'bin/soireehost.exe') -Algorithm SHA256).Hash
+          if ($a -ne $b) { Write-Output "::error title=not reproducible::two builds of the same commit differ: $a and $b"; exit 1 }
+          Write-Output "Both builds: sha256 $($a.ToLowerInvariant())"
+      - name: Binary has ASLR, DEP and high-entropy VA (S-24)
+        run: go run ./build/pecheck bin/soireehost.exe
+      - name: Checksums and SBOMs (S-73)
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item bin/soireehost.exe dist/soireehost.exe
+          $when = git log -1 --format=%cI
+          go run ./build/sbom -exe dist/soireehost.exe -version $env:VERSION -time $when -out dist/soireehost.cdx.json
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Push-Location frontend
+          npm sbom --sbom-format cyclonedx | Out-File -Encoding utf8 ../dist/frontend.cdx.json
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { exit 1 }
+          Push-Location dist
+          Get-ChildItem -File | Sort-Object Name | ForEach-Object { "$((Get-FileHash $_.Name -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Out-File -Encoding ascii SHA256SUMS
+          Get-Content SHA256SUMS
+          Pop-Location
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  authenticode:
+    # S-61: off until free signing is approved (SignPath, after the first
+    # release). Turned on by the repository variable SIGNING_ENABLED, it
+    # fails until the signing steps are written, so a release can never be
+    # published believing it was signed.
+    name: Authenticode signing (off)
+    if: vars.SIGNING_ENABLED == 'true'
+    needs: build
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    steps:
+      - run: |
+          echo "::error::Authenticode signing is switched on but not set up yet (ADR-0004)"
+          exit 1
+
+  attest:
+    name: Build provenance (S-73)
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Fetch the build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" --name dist --dir dist
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/soireehost.exe
+
+  manifest-dry-run:
+    # Signs with a key made here and now, which nothing trusts: it proves
+    # the signing path and the checks, never the real key
+    name: Signed update manifest (dry run)
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    needs: build
+    runs-on: windows-2025
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Fetch the build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" --name dist --dir dist
+      - name: Sign and verify with a throwaway key
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $keys = Join-Path $env:RUNNER_TEMP 'dry-run-keys.json'
+          $key = Join-Path $env:RUNNER_TEMP 'dry-run.key'
+          [IO.File]::WriteAllText($keys, '{"keys":[]}')
+          go run ./build/updatekey gen -out $key -keys $keys
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $env:UPDATE_SIGNING_KEY = (Get-Content -Raw $key).Trim()
+          $v = $env:VERSION
+          go run ./build/signmanifest -exe dist/soireehost.exe -version $v -min-from $v -keys $keys -out dist/manifest.json
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Remove-Item $key
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: manifest-dry-run
+          path: dist/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+  manifest:
+    # The real key lives only in the release environment, which only v*
+    # tags may use and which needs the owner's approval (ADR-0004). This job
+    # runs no action but checkout and setup-go.
+    name: Signed update manifest (S-60)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-2025
+    environment: release
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Fetch the build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" --name dist --dir dist
+      - name: Sign with the release key and verify with the app's own code
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: go run ./build/signmanifest -exe dist/soireehost.exe -version $env:VERSION -min-from $env:MIN_FROM -out dist/manifest.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: manifest
+          path: dist/manifest.json
+          if-no-files-found: error
+
+  publish:
+    # A draft release: nothing is public until the owner reviews and
+    # publishes it, and releases/latest ignores drafts
+    name: Draft GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, attest, manifest]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Fetch the files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" --name dist --dir dist
+          gh run download "${{ github.run_id }}" --repo "${{ github.repository }}" --name manifest --dir dist
+          (cd dist && sha256sum manifest.json >> SHA256SUMS && cat SHA256SUMS)
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --repo "${{ github.repository }}" --draft --verify-tag \
+            --title "SoiréeHost ${{ needs.build.outputs.version }}" \
+            --notes "This release is not Authenticode-signed yet. Check soireehost.exe against SHA256SUMS and its build provenance (gh attestation verify soireehost.exe --repo ${{ github.repository }}). Tunnel-token mode with a real hostname is not yet verified." \
+            dist/soireehost.exe dist/manifest.json dist/SHA256SUMS dist/soireehost.cdx.json dist/frontend.cdx.json
