@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -152,8 +153,12 @@ func TestOutboundTraffic(t *testing.T) {
 
 func netsh(t *testing.T, args ...string) {
 	t.Helper()
+	// its own deadline, not t.Context(): the trace must still stop in a
+	// clean-up, after the test's context is cancelled
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 	//nolint:gosec // G204, G702: a System32 tool with fixed arguments
-	out, err := exec.CommandContext(t.Context(), filepath.Join(os.Getenv("SystemRoot"), "System32", "netsh.exe"), args...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "netsh.exe"), args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("netsh %v: %v\n%s", args, err, out)
 	}
