@@ -78,7 +78,7 @@ func stageUpdate(t *testing.T, manifest, exe []byte, ver string) {
 // are. Naming another owner needs SeRestorePrivilege.
 func writeAsSupervisor(t *testing.T, path string, data []byte) {
 	t.Helper()
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil { //nolint:gosec // G703: a fixed name in the updates folder
 		t.Fatalf("writing %s: %v", path, err)
 	}
 	sup := winsec.ServiceSID(winsec.SupervisorService)
