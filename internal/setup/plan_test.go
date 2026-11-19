@@ -1,0 +1,209 @@
+package setup
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestParseArgs(t *testing.T) {
+	good := map[string]Invocation{
+		"install":           {Cmd: CmdInstall},
+		"repair":            {Cmd: CmdRepair},
+		"apply-update":      {Cmd: CmdApplyUpdate},
+		"uninstall":         {Cmd: CmdUninstall},
+		"uninstall --purge": {Cmd: CmdUninstall, Purge: true},
+	}
+	for line, want := range good {
+		got, err := ParseArgs(strings.Fields(line))
+		if err != nil || got != want {
+			t.Errorf("ParseArgs(%q) = %+v, %v", line, got, err)
+		}
+	}
+	// no command takes a path, a version or any extra argument (ADR-0010)
+	for _, line := range []string{
+		"", "Install", "install --purge", "repair now", "apply-update C:\\Users\\x\\Downloads\\soireehost.exe",
+		"apply-update 1.3.0", "uninstall --purge extra", "uninstall --PURGE", "uninstall -purge", "--purge uninstall",
+	} {
+		if _, err := ParseArgs(strings.Fields(line)); !errors.Is(err, ErrUsage) {
+			t.Errorf("ParseArgs(%q) accepted", line)
+		}
+	}
+}
+
+func TestExitCodes(t *testing.T) {
+	seen := map[Code]bool{}
+	for _, c := range Codes() {
+		if seen[c] {
+			t.Fatalf("code %d listed twice", c)
+		}
+		seen[c] = true
+	}
+	for err, want := range map[error]Code{
+		nil:                             CodeOK,
+		ErrUsage:                        CodeUsage,
+		errors.New("disk full"):         CodeFailed,
+		fail(CodeBusy, errors.New("x")): CodeBusy,
+		fmt.Errorf("wrapped: %w", fail(CodeRolledBack, errors.New("y"))): CodeRolledBack,
+	} {
+		if got := ExitCode(err); got != want {
+			t.Errorf("ExitCode(%v) = %d, want %d", err, got, want)
+		}
+	}
+	// the numbers are a contract with the control panel
+	for c, n := range map[Code]int{CodeNotElevated: 10, CodeNewerInstalled: 13, CodeUpdateRefused: 21, CodeRolledBack: 22, CodeDataKept: 30} {
+		if int(c) != n {
+			t.Errorf("code renumbered: %d is now %d", n, c)
+		}
+	}
+}
+
+func TestDecideInstall(t *testing.T) {
+	for _, tt := range []struct {
+		installed, mine string
+		want            installKind
+		code            Code
+	}{
+		{"", "1.3.0", installFresh, 0},
+		{"garbage", "1.3.0", installFresh, 0},
+		{"1.3.0", "1.3.0", installRepair, 0},
+		{"1.2.0", "1.3.0", installUpgrade, 0},
+		{"1.3.0-rc.1", "1.3.0", installUpgrade, 0},
+		{"1.4.0", "1.3.0", 0, CodeNewerInstalled},
+		{"1.3.0", "1.3.0-rc.1", 0, CodeNewerInstalled},
+	} {
+		got, err := decideInstall(tt.installed, tt.mine)
+		if tt.code != 0 {
+			if ExitCode(err) != tt.code {
+				t.Errorf("installed %q, mine %q: error %v, want code %d", tt.installed, tt.mine, err, tt.code)
+			}
+			continue
+		}
+		if err != nil || got != tt.want {
+			t.Errorf("installed %q, mine %q: %v, %v; want %v", tt.installed, tt.mine, got, err, tt.want)
+		}
+	}
+}
+
+func TestAppsEntry(t *testing.T) {
+	l := Layout{ProgramDir: `C:\Program Files\SoireeHost`, DataRoot: `C:\ProgramData\SoireeHost`}
+	vals := map[string]regValue{}
+	for _, v := range appsEntry(l, "1.3.0", 98765) {
+		if _, dup := vals[v.Name]; dup {
+			t.Fatalf("value %s set twice", v.Name)
+		}
+		vals[v.Name] = v
+	}
+	for name, want := range map[string]string{
+		"DisplayName":     "SoiréeHost",
+		"DisplayVersion":  "1.3.0",
+		"Publisher":       "SoiréeHost project",
+		"DisplayIcon":     `"C:\Program Files\SoireeHost\soireehost.exe",0`,
+		"InstallLocation": `C:\Program Files\SoireeHost`,
+		"UninstallString": `"C:\Program Files\SoireeHost\soireehost.exe" gui --uninstall`,
+	} {
+		if v := vals[name]; v.IsDword || v.Text != want {
+			t.Errorf("%s = %+v, want %q", name, v, want)
+		}
+	}
+	for name, want := range map[string]uint32{"NoModify": 1, "NoRepair": 1, "EstimatedSize": 98765} {
+		if v := vals[name]; !v.IsDword || v.Dword != want {
+			t.Errorf("%s = %+v, want %d", name, v, want)
+		}
+	}
+}
+
+func validJournal() Journal {
+	return Journal{From: "1.2.0", To: "1.3.0", Step: StepSwapped,
+		OldHash: strings.Repeat("a", 64), NewHash: strings.Repeat("b", 64),
+		Started: time.Date(2026, 12, 1, 10, 0, 0, 0, time.UTC)}
+}
+
+func TestJournalRoundTrip(t *testing.T) {
+	j := validJournal()
+	b, err := j.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeJournal(b)
+	if err != nil || got != j {
+		t.Fatalf("round trip = %+v, %v", got, err)
+	}
+	for name, bad := range map[string]string{
+		"unknown step":  strings.Replace(string(b), `"swapped"`, `"done"`, 1),
+		"bad version":   strings.Replace(string(b), `"1.3.0"`, `"latest"`, 1),
+		"short hash":    strings.Replace(string(b), strings.Repeat("b", 64), "bb", 1),
+		"capital hash":  strings.Replace(string(b), strings.Repeat("b", 64), strings.Repeat("B", 64), 1),
+		"unknown field": strings.Replace(string(b), `{`, `{"x":1,`, 1),
+		"trailing data": string(b) + `{}`,
+		"empty":         ``,
+		"too large":     string(b) + strings.Repeat(" ", maxJournal),
+		"not an object": `[]`,
+	} {
+		if _, err := DecodeJournal([]byte(bad)); err == nil {
+			t.Errorf("%s: DecodeJournal accepted %q", name, bad)
+		}
+	}
+}
+
+// TestDecide: before the swap an interrupted update is cleaned up; after it,
+// the update is kept only if the new version had finished and is the file
+// in place, and rolled back otherwise.
+func TestDecide(t *testing.T) {
+	j := validJournal()
+	for _, tt := range []struct {
+		step      Step
+		installed string
+		want      Recovery
+	}{
+		{StepVerified, j.OldHash, RecoverCleanup},
+		{StepSnapshot, j.OldHash, RecoverCleanup},
+		{StepStaged, j.OldHash, RecoverCleanup},
+		{StepStopped, j.OldHash, RecoverCleanup},
+		{StepSwapped, j.NewHash, RecoverRollback},
+		{StepSwapped, "", RecoverRollback},
+		{StepFinished, j.NewHash, RecoverConfirm},
+		{StepFinished, j.OldHash, RecoverRollback},
+		{StepFinished, "", RecoverRollback},
+		{StepRollingBack, j.NewHash, RecoverRollback},
+		{StepRollingBack, j.OldHash, RecoverRollback},
+	} {
+		j.Step = tt.step
+		if got := Decide(j, tt.installed); got != tt.want {
+			t.Errorf("step %s, installed %.4s: %v, want %v", tt.step, tt.installed, got, tt.want)
+		}
+	}
+	for _, s := range steps {
+		j.Step = s
+		if Decide(j, "") == 0 {
+			t.Errorf("step %s has no recovery", s)
+		}
+	}
+}
+
+// FuzzDecodeJournal: no input panics the journal reader, and anything it
+// accepts round-trips and has a recovery.
+func FuzzDecodeJournal(f *testing.F) {
+	b, _ := validJournal().Encode()
+	f.Add(b)
+	f.Add([]byte(`{"from":"1.0.0","to":"1.0.1","step":"finished"}`))
+	f.Add([]byte(`{}`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		j, err := DecodeJournal(data)
+		if err != nil {
+			return
+		}
+		if Decide(j, "") == 0 || Decide(j, j.NewHash) == 0 {
+			t.Fatalf("no recovery for %+v", j)
+		}
+		again, err := j.Encode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if k, err := DecodeJournal(again); err != nil || !k.Started.Equal(j.Started) || k.Step != j.Step {
+			t.Fatalf("round trip: %+v, %v", k, err)
+		}
+	})
+}

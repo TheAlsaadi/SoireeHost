@@ -367,8 +367,6 @@ func registerServices(exe string) error {
 	return nil
 }
 
-func quote(p string) string { return `"` + p + `"` }
-
 // configureService trims privileges, sets recovery for the supervisor, and
 // locks the worker services so only the supervisor may start and stop them.
 func configureService(s *mgr.Service, spec serviceSpec) error {
