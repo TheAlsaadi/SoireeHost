@@ -40,11 +40,21 @@ export function AuditList(p: ipc$0.AuditListParams): $CancellablePromise<ipc$0.A
 }
 
 /**
+ * CheckForUpdates is "Check now": the supervisor checks in the background,
+ * and status.get follows it (ADR-0004).
+ */
+export function CheckForUpdates(): $CancellablePromise<ipc$0.UpdateStatus> {
+    return $Call.ByID(3709433806).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
  * Config is the current settings. They never hold a secret (S-40).
  */
 export function Config(): $CancellablePromise<ipc$0.ConfigResult> {
     return $Call.ByID(2208400441).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -53,7 +63,7 @@ export function Config(): $CancellablePromise<ipc$0.ConfigResult> {
  */
 export function ConfirmImport(confirmation: string): $CancellablePromise<ipc$0.ConfigResult> {
     return $Call.ByID(3855613564, confirmation).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -70,7 +80,7 @@ export function ExportConfig(): $CancellablePromise<string> {
  */
 export function FirewallEvents(p: ipc$0.FirewallEventsParams): $CancellablePromise<ipc$0.FirewallEventsResult> {
     return $Call.ByID(989631430, p).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
@@ -79,7 +89,7 @@ export function FirewallEvents(p: ipc$0.FirewallEventsParams): $CancellablePromi
  */
 export function History(): $CancellablePromise<ipc$0.HistoryResult> {
     return $Call.ByID(2180396597).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -91,7 +101,7 @@ export function History(): $CancellablePromise<ipc$0.HistoryResult> {
  */
 export function ImportConfig(text: string): $CancellablePromise<ipc$0.ConfigResult> {
     return $Call.ByID(379366460, text).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -102,7 +112,7 @@ export function ImportConfig(text: string): $CancellablePromise<ipc$0.ConfigResu
  */
 export function PutSite(site: config$0.Site, confirmation: string): $CancellablePromise<ipc$0.ConfigResult> {
     return $Call.ByID(1312378339, site, confirmation).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -111,7 +121,7 @@ export function PutSite(site: config$0.Site, confirmation: string): $Cancellable
  */
 export function RemoveSite(id: string): $CancellablePromise<ipc$0.ConfigResult> {
     return $Call.ByID(1589122908, id).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -120,7 +130,7 @@ export function RemoveSite(id: string): $CancellablePromise<ipc$0.ConfigResult> 
  */
 export function Rollback(revision: number, confirmation: string): $CancellablePromise<ipc$0.ConfigResult> {
     return $Call.ByID(1587907071, revision, confirmation).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -130,7 +140,7 @@ export function Rollback(revision: number, confirmation: string): $CancellablePr
  */
 export function SecretStatus(): $CancellablePromise<ipc$0.SecretStatusResult> {
     return $Call.ByID(863385469).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -139,7 +149,7 @@ export function SecretStatus(): $CancellablePromise<ipc$0.SecretStatusResult> {
  */
 export function SetOffline(offline: boolean): $CancellablePromise<ipc$0.ConfigResult> {
     return $Call.ByID(2688811732, offline).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -148,7 +158,7 @@ export function SetOffline(offline: boolean): $CancellablePromise<ipc$0.ConfigRe
  */
 export function SetSiteEnabled(id: string, enabled: boolean, confirmation: string): $CancellablePromise<ipc$0.ConfigResult> {
     return $Call.ByID(1019644847, id, enabled, confirmation).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -159,7 +169,17 @@ export function SetSiteEnabled(id: string, enabled: boolean, confirmation: strin
  */
 export function SetTunnelToken(value: string, confirmation: string): $CancellablePromise<ipc$0.SecretStatusResult> {
     return $Call.ByID(357931848, value, confirmation).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
+    });
+}
+
+/**
+ * SetUpdateCheck turns the daily update check on or off. Off is a weakening
+ * change and needs the supervisor's confirmation token (S-32).
+ */
+export function SetUpdateCheck(check: boolean, confirmation: string): $CancellablePromise<ipc$0.ConfigResult> {
+    return $Call.ByID(2029282592, check, confirmation).then(($result: any) => {
+        return $$createType3($result);
     });
 }
 
@@ -168,7 +188,7 @@ export function SetTunnelToken(value: string, confirmation: string): $Cancellabl
  */
 export function StartQuickShare(id: string): $CancellablePromise<ipc$0.ConfigResult> {
     return $Call.ByID(1705405355, id).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
@@ -177,7 +197,7 @@ export function StartQuickShare(id: string): $CancellablePromise<ipc$0.ConfigRes
  */
 export function Status(): $CancellablePromise<ipc$0.StatusResult> {
     return $Call.ByID(2317799613).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType7($result);
     });
 }
 
@@ -186,15 +206,16 @@ export function Status(): $CancellablePromise<ipc$0.StatusResult> {
  */
 export function StopQuickShare(id: string): $CancellablePromise<ipc$0.ConfigResult> {
     return $Call.ByID(2207494509, id).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 // Private type creation functions
 const $$createType0 = ipc$0.AccessListResult.createFrom;
 const $$createType1 = ipc$0.AuditListResult.createFrom;
-const $$createType2 = ipc$0.ConfigResult.createFrom;
-const $$createType3 = ipc$0.FirewallEventsResult.createFrom;
-const $$createType4 = ipc$0.HistoryResult.createFrom;
-const $$createType5 = ipc$0.SecretStatusResult.createFrom;
-const $$createType6 = ipc$0.StatusResult.createFrom;
+const $$createType2 = ipc$0.UpdateStatus.createFrom;
+const $$createType3 = ipc$0.ConfigResult.createFrom;
+const $$createType4 = ipc$0.FirewallEventsResult.createFrom;
+const $$createType5 = ipc$0.HistoryResult.createFrom;
+const $$createType6 = ipc$0.SecretStatusResult.createFrom;
+const $$createType7 = ipc$0.StatusResult.createFrom;

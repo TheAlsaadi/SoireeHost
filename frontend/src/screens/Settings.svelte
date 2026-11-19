@@ -4,7 +4,8 @@
   import VisibleText from "../components/VisibleText.svelte";
   import { api, type ipc } from "../lib/api";
   import { t } from "../lib/i18n";
-  import { app, applyConfig, refreshStatus, toastDone, toastError, withConfirmation } from "../lib/state.svelte";
+  import { Declined, app, applyConfig, refreshStatus, toastDone, toastError, withConfirmation } from "../lib/state.svelte";
+  import { setupOK, setupProblem, updateLine } from "../lib/setup";
   import { dateTime } from "../lib/status";
   import { licences } from "../lib/licences";
   import { versionLabel } from "../lib/version";
@@ -62,6 +63,47 @@
       toastError(e, t("error.generic"));
     }
   }
+
+  // The update check (ADR-0004). Turning it off is a weakening change: the
+  // supervisor asks for confirmation with its own sentence (S-32).
+  async function setUpdateCheck(on: boolean) {
+    try {
+      applyConfig(await withConfirmation((tok) => api().setUpdateCheck(on, tok)));
+      await refreshStatus();
+    } catch (e) {
+      if (!(e instanceof Declined)) toastError(e, t("error.generic"));
+    }
+  }
+
+  async function checkNow() {
+    try {
+      await api().checkForUpdates();
+      await refreshStatus();
+    } catch (e) {
+      toastError(e, t("error.generic"));
+    }
+  }
+
+  // Install update and Repair raise the Windows prompt (S-64, ADR-0010).
+  async function runSetup(action: "apply-update" | "repair", success: string) {
+    busy = true;
+    try {
+      const r = await api().runSetup(action);
+      if (setupOK(r)) {
+        toastDone(success);
+        await refreshStatus();
+      } else {
+        toastError(new Error(setupProblem(r)), setupProblem(r));
+      }
+    } catch (e) {
+      toastError(e, t("setup.code.1"));
+    } finally {
+      busy = false;
+    }
+  }
+
+  const update = $derived(app.status?.update);
+  const checkOn = $derived(!(app.config?.updates?.off ?? false));
 
   async function copyServiceUrl() {
     if (app.status && (await api().copyText(app.status.tunnel.service_url))) toastDone(t("common.copied"));
@@ -124,12 +166,45 @@
       </ul>
     </section>
 
+    <section class="group" aria-labelledby="s-updates">
+      <h2 id="s-updates">{t("settings.updates")}</h2>
+      <div class="panel">
+        <p role="status">{updateLine(update)}</p>
+        {#if update?.state === "ready"}
+          <p class="check-what">{t("settings.installHelp")}</p>
+        {/if}
+        <div class="actions">
+          {#if update?.state === "ready"}
+            <button class="button button-primary" type="button" disabled={busy} onclick={() => runSetup("apply-update", t("settings.updateInstalled"))}>{t("settings.installUpdate")}</button>
+          {/if}
+          <button
+            class="button"
+            type="button"
+            disabled={busy || !checkOn || update?.state === "off" || update?.state === "checking" || update?.state === "downloading"}
+            onclick={checkNow}><Icon name="refresh" />{t("settings.checkNow")}</button
+          >
+        </div>
+      </div>
+      <ul class="checklist">
+        <li class="check check-setting">
+          <div>
+            <p class="check-name">{t("settings.updatesCheck")}</p>
+            <p class="check-what">{t("settings.updatesCheckHelp")}</p>
+          </div>
+          <Switch checked={checkOn} label={t("settings.updatesCheck")} disabled={!app.config} onchange={setUpdateCheck} />
+        </li>
+      </ul>
+    </section>
+
     <section class="group" aria-labelledby="s-about">
       <h2 id="s-about">{t("settings.about")}</h2>
       <div class="panel">
         <p>{versionLabel(app.version)}</p>
         {#if app.status?.tunnel.repair_needed}
           <p class="form-problem"><Icon name="status-danger" /><span>{t("settings.repair")}</span></p>
+          <div class="actions">
+            <button class="button button-primary" type="button" disabled={busy} onclick={() => runSetup("repair", t("settings.repaired"))}><Icon name="refresh" />{t("settings.repairGo")}</button>
+          </div>
         {/if}
         <div class="actions">
           <button class="button button-subtle" type="button" onclick={() => api().openKnownLink("project")}><Icon name="open" />{t("settings.project")}</button>

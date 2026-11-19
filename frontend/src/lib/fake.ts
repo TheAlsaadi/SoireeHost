@@ -163,5 +163,25 @@ export function fakeApi(): Api {
     startAtSignIn: async () => true,
     setStartAtSignIn: async () => {},
     onFolderDropped: () => () => {},
+    checkForUpdates: async () => ({ state: "checking", last_check: ago(7200) }),
+    setUpdateCheck: async (check) => {
+      cfg.updates.off = !check;
+      revision++;
+      return result();
+    },
+    // ?setup=not_installed, other_copy or uninstall shows a setup window in
+    // the development fake
+    setupState: async () => ({
+      mode: new URLSearchParams(location.search).get("setup") ?? "installed",
+      installed_version: "1.2.0",
+      this_version: "1.3.0",
+      newer: true,
+    }),
+    runSetup: async () => {
+      await new Promise((r) => setTimeout(r, 800));
+      return { code: 0, cancelled: false };
+    },
+    openInstalled: async () => {},
+    closeSetup: async () => {},
   };
 }
