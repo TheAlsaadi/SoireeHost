@@ -217,8 +217,29 @@ jobs:
           icacls C:\soireehost-ci /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Copy-Item bin\soireehost.exe C:\soireehost-ci\soireehost.exe
-      - name: setup install
-        run: C:\soireehost-ci\soireehost.exe setup install
+      - name: Compile the e2e tests before the clock starts
+        run: go test -c -tags e2e,no_fs_access -o C:\soireehost-ci\e2e.test.exe ./internal/e2e/
+      - name: setup install, timed to the first live site (Phase 6 check)
+        # From the downloaded soireehost.exe to a page served over the
+        # internet through quick share, on a runner where SoiréeHost was
+        # never installed; must take under 5 minutes. Windows Server stands
+        # in for Windows 11 here; the owner's VM check covers the real one.
+        shell: pwsh
+        run: |
+          $start = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+          & C:\soireehost-ci\soireehost.exe setup install | Out-Default
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=setup install::exited $LASTEXITCODE"; exit 1 }
+          $env:SOIREEHOST_E2E = '1'
+          $env:SOIREEHOST_TIMED_START = "$start"
+          $out = & C:\soireehost-ci\e2e.test.exe -test.run '^TestFirstSiteWithinFiveMinutes$' -test.v -test.timeout 10m 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          $out -split "`r?`n" | Where-Object { $_ -match 'from the downloaded' } | ForEach-Object { Write-Output "::notice title=First live site::$($_.Trim())" }
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|error|limit|--- |\.go:\d+' } | Select-Object -First 20
+            Write-Output "::error title=first live site::$(($lines -join '%0A') -replace '::', ': :')"
+            exit $code
+          }
       - name: Isolation and tunnel tests
         env:
           SOIREEHOST_E2E: "1"
