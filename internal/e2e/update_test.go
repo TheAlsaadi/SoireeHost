@@ -42,10 +42,12 @@ func stageUpdate(t *testing.T, manifest, exe []byte, ver string) {
 	clearStaged(t)
 	dir := supervisor.Paths{Root: layout(t).DataRoot}.Updates()
 	// Administrators may only read the updates folder, and backup semantics
-	// do not let them add a file to it. The folder is opened up for them
-	// while the files are written, and its exact descriptor is put back
-	// before anything else runs, so the supervisor's S-22 check never sees
-	// the change.
+	// do not let them add a file to it. Full control is needed, not just
+	// write: in a folder with an OWNER RIGHTS entry Windows refuses a file
+	// created with its own descriptor otherwise (convention rule 13). The
+	// folder is opened up only while the files are written, and its exact
+	// descriptor is put back before anything else runs, so the supervisor's
+	// S-22 check never sees the change.
 	if err := winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege"); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +56,7 @@ func stageUpdate(t *testing.T, manifest, exe []byte, ver string) {
 		t.Fatal(err)
 	}
 	orig := sd.String()
-	if err := winsec.ForceSDDL(dir, orig+"(A;;0x1301bf;;;"+winsec.SIDAdministrators+")"); err != nil {
+	if err := winsec.ForceSDDL(dir, orig+"(A;;FA;;;"+winsec.SIDAdministrators+")"); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
