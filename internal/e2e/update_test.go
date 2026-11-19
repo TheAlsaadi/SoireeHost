@@ -14,6 +14,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/setup"
@@ -39,20 +42,47 @@ func stageUpdate(t *testing.T, manifest, exe []byte, ver string) {
 	t.Helper()
 	clearStaged(t)
 	dir := supervisor.Paths{Root: layout(t).DataRoot}.Updates()
-	sup := winsec.ServiceSID(winsec.SupervisorService)
-	sddl := "O:" + sup + "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;" + sup + ")"
-	if err := winsec.EnablePrivileges("SeRestorePrivilege"); err != nil {
-		t.Fatal(err)
-	}
 	if exe != nil {
-		if err := winsec.WriteFileSDDL(filepath.Join(dir, "soireehost-"+ver+".exe"), sddl, exe); err != nil {
-			t.Fatal(err)
-		}
+		writeAsSupervisor(t, filepath.Join(dir, "soireehost-"+ver+".exe"), exe)
 	}
 	if manifest != nil {
-		if err := winsec.WriteFileSDDL(filepath.Join(dir, "manifest.json"), sddl, manifest); err != nil {
-			t.Fatal(err)
-		}
+		writeAsSupervisor(t, filepath.Join(dir, "manifest.json"), manifest)
+	}
+}
+
+// writeAsSupervisor creates path in the updates folder, which
+// Administrators may only read, owned by the supervisor's service SID as
+// the supervisor's own downloads are. SeRestorePrivilege lets an elevated
+// process create a file there and name another owner, but only for a file
+// opened with backup semantics.
+func writeAsSupervisor(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege"); err != nil {
+		t.Fatal(err)
+	}
+	sup := winsec.ServiceSID(winsec.SupervisorService)
+	sd, err := windows.SecurityDescriptorFromString("O:" + sup + "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;" + sup + ")")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := windows.SecurityAttributes{SecurityDescriptor: sd}
+	sa.Length = uint32(unsafe.Sizeof(sa))
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := windows.CreateFile(p, windows.GENERIC_WRITE, 0, &sa, windows.CREATE_NEW,
+		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if err != nil {
+		t.Fatalf("creating %s: %v", path, err)
+	}
+	f := os.NewFile(uintptr(h), path)
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
