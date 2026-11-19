@@ -379,9 +379,21 @@ jobs:
             $tmsg = (($tail | Select-Object -Last 15) -join '%0A') -replace '::', ': :'
             Write-Output "::error title=tunnel log::$tmsg"
           }
-      - name: setup uninstall --purge
+      - name: setup uninstall --purge, from the installed program (ADR-0010 self-removal)
         if: always()
-        run: C:\soireehost-ci\soireehost.exe setup uninstall --purge
+        shell: pwsh
+        run: |
+          # The installed program removes itself: whatever is still running
+          # is renamed into SoireeHost.removed-* and deleted at the next
+          # restart. The CI copy is the fallback if the install is broken.
+          $installed = "$env:ProgramFiles\SoireeHost\soireehost.exe"
+          if (Test-Path $installed) {
+            "SELF_REMOVAL=1" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+            & $installed setup uninstall --purge | Out-Default
+          } else {
+            & C:\soireehost-ci\soireehost.exe setup uninstall --purge | Out-Default
+          }
+          exit $LASTEXITCODE
       - name: Uninstall left nothing behind
         if: always()
         shell: pwsh
@@ -394,6 +406,19 @@ jobs:
           if (Get-Process cloudflared -ErrorAction SilentlyContinue) { $left += "cloudflared process" }
           if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SoireeHost') { $left += "Apps entry" }
           if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SoireeHost -ErrorAction SilentlyContinue) { $left += "sign-in entry" }
+          if ($env:SELF_REMOVAL -eq '1') {
+            # only the program that ran uninstall is left, in the protected
+            # restart folder, and it is marked for deletion at the restart
+            $rm = @(Get-ChildItem $env:ProgramFiles -Directory -Filter 'SoireeHost.removed-*')
+            if ($rm.Count -ne 1) {
+              $left += "restart folders: $($rm.Count)"
+            } else {
+              $files = @(Get-ChildItem $rm[0].FullName -Force | ForEach-Object Name)
+              if ($files.Count -ne 1 -or $files[0] -ne 'soireehost.exe') { $left += "kept for the restart: $($files -join ', ')" }
+              $pending = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations
+              if (-not ($pending | Where-Object { $_ -like "*$($rm[0].Name)*" })) { $left += "the restart folder is not marked for deletion" }
+            }
+          }
           if ($left) { Write-Output "::error title=uninstall left::$($left -join ', ')"; exit 1 }
 
   fuzz:

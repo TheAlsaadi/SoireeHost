@@ -558,9 +558,9 @@ func Uninstall(l Layout, purge bool) error {
 		errs = append(errs, err)
 	}
 	removeRunEntry()
-	if self, err := os.Executable(); err == nil && strings.EqualFold(filepath.Dir(self), l.ProgramDir) {
-		errs = append(errs, errors.New("run uninstall from a copy outside the program folder to remove it (self-removal comes in Phase 6)"))
-	} else if err := os.RemoveAll(l.ProgramDir); err != nil {
+	// the program folder goes now; files still in use, this program among
+	// them, go at the next restart (ADR-0010)
+	if _, err := removeProgramFolder(l.ProgramDir, removedFolderSDDL); err != nil {
 		errs = append(errs, err)
 	}
 	if purge && !allStopped {
