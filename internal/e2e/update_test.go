@@ -41,13 +41,14 @@ func stageUpdate(t *testing.T, manifest, exe []byte, ver string) {
 	t.Helper()
 	clearStaged(t)
 	dir := supervisor.Paths{Root: layout(t).DataRoot}.Updates()
-	// Administrators may only read the updates folder, and backup semantics
-	// do not let them add a file to it. Full control is needed, not just
-	// write: in a folder with an OWNER RIGHTS entry Windows refuses a file
-	// created with its own descriptor otherwise (convention rule 13). The
-	// folder is opened up only while the files are written, and its exact
-	// descriptor is put back before anything else runs, so the supervisor's
-	// S-22 check never sees the change.
+	// Administrators may only read the updates folder. While the files are
+	// written they get full control of it, inheritable, so a plain new file
+	// is theirs to write; each file is then given the supervisor as owner
+	// through a backup-semantics handle. A file created with its own
+	// descriptor is refused in an OWNER RIGHTS folder (convention rule 13),
+	// so none is passed at creation. The folder's exact descriptor is put
+	// back before anything else runs, so the supervisor's S-22 check never
+	// sees the change.
 	if err := winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege"); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func stageUpdate(t *testing.T, manifest, exe []byte, ver string) {
 		t.Fatal(err)
 	}
 	orig := sd.String()
-	if err := winsec.ForceSDDL(dir, orig+"(A;;FA;;;"+winsec.SIDAdministrators+")"); err != nil {
+	if err := winsec.ForceSDDL(dir, orig+"(A;OICI;FA;;;"+winsec.SIDAdministrators+")"); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
@@ -72,14 +73,17 @@ func stageUpdate(t *testing.T, manifest, exe []byte, ver string) {
 	}
 }
 
-// writeAsSupervisor creates path owned by the supervisor's service SID, as
-// the supervisor's own downloads are; naming another owner needs
-// SeRestorePrivilege.
+// writeAsSupervisor writes path as a plain new file, then makes the
+// supervisor's service SID its owner, as the supervisor's own downloads
+// are. Naming another owner needs SeRestorePrivilege.
 func writeAsSupervisor(t *testing.T, path string, data []byte) {
 	t.Helper()
-	sup := winsec.ServiceSID(winsec.SupervisorService)
-	if err := winsec.WriteFileSDDL(path, "O:"+sup+"D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;"+sup+")", data); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
+	}
+	sup := winsec.ServiceSID(winsec.SupervisorService)
+	if err := winsec.ForceSDDL(path, "O:"+sup+"D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;"+sup+")"); err != nil {
+		t.Fatalf("making the supervisor the owner of %s: %v", path, err)
 	}
 }
 
