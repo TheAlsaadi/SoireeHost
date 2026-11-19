@@ -26,9 +26,14 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
-// TestOutboundTraffic is the S-42 traffic capture (ADR-0004): while a site is
-// live through quick share and an update check runs, a Windows network trace
-// records every TCP and UDP send with its process id. The web worker and
+// TestOutboundTraffic is the S-42 traffic capture (ADR-0004): a Windows
+// network trace records every TCP and UDP send and receive with its process
+// id. The isolation job runs it twice: early, with SOIREEHOST_S42_TUNNEL=1,
+// while a site is live through quick share (trycloudflare.com refuses new
+// quick tunnels from an address that made many, so this half runs before
+// the job's many restarts); and after the update tests, while the
+// release-style test build checks for updates, which needs no tunnel. In
+// both, every process is held to the same rule. The web worker and
 // the tunnel launcher reach nothing but loopback; cloudflared reaches only
 // Cloudflare; the supervisor reaches only GitHub, on port 443. Name lookups
 // (port 53) are allowed to both, as no connection works without them. The ranges
@@ -37,6 +42,7 @@ func TestOutboundTraffic(t *testing.T) {
 	if os.Getenv("SOIREEHOST_S42_E2E") != "1" {
 		t.Skip("set SOIREEHOST_S42_E2E=1 on the CI runner")
 	}
+	withTunnel := os.Getenv("SOIREEHOST_S42_TUNNEL") == "1"
 	waitAllRunning(t)
 	cloudflare := fetchRanges(t, "https://www.cloudflare.com/ips-v4", "https://www.cloudflare.com/ips-v6")
 	github := githubRanges(t)
@@ -46,6 +52,9 @@ func TestOutboundTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := version.Release(st.Version)
+	if !withTunnel && !release {
+		t.Skip("neither half applies: no tunnel asked for, and a development build does not check for updates")
+	}
 	// Quick shares left by earlier tests in this job would come back with
 	// this test's share, and trycloudflare.com answers 429 to too many
 	// quick tunnels from one address: start from this test's share only.
@@ -74,31 +83,33 @@ func TestOutboundTraffic(t *testing.T) {
 	}
 	t.Cleanup(stop)
 
-	// a site online through quick share, fetched over the internet
-	if err := call(t, c, ipc.MethodTunnelOffline, ipc.OfflineParams{Offline: false}, nil); err != nil {
-		t.Fatal(err)
-	}
-	const page = "SOIREEHOST-S42-TRAFFIC"
-	id := publishTestSite(t, c, page)
-	if err := call(t, c, ipc.MethodQuickShareStart, ipc.QuickShareParams{SiteID: id}, nil); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = call(t, c, ipc.MethodQuickShareStop, ipc.QuickShareParams{SiteID: id}, nil) })
-	// five minutes: cloudflared retries while a 429 from trycloudflare.com clears
-	ts := waitTunnel(t, c, 5*time.Minute, "a quick share link", func(ts ipc.TunnelStatus) bool {
-		v, ok := quickView(ts, id)
-		return ok && v.URL != "" && v.State == ipc.TunnelConnected
-	})
-	v, _ := quickView(ts, id)
-	deadline := time.Now().Add(3 * time.Minute)
-	for {
-		if code, body, err := fetch(t, v.URL); err == nil && code == 200 && body == page {
-			break
+	if withTunnel {
+		// a site online through quick share, fetched over the internet
+		if err := call(t, c, ipc.MethodTunnelOffline, ipc.OfflineParams{Offline: false}, nil); err != nil {
+			t.Fatal(err)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("the quick share link never served the site")
+		const page = "SOIREEHOST-S42-TRAFFIC"
+		id := publishTestSite(t, c, page)
+		if err := call(t, c, ipc.MethodQuickShareStart, ipc.QuickShareParams{SiteID: id}, nil); err != nil {
+			t.Fatal(err)
 		}
-		time.Sleep(3 * time.Second)
+		t.Cleanup(func() { _ = call(t, c, ipc.MethodQuickShareStop, ipc.QuickShareParams{SiteID: id}, nil) })
+		// five minutes: cloudflared retries while a 429 from trycloudflare.com clears
+		ts := waitTunnel(t, c, 5*time.Minute, "a quick share link", func(ts ipc.TunnelStatus) bool {
+			v, ok := quickView(ts, id)
+			return ok && v.URL != "" && v.State == ipc.TunnelConnected
+		})
+		v, _ := quickView(ts, id)
+		deadline := time.Now().Add(3 * time.Minute)
+		for {
+			if code, body, err := fetch(t, v.URL); err == nil && code == 200 && body == page {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the quick share link never served the site")
+			}
+			time.Sleep(3 * time.Second)
+		}
 	}
 	// the update check: a release build asks GitHub (there is no release
 	// manifest yet, so it finds nothing; the connection is what counts)
@@ -143,7 +154,7 @@ func TestOutboundTraffic(t *testing.T) {
 	}
 	t.Logf("%d sends recorded; outside loopback by role: %v", len(sends), seen)
 	// the capture must have seen the traffic it checks, or it proves nothing
-	if seen[tunnel.ExeName] == 0 {
+	if withTunnel && seen[tunnel.ExeName] == 0 {
 		t.Fatal("the trace recorded no cloudflared traffic: the capture did not work")
 	}
 	if release && seen[winsec.SupervisorService] == 0 {

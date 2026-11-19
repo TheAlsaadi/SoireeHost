@@ -244,6 +244,10 @@ jobs:
       - name: Isolation and tunnel tests
         env:
           SOIREEHOST_E2E: "1"
+          # the tunnel half of the S-42 capture runs here, while the runner's
+          # address can still get quick tunnels from trycloudflare.com
+          SOIREEHOST_S42_E2E: "1"
+          SOIREEHOST_S42_TUNNEL: "1"
         shell: pwsh
         run: |
           $out = go test -tags e2e,no_fs_access -count=1 -v -timeout 60m ./internal/e2e/ 2>&1 | Out-String
@@ -375,11 +379,11 @@ jobs:
             Write-Output "::error title=signed update tests failed::$msg"
             exit $code
           }
-      - name: Outbound traffic capture (S-42, ADR-0004)
-        # A network trace while a quick share serves the site and the
-        # supervisor checks for updates: each process may reach only what
-        # S-42 allows. Runs with the release-style test build installed
-        # above, so the update check really runs.
+      - name: Outbound traffic capture, update check (S-42, ADR-0004)
+        # The update half of the S-42 capture: a network trace while the
+        # release-style test build installed above checks for updates; each
+        # process may reach only what S-42 allows. The tunnel half ran with
+        # the isolation tests.
         shell: pwsh
         run: |
           $env:SOIREEHOST_E2E = '1'
