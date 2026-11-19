@@ -263,6 +263,19 @@ jobs:
           }
           Write-Output "::error title=reinstall::services not running 90 seconds after reinstall"
           exit 1
+      - name: setup repair from the installed program (ADR-0010)
+        shell: pwsh
+        run: |
+          & "$env:ProgramFiles\SoireeHost\soireehost.exe" setup repair | Out-Default
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=repair::setup repair exited $LASTEXITCODE"; exit 1 }
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Get-Date) -lt $deadline) {
+            $down = Get-Service SoireeHost, SoireeHostWeb, SoireeHostTunnel | Where-Object Status -ne 'Running'
+            if (-not $down) { exit 0 }
+            Start-Sleep -Seconds 2
+          }
+          Write-Output "::error title=repair::services not running 90 seconds after repair"
+          exit 1
       - name: Service state on failure
         if: failure()
         shell: pwsh
@@ -302,6 +315,8 @@ jobs:
           if (Test-Path "$env:ProgramData\SoireeHost") { $left += "data folder" }
           if (Get-NetFirewallRule -DisplayName "SoireeHost block inbound *" -ErrorAction SilentlyContinue) { $left += "firewall rules" }
           if (Get-Process cloudflared -ErrorAction SilentlyContinue) { $left += "cloudflared process" }
+          if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SoireeHost') { $left += "Apps entry" }
+          if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SoireeHost -ErrorAction SilentlyContinue) { $left += "sign-in entry" }
           if ($left) { Write-Output "::error title=uninstall left::$($left -join ', ')"; exit 1 }
 
   fuzz:

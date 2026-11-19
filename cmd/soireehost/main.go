@@ -107,10 +107,12 @@ func runSetup(args []string) int {
 	switch inv.Cmd {
 	case setup.CmdInstall:
 		return setupExit(setup.Install(l))
+	case setup.CmdRepair:
+		return setupExit(setup.Repair(l))
 	case setup.CmdUninstall:
 		return setupExit(setup.Uninstall(l, inv.Purge))
 	}
-	// repair and apply-update arrive with the rest of the Phase 6 setup role
+	// apply-update arrives with the rest of the Phase 6 setup role
 	fmt.Fprintln(os.Stderr, "soireehost: setup", inv.Cmd, "is not available in this build")
 	return int(setup.CodeFailed)
 }
