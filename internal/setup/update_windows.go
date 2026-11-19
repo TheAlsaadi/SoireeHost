@@ -174,6 +174,10 @@ func openStaged(l Layout) (*os.File, update.Manifest, error) {
 		_ = f.Close()
 		return nil, update.Manifest{}, fail(CodeUpdateRefused, fmt.Errorf("the staged program: %w", err))
 	}
+	if err := checkSignatures(path, h); err != nil {
+		_ = f.Close()
+		return nil, update.Manifest{}, err
+	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		_ = f.Close()
 		return nil, update.Manifest{}, err
@@ -607,4 +611,28 @@ func parentPID() (uint32, error) {
 		}
 	}
 	return 0, errors.New("this process is not in the process list")
+}
+
+// checkSignatures applies S-61 to the staged program, open as h at path:
+// once this program is Authenticode-signed, the update must be signed by
+// the same publisher. A check that cannot run refuses the update.
+func checkSignatures(path string, h windows.Handle) error {
+	self, err := os.Executable()
+	if err != nil {
+		return fail(CodeUpdateRefused, err)
+	}
+	sf, err := os.Open(self) // #nosec G304 -- this program's own file
+	if err != nil {
+		return fail(CodeUpdateRefused, err)
+	}
+	defer sf.Close() //nolint:errcheck // read-only
+	run, err := winsec.FileSignature(self, windows.Handle(sf.Fd()))
+	if err != nil {
+		return fail(CodeUpdateRefused, fmt.Errorf("checking this program's signature: %w", err))
+	}
+	cand, err := winsec.FileSignature(path, h)
+	if err != nil {
+		return fail(CodeUpdateRefused, fmt.Errorf("checking the update's signature: %w", err))
+	}
+	return signatureAllows(run.Valid, run.Subject, cand.Valid, cand.Subject)
 }

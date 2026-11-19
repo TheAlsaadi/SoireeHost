@@ -145,8 +145,10 @@ The downloaded file is never run before both checks pass: the supervisor's at do
 - **Setup's check.**
   - If the running binary carries a valid Authenticode signature, the candidate must carry a valid one from the same subject. This is never signed to unsigned.
   - If the running binary is unsigned, the candidate may be either.
-  - The check uses `WinVerifyTrust` through `windows.NewLazySystemDLL("wintrust.dll")` (convention rule 9).
-  - This code ships in Phase 6. Its full test needs a signed build, so S-61 stays "not verified" until signing exists. Until then, a unit test covers the decision table.
+  - The check is `winsec.FileSignature`: `WinVerifyTrust` (x/sys/windows) on the open file, then the signer's display name through `CryptQueryObject`, `CryptMsgGetParam` and `CertGetNameString`. The two calls x/sys does not wrap come from `windows.NewLazySystemDLL("crypt32.dll")` (convention rule 9).
+  - It runs offline: no revocation check and no URL retrieval (`WTD_REVOKE_NONE`, `WTD_CACHE_ONLY_URL_RETRIEVAL`), because a check that went online would be a third outbound connection (S-42). The signed manifest (S-60) already proves origin; S-61 adds the publisher rule on top. Note added 19 Nov 2026.
+  - A signed program whose publisher cannot be read, or a check that cannot run, refuses the update.
+  - This code ships in Phase 6. A unit test covers the decision table, and `TestFileSignature` reads a Microsoft-signed program, an unsigned one and a changed copy. The CI isolation job signs test builds with two throwaway certificates it trusts on the runner only, and `TestSignedUpdates` checks the rule on an installed system. Signing with the real publisher (SignPath) is checked once it exists.
 
 ### Release workflow (`.github/workflows/release.yml`)
 

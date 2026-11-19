@@ -313,6 +313,46 @@ jobs:
             Write-Output "::error title=update tests failed::$msg"
             exit $code
           }
+      - name: Signed update tests (S-61, ADR-0004)
+        # Two throwaway code-signing certificates, trusted on this runner
+        # only, sign test builds; TestSignedUpdates then checks that a signed
+        # install refuses an unsigned update and another publisher's
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          $d = 'C:\soireehost-ci\upd\signed'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          foreach ($v in '1.3.0', '1.4.0') {
+            go build -trimpath -tags "cloudflared,no_fs_access,updatetestkey" -ldflags "-X github.com/TheAlsaadi/SoireeHost/internal/version.Version=$v" -o "$d\$v.exe" ./cmd/soireehost
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error title=signed update tests::building $v failed"; exit 1 }
+          }
+          $certs = @{}
+          foreach ($who in 'A', 'B') {
+            $c = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=SoireeHost Test Signer $who" -CertStoreLocation Cert:\LocalMachine\My -NotAfter (Get-Date).AddDays(1)
+            foreach ($store in 'Root', 'TrustedPublisher') {
+              $s = [System.Security.Cryptography.X509Certificates.X509Store]::new($store, 'LocalMachine')
+              $s.Open('ReadWrite'); $s.Add($c); $s.Close()
+            }
+            $certs[$who] = $c
+          }
+          foreach ($job in @(@{ src = '1.3.0.exe'; dst = '1.3.0-a.exe'; who = 'A' }, @{ src = '1.4.0.exe'; dst = '1.4.0-a.exe'; who = 'A' }, @{ src = '1.4.0.exe'; dst = '1.4.0-b.exe'; who = 'B' })) {
+            Copy-Item "$d\$($job.src)" "$d\$($job.dst)"
+            $r = Set-AuthenticodeSignature -FilePath "$d\$($job.dst)" -Certificate $certs[$job.who] -HashAlgorithm SHA256
+            if ($r.Status -ne 'Valid') { Write-Output "::error title=signed update tests::signing $($job.dst): $($r.Status) $($r.StatusMessage)"; exit 1 }
+          }
+          $env:SOIREEHOST_E2E = '1'
+          $env:SOIREEHOST_SIGNED_E2E = '1'
+          $env:SOIREEHOST_UPDATE_KEY = 'C:\soireehost-ci\update-test.key'
+          $out = go test -tags e2e,no_fs_access -count=1 -v -timeout 20m -run '^TestSignedUpdates$' ./internal/e2e/ 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|error|exited|--- |\.go:\d+' } | Select-Object -First 40
+            $msg = ($lines -join '%0A') -replace '::', ': :'
+            Write-Output "::error title=signed update tests failed::$msg"
+            exit $code
+          }
       - name: Service state on failure
         if: failure()
         shell: pwsh

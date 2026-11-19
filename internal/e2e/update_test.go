@@ -288,3 +288,56 @@ func exists(p string) bool {
 	_, err := os.Lstat(p)
 	return err == nil
 }
+
+// TestSignedUpdates covers S-61 on an installed system, after
+// TestApplyUpdate left 1.1.0 (unsigned) installed. The CI job signs test
+// builds with two throwaway code-signing certificates it trusts on the
+// runner only: an unsigned install may move to a signed version, and once
+// signed it refuses an unsigned update and one from another publisher, and
+// accepts the same publisher's.
+func TestSignedUpdates(t *testing.T) {
+	if os.Getenv("SOIREEHOST_SIGNED_E2E") != "1" {
+		t.Skip("set SOIREEHOST_SIGNED_E2E=1 after the signed test builds are made")
+	}
+	l := layout(t)
+	keyText, err := os.ReadFile(os.Getenv("SOIREEHOST_UPDATE_KEY")) //nolint:gosec // G703: the CI job names its own test key file
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv, err := update.ParsePrivateKey(string(keyText))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := func(name string) []byte {
+		b, err := os.ReadFile(filepath.Join(updateBins, "signed", name)) // #nosec G304 -- test builds
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	if got := runningVersion(t); got != "1.1.0" {
+		t.Fatalf("installed version %s, want 1.1.0 from TestApplyUpdate", got)
+	}
+	apply := func(name, ver string, exe []byte, want setup.Code) {
+		t.Helper()
+		before := hashOf(t, l.Exe())
+		stageUpdate(t, sign(t, ver, exe, priv), exe, ver)
+		if code := runSetup(t, nil, "apply-update"); code != want {
+			t.Fatalf("%s: apply-update exited %d, want %d", name, code, want)
+		}
+		if want != setup.CodeOK && hashOf(t, l.Exe()) != before {
+			t.Fatalf("%s: the installed program changed", name)
+		}
+	}
+	apply("unsigned to signed", "1.3.0", bin("1.3.0-a.exe"), setup.CodeOK)
+	if got := runningVersion(t); got != "1.3.0" {
+		t.Fatalf("after the signed update the supervisor runs %s", got)
+	}
+	apply("signed to unsigned", "1.4.0", bin("1.4.0.exe"), setup.CodeUpdateRefused)
+	apply("signed to another publisher", "1.4.0", bin("1.4.0-b.exe"), setup.CodeUpdateRefused)
+	apply("signed to the same publisher", "1.4.0", bin("1.4.0-a.exe"), setup.CodeOK)
+	if got := runningVersion(t); got != "1.4.0" {
+		t.Fatalf("after the same publisher's update the supervisor runs %s", got)
+	}
+	clearStaged(t)
+}

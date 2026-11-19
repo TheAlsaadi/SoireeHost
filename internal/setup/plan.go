@@ -293,3 +293,23 @@ func (l Layout) JournalPath() string { return filepath.Join(l.ProgramDir, journa
 
 // RollbackDir holds the config snapshot during an update.
 func (l Layout) RollbackDir() string { return filepath.Join(l.ProgramDir, rollbackDir) }
+
+// signatureAllows is the S-61 rule for an update (ADR-0004): while the
+// running program is unsigned, the signed manifest (S-60) is the only proof
+// of origin and any candidate may follow; once the running program carries
+// a valid Authenticode signature, the candidate must carry one too, from
+// the same publisher, so an update never moves from signed to unsigned.
+// A signed program whose publisher cannot be read refuses every update.
+func signatureAllows(runValid bool, runSubject string, newValid bool, newSubject string) error {
+	switch {
+	case !runValid:
+		return nil
+	case runSubject == "":
+		return fail(CodeUpdateRefused, errors.New("this program is signed, but its publisher could not be read"))
+	case !newValid:
+		return fail(CodeUpdateRefused, errors.New("the update is not validly signed, and this version is; SoiréeHost never moves from signed to unsigned (S-61)"))
+	case newSubject != runSubject:
+		return fail(CodeUpdateRefused, fmt.Errorf("the update is signed by %q, not by %q", newSubject, runSubject))
+	}
+	return nil
+}

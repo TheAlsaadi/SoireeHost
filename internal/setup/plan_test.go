@@ -208,3 +208,33 @@ func FuzzDecodeJournal(f *testing.F) {
 		}
 	})
 }
+
+// TestSignatureAllows is the S-61 decision table.
+func TestSignatureAllows(t *testing.T) {
+	const pub, other = "SoiréeHost project", "Someone Else"
+	for _, tt := range []struct {
+		name       string
+		runValid   bool
+		runSubject string
+		newValid   bool
+		newSubject string
+		ok         bool
+	}{
+		{"unsigned to unsigned", false, "", false, "", true},
+		{"unsigned to signed", false, "", true, pub, true},
+		{"signed to signed, same publisher", true, pub, true, pub, true},
+		{"signed to unsigned", true, pub, false, "", false},
+		{"signed to another publisher", true, pub, true, other, false},
+		{"signed to a broken signature claiming the publisher", true, pub, false, pub, false},
+		{"signed, publisher unreadable", true, "", true, "", false},
+		{"publisher differs only in case", true, pub, true, "soiréehost project", false},
+	} {
+		err := signatureAllows(tt.runValid, tt.runSubject, tt.newValid, tt.newSubject)
+		if (err == nil) != tt.ok {
+			t.Errorf("%s: %v", tt.name, err)
+		}
+		if err != nil && ExitCode(err) != CodeUpdateRefused {
+			t.Errorf("%s: exit code %d, want %d", tt.name, ExitCode(err), CodeUpdateRefused)
+		}
+	}
+}
