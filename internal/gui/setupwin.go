@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -194,7 +195,34 @@ func (s *Setup) afterExit() {
 	// argument; it opens its own window
 	// #nosec G204 -- the installed program from the known folder, a fixed argument
 	cmd := exec.Command(exe, "gui") //nolint:noctx // it outlives this exiting process
+	// Wails keeps its single-instance lock until this process has exited,
+	// so the new control panel waits for that first; otherwise it would
+	// find the lock, hand over to this exiting process and quit (review
+	// finding of 20 Nov 2026)
+	cmd.Env = append(os.Environ(), relaunchEnv+"="+strconv.Itoa(os.Getpid()))
 	_ = cmd.Start()
+}
+
+// relaunchEnv names the control panel that started this one on its way
+// out; this one waits for it to exit before taking the single-instance lock.
+const relaunchEnv = "SOIREEHOST_RELAUNCH_AFTER"
+
+// relaunchWait is the longest a relaunched control panel waits.
+const relaunchWait = 15 * time.Second
+
+// waitForPredecessor waits, at most relaunchWait, for the process named by
+// relaunchEnv to exit. A missing or malformed value means no wait.
+func waitForPredecessor(getenv func(string) string) {
+	pid, err := strconv.ParseUint(getenv(relaunchEnv), 10, 32)
+	if err != nil || pid == 0 {
+		return
+	}
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return // already gone
+	}
+	defer windows.CloseHandle(h)                                                 //nolint:errcheck // nothing to do on failure
+	_, _ = windows.WaitForSingleObject(h, uint32(relaunchWait/time.Millisecond)) // #nosec G115 -- 15 s
 }
 
 // systemHost is the real setupHost.

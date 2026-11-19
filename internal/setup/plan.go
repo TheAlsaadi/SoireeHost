@@ -174,15 +174,15 @@ type Step string
 // Steps, in order.
 const (
 	StepVerified    Step = "verified"     // checks passed; nothing changed yet
-	StepSnapshot    Step = "snapshot"     // config copied aside
 	StepStaged      Step = "staged"       // soireehost.exe.new written and checked
 	StepStopped     Step = "stopped"      // services stopped
+	StepSnapshot    Step = "snapshot"     // config copied aside, after the stop
 	StepSwapped     Step = "swapped"      // binaries renamed: the new one is in place
 	StepFinished    Step = "finished"     // the new version's repair ran; waiting for its supervisor
 	StepRollingBack Step = "rolling_back" // putting the previous version back
 )
 
-var steps = []Step{StepVerified, StepSnapshot, StepStaged, StepStopped, StepSwapped, StepFinished, StepRollingBack}
+var steps = []Step{StepVerified, StepStaged, StepStopped, StepSnapshot, StepSwapped, StepFinished, StepRollingBack}
 
 // Journal is the content of update.json.
 type Journal struct {
@@ -272,7 +272,7 @@ const (
 // so the user can try Install again.
 func Decide(j Journal, installedHash string) Recovery {
 	switch j.Step {
-	case StepVerified, StepSnapshot, StepStaged, StepStopped:
+	case StepVerified, StepStaged, StepStopped, StepSnapshot:
 		return RecoverCleanup
 	case StepFinished:
 		if installedHash == j.NewHash {
@@ -293,6 +293,18 @@ func (l Layout) JournalPath() string { return filepath.Join(l.ProgramDir, journa
 
 // RollbackDir holds the config snapshot during an update.
 func (l Layout) RollbackDir() string { return filepath.Join(l.ProgramDir, rollbackDir) }
+
+// rollbackResult is CodeRolledBack only when the previous version was put
+// back and started; a rollback that failed itself is reported as a plain
+// failure, so the control panel never says the previous version runs when
+// it may not.
+func rollbackResult(to string, cause error, restoreErrs []error) error {
+	if len(restoreErrs) > 0 {
+		return fail(CodeFailed, fmt.Errorf("the update to %s failed (%w), and putting the previous version back failed too: %w; run Repair",
+			to, cause, errors.Join(restoreErrs...)))
+	}
+	return fail(CodeRolledBack, fmt.Errorf("the update to %s was rolled back: %w", to, cause))
+}
 
 // signatureAllows is the S-61 rule for an update (ADR-0004): while the
 // running program is unsigned, the signed manifest (S-60) is the only proof

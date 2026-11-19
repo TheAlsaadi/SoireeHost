@@ -92,6 +92,16 @@ func TestEditsOnRepositoryFiles(t *testing.T) {
 	if goLine(read(goMod)) == "" {
 		t.Fatal("no go line found in go.mod")
 	}
+	// only the version changes: every other line, blank ones included, stays
+	if want := strings.Replace(read(goMod), "go "+goLine(read(goMod)), "go 1.27.5", 1); mod != want {
+		t.Fatalf("setGoLine changed more than the go line:\n%s", mod)
+	}
+	for _, in := range []string{"module m\n\ngo 1.27.4\n\nrequire x v1.0.0\n", "module m\r\n\r\ngo 1.27.4\r\n\r\nrequire x v1.0.0\r\n"} {
+		out, err := setGoLine(in, "1.27.5")
+		if err != nil || out != strings.Replace(in, "go 1.27.4", "go 1.27.5", 1) {
+			t.Fatalf("setGoLine(%q) = %q, %v", in, out, err)
+		}
+	}
 }
 
 func TestCRSSetupVersion(t *testing.T) {

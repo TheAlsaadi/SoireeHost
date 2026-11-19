@@ -338,6 +338,41 @@ func TestUpdateRefusesOlderVersions(t *testing.T) {
 	}
 }
 
+// TestUpdateStagedSurvivesFailedCheck: once an update is staged, a later
+// check that fails (GitHub unreachable, a bad newer release) reports its
+// problem but keeps the staged update installable (review finding of 20 Nov
+// 2026: the Install button shows only while the state is ready).
+func TestUpdateStagedSurvivesFailedCheck(t *testing.T) {
+	f := newFakeGitHub(t)
+	r := newTestUpdater(t, f, "1.2.0")
+	if err := r.u.check(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// a still newer release whose file does not match its manifest
+	f.set(func(f *fakeGitHub) {
+		other := bytes.Repeat([]byte{7}, len(updateArtifact))
+		f.manifest = signedManifest(t, "1.4.0", other, updatePriv)
+	})
+	if err := r.u.check(t.Context()); err == nil {
+		t.Fatal("a mismatching download was accepted")
+	}
+	st := r.u.status()
+	if st.State != ipc.UpdateReady || st.Version != "1.3.0" || st.Problem != "artifact_mismatch" {
+		t.Fatalf("after a failed download: status = %+v, want 1.3.0 still ready with the problem", st)
+	}
+	// GitHub unreachable
+	f.set(func(f *fakeGitHub) { f.manifestRedirect = "https://release-assets.githubusercontent.com/missing" })
+	if err := r.u.check(t.Context()); err == nil {
+		t.Fatal("a missing manifest was not an error")
+	}
+	if st := r.u.status(); st.State != ipc.UpdateReady || st.Version != "1.3.0" || st.Problem != problemNetwork {
+		t.Fatalf("after a network failure: status = %+v", st)
+	}
+	if _, err := os.Stat(filepath.Join(r.dir, stagedExe("1.3.0"))); err != nil {
+		t.Fatalf("the staged file is gone: %v", err)
+	}
+}
+
 // TestUpdateStaysOnGitHub covers S-42: a redirect off the update hosts is
 // refused, whatever the target serves.
 func TestUpdateStaysOnGitHub(t *testing.T) {

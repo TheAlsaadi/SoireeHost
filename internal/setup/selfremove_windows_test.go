@@ -84,28 +84,8 @@ func TestRemoveProgramFolderWhileRunning(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cloudflared.exe"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// the copy runs TestSelfRemoveHelper, which waits until its input closes
-	cmd := exec.CommandContext(t.Context(), exe, "-test.run=^TestSelfRemoveHelper$") // #nosec G204 -- this test's own binary
-	cmd.Env = append(os.Environ(), "SOIREEHOST_SELFREMOVE_HELPER=1")
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	stopped := false
-	stop := func() {
-		if !stopped {
-			stopped = true
-			_ = stdin.Close()
-			_ = cmd.Wait()
-		}
-	}
+	stop := runHeld(t, exe)
 	defer stop()
-	if err := os.Remove(exe); err == nil {
-		t.Fatal("a running program was deleted outright; the test proves nothing")
-	}
 
 	moved, err := removeProgramFolder(dir, testRemovedSDDL(t))
 	if err != nil {
@@ -134,7 +114,93 @@ func TestRemoveProgramFolderWhileRunning(t *testing.T) {
 	}
 }
 
-// TestSelfRemoveHelper is the running program of the test above.
+// runHeld starts exe, a copy of this test binary, running
+// TestSelfRemoveHelper, which keeps it running until stop is called. It
+// fails the test if the running file can still be deleted.
+func runHeld(t *testing.T, exe string) (stop func()) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), exe, "-test.run=^TestSelfRemoveHelper$") // #nosec G204 -- this test's own binary
+	cmd.Env = append(os.Environ(), "SOIREEHOST_SELFREMOVE_HELPER=1")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	stopped := false
+	stop = func() {
+		if !stopped {
+			stopped = true
+			_ = stdin.Close()
+			_ = cmd.Wait()
+		}
+	}
+	if err := os.Remove(exe); err == nil {
+		stop()
+		t.Fatal("a running program was deleted outright; the test proves nothing")
+	}
+	return stop
+}
+
+// TestReplaceProgramWhileRunning: an upgrade by "setup install" replaces
+// the installed program while a control panel still runs from it (the tray
+// starts at sign-in). Windows refuses to replace a running program, so the
+// old one moves aside and the new one takes its name (review finding of
+// 20 Nov 2026).
+func TestReplaceProgramWhileRunning(t *testing.T) {
+	if os.Getenv("SOIREEHOST_SELFREMOVE_HELPER") == "1" {
+		t.Skip("helper run")
+	}
+	dir := t.TempDir()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(dir, "soireehost.exe")
+	copyFile(t, self, exe)
+	stop := runHeld(t, exe)
+	defer stop()
+	newer := filepath.Join(dir, "soireehost.exe.new")
+	if err := os.WriteFile(newer, []byte("the new program"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := moveFile(newer, exe); err == nil {
+		t.Fatal("a running program was replaced outright; the test proves nothing")
+	}
+	if err := replaceProgram(newer, exe); err != nil {
+		t.Fatalf("replaceProgram: %v", err)
+	}
+	if b, err := os.ReadFile(exe); err != nil || string(b) != "the new program" { //nolint:gosec // G304: the test's own folder
+		t.Fatalf("the installed program is %q (%v), want the new one", b, err)
+	}
+	if exists(newer) {
+		t.Fatal("the new program is still at its staging name")
+	}
+	var aside []string
+	for _, n := range leftovers(t, dir) {
+		if strings.HasPrefix(n, "soireehost.exe.old-") {
+			aside = append(aside, n)
+		}
+	}
+	if len(aside) != 1 {
+		t.Fatalf("files beside the program: %v, want one moved-aside old program", leftovers(t, dir))
+	}
+	stop()
+	// on a real install the restart deletes it; here the test does
+	if err := os.Remove(filepath.Join(dir, aside[0])); err != nil {
+		t.Fatalf("cleaning up: %v", err)
+	}
+	// with nothing running, a plain replace is used and nothing is left
+	if err := os.WriteFile(newer, []byte("again"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceProgram(newer, exe); err != nil || len(leftovers(t, dir)) != 1 {
+		t.Fatalf("replaceProgram with nothing running: %v, left %v", err, leftovers(t, dir))
+	}
+}
+
+// TestSelfRemoveHelper is the running program of the tests above.
 func TestSelfRemoveHelper(t *testing.T) {
 	if os.Getenv("SOIREEHOST_SELFREMOVE_HELPER") != "1" {
 		t.Skip("run by TestRemoveProgramFolderWhileRunning")

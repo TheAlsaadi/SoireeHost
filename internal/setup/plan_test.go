@@ -184,6 +184,22 @@ func TestDecide(t *testing.T) {
 	}
 }
 
+// TestRollbackResult: a rollback is reported as such only when it worked;
+// one that could not put the previous version back is a plain failure that
+// names both causes (review finding of 20 Nov 2026).
+func TestRollbackResult(t *testing.T) {
+	cause := errors.New("the new supervisor did not answer")
+	ok := rollbackResult("1.2.0", cause, nil)
+	if ExitCode(ok) != CodeRolledBack || !errors.Is(ok, cause) {
+		t.Fatalf("clean rollback: code %d, %v", ExitCode(ok), ok)
+	}
+	restore := errors.New("soireehost.exe.previous is locked")
+	bad := rollbackResult("1.2.0", cause, []error{restore})
+	if ExitCode(bad) != CodeFailed || !errors.Is(bad, cause) || !errors.Is(bad, restore) {
+		t.Fatalf("failed rollback: code %d, %v", ExitCode(bad), bad)
+	}
+}
+
 // FuzzDecodeJournal: no input panics the journal reader, and anything it
 // accepts round-trips and has a recovery.
 func FuzzDecodeJournal(f *testing.F) {

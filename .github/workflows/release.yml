@@ -155,8 +155,10 @@ jobs:
     # Signs with a key made here and now, which nothing trusts: it proves
     # the signing path and the checks, never the real key
     name: Signed update manifest (dry run)
-    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-    needs: build
+    # waits for the Authenticode job: a skipped one (signing off) is fine, a
+    # failed one stops everything after it
+    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.authenticode.result) }}
+    needs: [build, authenticode]
     runs-on: windows-2025
     permissions:
       actions: read
@@ -199,8 +201,11 @@ jobs:
     # tags may use and which needs the owner's approval (ADR-0004). This job
     # runs no action but checkout and setup-go.
     name: Signed update manifest (S-60)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    # the manifest hashes the file as released, so it waits for the
+    # Authenticode job; a skipped one (signing off) is fine, a failed one is
+    # not (review finding of 20 Nov 2026)
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.authenticode.result) }}
+    needs: [build, authenticode]
     runs-on: windows-2025
     environment: release
     permissions:
@@ -233,8 +238,10 @@ jobs:
     # A draft release: nothing is public until the owner reviews and
     # publishes it, and releases/latest ignores drafts
     name: Draft GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, attest, manifest]
+    # every job before it must have succeeded; only Authenticode may have
+    # been skipped (signing off)
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' && needs.attest.result == 'success' && needs.manifest.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.authenticode.result) }}
+    needs: [build, authenticode, attest, manifest]
     runs-on: ubuntu-24.04
     permissions:
       actions: read

@@ -424,7 +424,7 @@ func setCRSGo(s, v string) (string, error) {
 }
 
 func goLine(mod string) string {
-	m := regexp.MustCompile(`(?m)^go ([0-9.]+)\s*$`).FindStringSubmatch(mod)
+	m := regexp.MustCompile(`(?m)^go ([0-9.]+)[ \t\r]*$`).FindStringSubmatch(mod)
 	if m == nil {
 		return ""
 	}
@@ -432,5 +432,8 @@ func goLine(mod string) string {
 }
 
 func setGoLine(s, v string) (string, error) {
-	return replaceOnce(s, `(?m)^go [0-9.]+\s*$`, "go "+v)
+	// only the version itself is replaced: a pattern reaching to the end of
+	// the line would also take its carriage return, or with \s the line
+	// break and the blank line after it
+	return replaceOnce(s, `(?m)^go [0-9.]+`, "go "+v)
 }

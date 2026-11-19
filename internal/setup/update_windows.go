@@ -81,6 +81,10 @@ func ApplyUpdate(l Layout) error {
 		j.Step = s
 		return writeJournal(l, j)
 	}
+	// Stale .previous files from an earlier update go before the journal
+	// exists, so while there is a journal every .previous file belongs to
+	// this update and a rollback can only restore the version running now.
+	removePrevious(l)
 	if err := step(StepVerified); err != nil {
 		return err
 	}
@@ -90,18 +94,9 @@ func ApplyUpdate(l Layout) error {
 		_ = startSupervisor()
 		return cause
 	}
-	if err := step(StepSnapshot); err != nil {
-		return abort(err)
-	}
-	if err := snapshotConfig(l); err != nil {
-		return abort(fmt.Errorf("copying the settings aside: %w", err))
-	}
 	if err := step(StepStaged); err != nil {
 		return abort(err)
 	}
-	// stale .previous files from an earlier update go now, so a rollback
-	// can only ever restore the version running at this moment
-	removePrevious(l)
 	if err := copyVerified(staged, l.Exe()+newSuffix, m.Artifact); err != nil {
 		return abort(fail(CodeUpdateRefused, fmt.Errorf("staging the new program: %w", err)))
 	}
@@ -112,6 +107,14 @@ func ApplyUpdate(l Layout) error {
 		return abort(errors.New("a SoiréeHost service did not stop; nothing was changed"))
 	}
 	testKillAt(StepStopped)
+	// The settings are copied only once the supervisor has stopped, so no
+	// change made meanwhile is lost and the copy is consistent.
+	if err := step(StepSnapshot); err != nil {
+		return abort(err)
+	}
+	if err := snapshotConfig(l); err != nil {
+		return abort(fmt.Errorf("copying the settings aside: %w", err))
+	}
 	// From here on, any failure puts the previous version back.
 	if err := step(StepSwapped); err != nil {
 		return rollback(l, sid, j, true, err)
@@ -285,12 +288,24 @@ func removePrevious(l Layout) {
 			continue
 		}
 		if os.Remove(prev) != nil {
-			out := prev + ".old-" + strings.ReplaceAll(time.Now().UTC().Format("20060102T150405.000000000"), ".", "")
-			if moveFile(prev, out) == nil {
-				deleteAtRestart(out)
-			}
+			_, _ = moveAside(prev)
 		}
 	}
+}
+
+// moveAside renames a file that cannot be deleted because it is in use (a
+// running program) to a unique name beside it, and returns that name, which
+// is deleted now if possible and otherwise at the next restart. Windows
+// allows renaming a running program but not deleting or replacing it.
+func moveAside(p string) (string, error) {
+	out := p + ".old-" + strings.ReplaceAll(time.Now().UTC().Format("20060102T150405.000000000"), ".", "")
+	if err := moveFile(p, out); err != nil {
+		return "", err
+	}
+	if os.Remove(out) != nil {
+		deleteAtRestart(out)
+	}
+	return out, nil
 }
 
 // deleteAtRestart marks a file for deletion at the next restart, the way
@@ -356,61 +371,102 @@ func snapshotConfig(l Layout) error {
 	if err := winsec.CreateFolderSDDL(dst, "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"); err != nil {
 		return err
 	}
-	src := supervisor.Paths{Root: l.DataRoot}.Config()
-	return copyStore(src, dst)
+	return copyStorePaths(supervisor.Paths{Root: l.DataRoot}.Config(), dst, false)
 }
 
-// copyStore copies current.json, good and history\*.json from src to dst.
-func copyStore(src, dst string) error {
-	files := []string{"current.json", "good"}
-	if es, err := os.ReadDir(filepath.Join(src, "history")); err == nil {
-		for _, e := range es {
-			if e.Type().IsRegular() {
-				files = append(files, filepath.Join("history", e.Name()))
-			}
-		}
-	}
-	if err := os.MkdirAll(filepath.Join(dst, "history"), 0o700); err != nil {
+// maxStoreFile bounds one settings file read by setup.
+const maxStoreFile = 16 << 20
+
+// copyStorePaths opens both folders and copies the store between them.
+// The config folder belongs to the supervisor's account, which could swap
+// any part of it for a junction or a hard link to a file elsewhere, so
+// every access goes through winsec.Dir: relative to an open folder handle,
+// never through a link (security review of 20 Nov 2026). With prune, history
+// revisions in dst that src does not hold are removed (a restore).
+func copyStorePaths(src, dst string, prune bool) error {
+	from, err := winsec.OpenDir(src)
+	if err != nil {
 		return err
 	}
-	for _, f := range files {
-		b, err := os.ReadFile(filepath.Join(src, f)) // #nosec G304 -- names listed from the protected config folder
-		if errors.Is(err, os.ErrNotExist) {
-			continue
+	defer from.Close() //nolint:errcheck // nothing to do on failure
+	to, err := winsec.OpenDir(dst)
+	if err != nil {
+		return err
+	}
+	defer to.Close() //nolint:errcheck // nothing to do on failure
+	return copyStore(from, to, prune)
+}
+
+// copyStore copies current.json, good and history\* from src to dst.
+func copyStore(src, dst *winsec.Dir, prune bool) error {
+	for _, f := range []string{"current.json", "good"} {
+		if err := copyStoreFile(src, dst, f); err != nil {
+			return err
 		}
+	}
+	srcHist, err := src.Sub("history", false)
+	if errors.Is(err, windows.STATUS_OBJECT_NAME_NOT_FOUND) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer srcHist.Close() //nolint:errcheck // nothing to do on failure
+	dstHist, err := dst.Sub("history", true)
+	if err != nil {
+		return err
+	}
+	defer dstHist.Close() //nolint:errcheck // nothing to do on failure
+	names, err := srcHist.Names()
+	if err != nil {
+		return err
+	}
+	if prune {
+		keep := map[string]bool{}
+		for _, n := range names {
+			keep[n] = true
+		}
+		have, err := dstHist.Names()
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(dst, f), b, 0o600); err != nil { // #nosec G703 -- names listed from the protected config folder or setup's own snapshot
+		for _, n := range have {
+			if !keep[n] {
+				// a folder or anything else Remove refuses stays; the
+				// store ignores what it did not write
+				_ = dstHist.Remove(n)
+			}
+		}
+	}
+	for _, n := range names {
+		if err := copyStoreFile(srcHist, dstHist, n); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// restoreConfig puts the snapshot back: each file is rewritten in place, so
-// it keeps the config folder's permissions, and history revisions the new
-// version added are removed.
+// copyStoreFile copies one plain file; a missing one is skipped.
+func copyStoreFile(src, dst *winsec.Dir, name string) error {
+	b, err := src.ReadFile(name, maxStoreFile)
+	if errors.Is(err, windows.STATUS_OBJECT_NAME_NOT_FOUND) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return dst.WriteFile(name, b)
+}
+
+// restoreConfig puts the snapshot back. Each file is written afresh in the
+// config folder, so it takes that folder's permissions, and history
+// revisions the new version added are removed.
 func restoreConfig(l Layout) error {
 	snap := l.RollbackDir()
 	if !exists(snap) {
 		return nil
 	}
-	cfg := supervisor.Paths{Root: l.DataRoot}.Config()
-	keep := map[string]bool{}
-	if es, err := os.ReadDir(filepath.Join(snap, "history")); err == nil {
-		for _, e := range es {
-			keep[e.Name()] = true
-		}
-	}
-	if es, err := os.ReadDir(filepath.Join(cfg, "history")); err == nil {
-		for _, e := range es {
-			if e.Type().IsRegular() && !keep[e.Name()] {
-				_ = os.Remove(filepath.Join(cfg, "history", e.Name()))
-			}
-		}
-	}
-	return copyStore(snap, cfg)
+	return copyStorePaths(snap, supervisor.Paths{Root: l.DataRoot}.Config(), true)
 }
 
 // stopServices stops the three services, supervisor first, and waits for
@@ -478,10 +534,12 @@ func confirmVersion(l Layout, want string, within time.Duration) error {
 			var st ipc.StatusResult
 			err = c.Call(ctx, ipc.MethodStatus, nil, &st)
 			_ = c.Close()
-			got = st.Version
-			if err == nil && st.Version == want {
-				cancel()
-				return nil
+			if err == nil {
+				if st.Version == want {
+					cancel()
+					return nil
+				}
+				got = st.Version
 			}
 		}
 		cancel()
@@ -514,7 +572,7 @@ func rollback(l Layout, sid string, j Journal, inProcess bool, cause error) erro
 	j.Step = StepRollingBack
 	_ = writeJournal(l, j)
 	stopServices()
-	errs := []error{cause}
+	var errs []error
 	if err := restoreFiles(l); err != nil {
 		errs = append(errs, err)
 	}
@@ -530,7 +588,7 @@ func rollback(l Layout, sid string, j Journal, inProcess bool, cause error) erro
 	if err := startSupervisor(); err != nil {
 		errs = append(errs, err)
 	}
-	return fail(CodeRolledBack, fmt.Errorf("the update to %s was rolled back: %w", j.To, errors.Join(errs...)))
+	return rollbackResult(j.To, cause, errs)
 }
 
 // recoverUpdate finishes or undoes an update that was interrupted, before

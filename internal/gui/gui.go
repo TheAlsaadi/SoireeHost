@@ -94,6 +94,9 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
+	// started by a control panel that is exiting after an install or
+	// update: let it release the single-instance lock first
+	waitForPredecessor(os.Getenv)
 	assets, err := frontend.Assets()
 	if err != nil {
 		return fmt.Errorf("loading UI assets: %w", err)

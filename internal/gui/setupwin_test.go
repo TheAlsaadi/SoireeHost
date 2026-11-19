@@ -2,9 +2,11 @@ package gui
 
 import (
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/setup"
 	"github.com/TheAlsaadi/SoireeHost/internal/version"
@@ -136,5 +138,40 @@ func TestParseArgsUninstall(t *testing.T) {
 	}
 	if _, err := ParseArgs([]string{"--uninstall", "--purge"}); err == nil {
 		t.Fatal("accepted --purge: the window asks, the command line does not decide")
+	}
+}
+
+// TestWaitForPredecessor: a control panel relaunched after an update waits
+// for the exiting one, which holds Wails' single-instance lock until it
+// ends, and never waits without a valid process id (review finding of 20
+// Nov 2026).
+func TestWaitForPredecessor(t *testing.T) {
+	for _, v := range []string{"", "x", "0", "-1", "99999999999"} {
+		start := time.Now()
+		waitForPredecessor(func(string) string { return v })
+		if time.Since(start) > time.Second {
+			t.Fatalf("waited for %q", v)
+		}
+	}
+	// a process that lives about two seconds
+	cmd := exec.CommandContext(t.Context(), `C:\Windows\System32\PING.EXE`, "-n", "3", "127.0.0.1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	start := time.Now()
+	waitForPredecessor(func(k string) string {
+		if k != relaunchEnv {
+			return ""
+		}
+		return strconv.Itoa(cmd.Process.Pid)
+	})
+	waited := time.Since(start)
+	if err := <-done; err != nil {
+		t.Fatalf("ping: %v", err)
+	}
+	if waited < time.Second || waited > relaunchWait {
+		t.Fatalf("waited %s for a process of about two seconds", waited)
 	}
 }

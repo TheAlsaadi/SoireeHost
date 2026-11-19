@@ -232,9 +232,28 @@ func copyBinary(in *os.File, src, dst string) error {
 	if err := out.Close(); err != nil {
 		return err
 	}
-	from, _ := windows.UTF16PtrFromString(tmp)
-	to, _ := windows.UTF16PtrFromString(dst)
-	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+	return replaceProgram(tmp, dst)
+}
+
+// replaceProgram moves src over dst. A control panel still running from
+// dst (the tray starts at sign-in) keeps it open, and Windows refuses to
+// replace a running program but allows renaming it: the old file is then
+// moved aside and deleted at the next restart, as uninstall does.
+func replaceProgram(src, dst string) error {
+	err := moveFile(src, dst)
+	if err == nil || !exists(dst) {
+		return err
+	}
+	aside, aerr := moveAside(dst)
+	if aerr != nil {
+		return err
+	}
+	if err := moveFile(src, dst); err != nil {
+		// put the old program back where it was
+		_ = moveFile(aside, dst)
+		return err
+	}
+	return nil
 }
 
 // makeFolders creates %ProgramData%\SoireeHost and its subfolders with the

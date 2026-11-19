@@ -89,7 +89,12 @@
     busy = true;
     try {
       const r = await api().runSetup(action);
-      if (setupOK(r)) {
+      if (setupOK(r) && action === "apply-update") {
+        // this control panel is still the previous version: it closes, and
+        // the updated one opens in its place (ADR-0010)
+        toastDone(success);
+        await api().closeSetup();
+      } else if (setupOK(r)) {
         toastDone(success);
         await refreshStatus();
       } else {

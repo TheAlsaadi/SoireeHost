@@ -260,6 +260,12 @@ func (u *updater) check(ctx context.Context) error {
 			if s.Problem == "failed" {
 				s.Problem = problemNetwork
 			}
+			if u.staged != "" {
+				// a failed check (or a failed download of a still newer
+				// version) leaves the update staged earlier intact and
+				// installable; Problem still says what went wrong
+				s.State, s.Version = ipc.UpdateReady, u.staged
+			}
 		}
 	})
 	return err
