@@ -192,6 +192,10 @@ type Journal struct {
 	OldHash string    `json:"old_sha256"`
 	NewHash string    `json:"new_sha256"`
 	Started time.Time `json:"started"`
+	// PID is the apply-update process that wrote the journal. The new
+	// version's repair, which that process starts while it holds the setup
+	// lock, may run only as its child (ADR-0010).
+	PID int `json:"pid"`
 }
 
 // maxJournal bounds update.json.
@@ -223,6 +227,8 @@ func DecodeJournal(b []byte) (Journal, error) {
 		return Journal{}, errors.New("update journal: unknown step")
 	case !hexHash(j.OldHash), !hexHash(j.NewHash):
 		return Journal{}, errors.New("update journal: invalid hash")
+	case j.PID <= 0:
+		return Journal{}, errors.New("update journal: invalid process id")
 	}
 	return j, nil
 }

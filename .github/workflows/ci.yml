@@ -276,6 +276,43 @@ jobs:
           }
           Write-Output "::error title=repair::services not running 90 seconds after repair"
           exit 1
+      - name: Update tests (S-60 to S-64, ADR-0004, ADR-0010)
+        # Builds test versions that trust a key made here and now
+        # (updatetestkey; never a release build), installs 1.0.0 over the
+        # install above, and runs TestApplyUpdate against it
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          $d = 'C:\soireehost-ci\upd'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          [IO.File]::WriteAllText("$PWD\internal\update\testkey.json", '{"keys":[]}')
+          go run ./build/updatekey gen -out C:\soireehost-ci\update-test.key -keys internal/update/testkey.json
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=update tests::could not make the test key"; exit 1 }
+          $builds = @(
+            @{ v = '1.0.0'; extra = ',setuptesthooks'; name = '1.0.0.exe' },
+            @{ v = '1.1.0'; extra = ',setuptesthooks'; name = '1.1.0.exe' },
+            @{ v = '1.2.0'; extra = ',updatetestfail'; name = '1.2.0-fail.exe' },
+            @{ v = '1.2.0'; extra = ''; name = '1.2.0.exe' }
+          )
+          foreach ($b in $builds) {
+            go build -trimpath -tags "cloudflared,no_fs_access,updatetestkey$($b.extra)" -ldflags "-X github.com/TheAlsaadi/SoireeHost/internal/version.Version=$($b.v)" -o "$d\$($b.name)" ./cmd/soireehost
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error title=update tests::building $($b.name) failed"; exit 1 }
+          }
+          & "$d\1.0.0.exe" setup install | Out-Default
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=update tests::installing the 1.0.0 test build exited $LASTEXITCODE"; exit 1 }
+          $env:SOIREEHOST_E2E = '1'
+          $env:SOIREEHOST_UPDATE_E2E = '1'
+          $env:SOIREEHOST_UPDATE_KEY = 'C:\soireehost-ci\update-test.key'
+          $out = go test -tags e2e,no_fs_access -count=1 -v -timeout 30m -run '^TestApplyUpdate$' ./internal/e2e/ 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|error|exited|--- |\.go:\d+' } | Select-Object -First 40
+            $msg = ($lines -join '%0A') -replace '::', ': :'
+            Write-Output "::error title=update tests failed::$msg"
+            exit $code
+          }
       - name: Service state on failure
         if: failure()
         shell: pwsh

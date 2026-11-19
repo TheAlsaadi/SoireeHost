@@ -73,6 +73,11 @@ func Install(l Layout) error {
 	if _, err := decideInstall(installedVersion(), version.Current()); err != nil {
 		return err
 	}
+	// an interrupted update is finished or undone before anything else
+	_ = winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege", "SeDebugPrivilege")
+	if _, err := recoverUpdate(l, sid); err != nil && ExitCode(err) != CodeRolledBack {
+		return err
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -99,33 +104,52 @@ func Install(l Layout) error {
 	// start at sign-in, for the installing user (owner decision of 15 Nov
 	// 2026); a failure here is not worth failing the install for
 	_ = writeRunEntry(l)
-	return startService(winsec.SupervisorService)
+	return startSupervisor()
 }
 
 // Repair runs every install step except copying the program, from the
 // installed program only (ADR-0010).
+//
+// During an update, apply-update holds the setup lock and starts the new
+// version's repair; that child alone runs without the lock, and it is
+// recognised by the journal, which names its parent (ADR-0010).
 func Repair(l Layout) error {
 	sid, err := requireAdmin()
 	if err != nil {
 		return err
 	}
-	unlock, err := lockSetup()
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	if err := requireInstalledCopy(l); err != nil {
 		return err
 	}
+	unlock, err := lockSetup()
+	child := false
+	if err != nil {
+		if ExitCode(err) != CodeBusy || !childOfUpdater(l) {
+			return err
+		}
+		child, unlock = true, func() {}
+	}
+	defer unlock()
 	if err := winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege", "SeTakeOwnershipPrivilege"); err != nil {
 		return err
+	}
+	if !child {
+		_ = winsec.EnablePrivileges("SeDebugPrivilege")
+		rolled, err := recoverUpdate(l, sid)
+		if err != nil {
+			return err
+		}
+		if rolled {
+			// the restored program repeats its own steps when run again
+			return fail(CodeRolledBack, errors.New("an interrupted update was undone and the previous version restored; run Repair again if anything is still wrong"))
+		}
 	}
 	// cloudflared.exe is open while the tunnel runs
 	stopInstalled()
 	if err := installSteps(l, sid); err != nil {
 		return err
 	}
-	return startService(winsec.SupervisorService)
+	return startSupervisor()
 }
 
 // installSteps are the steps install and repair share: everything after the
@@ -457,7 +481,9 @@ func setRequiredPrivileges(h windows.Handle, privs ...string) error {
 	return windows.ChangeServiceConfig2(h, windows.SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO, (*byte)(unsafe.Pointer(&info)))
 }
 
-func startService(name string) error {
+// startSupervisor starts the supervisor service, which starts the workers.
+func startSupervisor() error {
+	name := winsec.SupervisorService
 	m, err := mgr.Connect()
 	if err != nil {
 		return err

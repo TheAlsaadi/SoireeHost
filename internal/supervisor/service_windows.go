@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
@@ -22,6 +23,9 @@ func DataRoot() (string, error) {
 // RunService runs the supervisor as the SoireeHost Windows service.
 func RunService(version string) error {
 	return svcrun.Run(winsec.SupervisorService, true, func(ctx context.Context) error {
+		if failStartForTest {
+			return errors.New("this test build's supervisor refuses to start (updatetestfail)")
+		}
 		root, err := DataRoot()
 		if err != nil {
 			return err

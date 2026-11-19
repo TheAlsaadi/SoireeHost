@@ -109,12 +109,12 @@ func runSetup(args []string) int {
 		return setupExit(setup.Install(l))
 	case setup.CmdRepair:
 		return setupExit(setup.Repair(l))
+	case setup.CmdApplyUpdate:
+		return setupExit(setup.ApplyUpdate(l))
 	case setup.CmdUninstall:
 		return setupExit(setup.Uninstall(l, inv.Purge))
 	}
-	// apply-update arrives with the rest of the Phase 6 setup role
-	fmt.Fprintln(os.Stderr, "soireehost: setup", inv.Cmd, "is not available in this build")
-	return int(setup.CodeFailed)
+	return int(setup.CodeUsage)
 }
 
 // setupExit reports a setup result as its closed-set exit code, which the

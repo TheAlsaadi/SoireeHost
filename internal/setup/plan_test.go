@@ -118,7 +118,7 @@ func TestAppsEntry(t *testing.T) {
 func validJournal() Journal {
 	return Journal{From: "1.2.0", To: "1.3.0", Step: StepSwapped,
 		OldHash: strings.Repeat("a", 64), NewHash: strings.Repeat("b", 64),
-		Started: time.Date(2026, 12, 1, 10, 0, 0, 0, time.UTC)}
+		Started: time.Date(2026, 12, 1, 10, 0, 0, 0, time.UTC), PID: 4242}
 }
 
 func TestJournalRoundTrip(t *testing.T) {
@@ -141,6 +141,7 @@ func TestJournalRoundTrip(t *testing.T) {
 		"empty":         ``,
 		"too large":     string(b) + strings.Repeat(" ", maxJournal),
 		"not an object": `[]`,
+		"no process id": strings.Replace(string(b), `"pid":4242`, `"pid":0`, 1),
 	} {
 		if _, err := DecodeJournal([]byte(bad)); err == nil {
 			t.Errorf("%s: DecodeJournal accepted %q", name, bad)
