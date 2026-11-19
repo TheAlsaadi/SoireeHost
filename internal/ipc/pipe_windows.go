@@ -113,13 +113,16 @@ func ServeControl(ctx context.Context, ln net.Listener, auth Authorizer, h Handl
 
 func serveConn(ctx context.Context, conn net.Conn, auth Authorizer, h Handler) {
 	defer conn.Close() //nolint:errcheck // the client sees the close either way
-	// When the supervisor stops, open connections close at once instead of
-	// holding its exit for up to IdleTimeout (review finding R-24).
-	defer context.AfterFunc(ctx, func() { _ = conn.Close() })()
+	// The handle is read before the close below can run: go-winio's Close
+	// clears the handle field that Fd reads, and the race detector caught
+	// the two overlapping when the supervisor stopped at that moment.
 	handle, err := handleOf(conn)
 	if err != nil {
 		return
 	}
+	// When the supervisor stops, open connections close at once instead of
+	// holding its exit for up to IdleTimeout (review finding R-24).
+	defer context.AfterFunc(ctx, func() { _ = conn.Close() })()
 	var caller winsec.Caller
 	identified := false
 	for {
