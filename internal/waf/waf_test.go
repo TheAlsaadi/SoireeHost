@@ -269,21 +269,46 @@ func TestEveryLevelBuildsAndBlocks(t *testing.T) {
 
 // TestLargeBody: in Block mode a body over InspectBytes, or with more than
 // TextInspectBytes of text, is refused with 413 (owner decisions of 15 Nov
-// 2026); in Detect only both pass whole.
+// 2026); in Detect only both pass whole, and only the first
+// TextInspectBytes of text are inspected.
+//
+// The Detect-only check is relative, not a fixed time: a body eight times
+// over the limit must cost about what a body at the limit costs. A fixed
+// ceiling measured the runner instead (the race detector slows the rule
+// set tenfold), and could not tell a missing limit from a slow machine.
 func TestLargeBody(t *testing.T) {
+	const over = 8 // Detect-only bodies are this many times the text limit
 	bigFile := multipartBody(t, nil, map[string]int{"video.bin": int(InspectBytes) + 1024})
+	text := func(n int) string { return strings.Repeat("a", n) }
+	essay := func(n int) mpBody {
+		return multipartBody(t, map[string]string{"essay": strings.Repeat("words ", n/5)}, nil)
+	}
+	limit := int(TextInspectBytes)
+
+	// what inspecting exactly TextInspectBytes of text costs on this machine
+	d, _ := testFirewall(t, ModeDetect, 1)
+	start := time.Now()
+	if code, _ := serve(d, apiRequest(http.MethodPost, "/upload", "application/octet-stream", text(limit))); code != 200 {
+		t.Fatalf("baseline: got %d", code)
+	}
+	baseline := time.Since(start)
+
 	for _, tc := range []struct {
 		name, ct, body string
+		detectCT       string // Detect only's request, far over the limit
+		detectBody     string
 		rule           int
 	}{
-		{"text over 128 KB", "application/json", `{"a":"` + strings.Repeat("a", int(TextInspectBytes)) + `"}`, RuleTextLimit},
-		{"octet stream over 128 KB", "application/octet-stream", strings.Repeat("a", int(TextInspectBytes)+1), RuleTextLimit},
-		{"multipart text field over 128 KB", "", "", RuleTextLimit},
-		{"multipart over 16 MB", bigFile.ct, bigFile.body, RuleBodyLimit},
+		{name: "text over 128 KB", ct: "application/json", body: `{"a":"` + text(limit) + `"}`,
+			detectCT: "application/json", detectBody: `{"a":"` + text(over*limit) + `"}`, rule: RuleTextLimit},
+		{name: "octet stream over 128 KB", ct: "application/octet-stream", body: text(limit + 1),
+			detectCT: "application/octet-stream", detectBody: text(over * limit), rule: RuleTextLimit},
+		{name: "multipart text field over 128 KB", rule: RuleTextLimit},
+		{name: "multipart over 16 MB", ct: bigFile.ct, body: bigFile.body, detectCT: bigFile.ct, detectBody: bigFile.body, rule: RuleBodyLimit},
 	} {
 		if tc.ct == "" {
-			mp := multipartBody(t, map[string]string{"essay": strings.Repeat("words ", int(TextInspectBytes)/5)}, nil)
-			tc.ct, tc.body = mp.ct, mp.body
+			mp, big := essay(limit), essay(over*limit)
+			tc.ct, tc.body, tc.detectCT, tc.detectBody = mp.ct, mp.body, big.ct, big.body
 		}
 		t.Run(tc.name, func(t *testing.T) {
 			f, logs := testFirewall(t, ModeBlock, 1)
@@ -296,12 +321,15 @@ func TestLargeBody(t *testing.T) {
 			}
 			d, _ := testFirewall(t, ModeDetect, 1)
 			start := time.Now()
-			code, body := serve(d, apiRequest(http.MethodPost, "/upload", tc.ct, tc.body))
-			if code != 200 || body != fmt.Sprintf("ok %d", len(tc.body)) {
+			code, body := serve(d, apiRequest(http.MethodPost, "/upload", tc.detectCT, tc.detectBody))
+			if code != 200 || body != fmt.Sprintf("ok %d", len(tc.detectBody)) {
 				t.Fatalf("Detect only: got %d %q, want the whole body", code, body)
 			}
-			if el := time.Since(start); el > 20*time.Second {
-				t.Fatalf("Detect only took %v: the text limit is not applied", el)
+			// inspecting all of it would cost about `over` times the
+			// baseline; with the limit it costs about one baseline
+			if el, most := time.Since(start), 3*baseline+2*time.Second; el > most {
+				t.Fatalf("Detect only took %v for %d times the limit, more than %v (one limit's worth took %v): the text limit is not applied",
+					el, over, most, baseline)
 			}
 		})
 	}
