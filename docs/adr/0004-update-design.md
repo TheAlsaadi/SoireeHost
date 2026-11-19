@@ -203,16 +203,16 @@ Settings already lists both. The CI isolation job proves it:
 - **What it watches.**
   - cloudflared (`build/cloudflared.lock`);
   - the Core Rule Set (`build/crs.lock`);
-  - the Go toolchain (`go.mod` and `GO_VERSION` in `ci.yml`);
-  - the `wails3` CLI (`WAILS_VERSION`).
+  - the Go toolchain (the `go` line of `go.mod`, which CI reads).
 
-  Caddy, Coraza and every other Go module are already covered by Dependabot. Its security updates are not delayed by the 7-day cooldown.
-- **`check` job** (`contents: read`, the default `GITHUB_TOKEN`). It compares each pin with the newest stable release through the GitHub API.
+  Caddy, Coraza and every other Go module are already covered by Dependabot. Its security updates are not delayed by the 7-day cooldown. The `wails3` CLI (`WAILS_VERSION`) must match the Wails module, so it moves with Dependabot's pull request for that module, by hand, rather than on its own (note of 19 Nov 2026).
+- **`check` job** (`contents: read`, the default `GITHUB_TOKEN`). `build/upstream check` compares each pin with the newest stable release through the GitHub API and go.dev. Until the App is set up, a newer release only produces a warning on the run.
 - **`propose` job**, only when something is newer. It updates the pin with the repository's own scripts:
-  - **cloudflared.** It downloads the asset, computes its SHA-256 and compares it with the hash in the release notes. Both must agree, or the job stops and opens an issue instead.
-  - **Core Rule Set.** `check-crs.ps1 -Update`, which checks the release signature.
+  - **cloudflared.** `build/upstream apply cloudflared` downloads the asset only from the cloudflared repository's release downloads, and requires its SHA-256, the hash in the release notes and GitHub's asset digest to agree; otherwise the job fails, which notifies the owner, and nothing is proposed. It updates `build/cloudflared.lock` and `internal/tunnel/pin.go` together.
+  - **Core Rule Set.** `build/upstream apply crs` downloads the archive and its `.asc` from the rule set's release downloads, requires GitHub's digest to match, and updates `build/crs.lock` and `internal/waf/crs.go`. The workflow then requires a valid signature from the key fingerprint pinned in `crs.lock` (`gpg --verify`, the key fetched from keys.openpgp.org) and runs `check-crs.ps1 -Update`.
+  - **Go toolchain.** `build/upstream apply go` sets the `go` line of `go.mod`.
 
-  It then mints a one-hour token with `actions/create-github-app-token` from the App's id and private key (repository secrets `WATCHER_APP_ID` and `WATCHER_APP_KEY`), pushes a branch `upstream/<component>-<version>` and opens a pull request with `gh`. That token is what makes CI run on the pull request.
+  It then mints a one-hour token with `actions/create-github-app-token` from the App's client ID and private key (the repository variable `WATCHER_APP_CLIENT_ID` and the secret `WATCHER_APP_KEY`), narrowed to Contents and Pull requests write, pushes a branch `upstream/<component>-<version>` and opens a pull request with `gh`. That token is what makes CI run on the pull request.
 - **Merging.** Nothing merges automatically. The owner reviews and merges. Target: a release within 7 days of an upstream security fix.
 
 ### `main` ruleset
