@@ -198,6 +198,7 @@ func (s *Supervisor) configImport(c winsec.Caller, p *ipc.ConfigImportParams) (a
 			w.add("allow_lan", fmt.Sprintf("The imported settings forward to devices on your local network (%s), which makes them reachable from the internet.", strings.Join(added, ", ")))
 		}
 		w.firewall(*cfg, imported)
+		w.updates(*cfg, imported)
 		w.headers(*cfg, imported)
 		q := *p
 		q.Confirmation = ""

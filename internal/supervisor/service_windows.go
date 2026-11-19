@@ -6,6 +6,7 @@ import (
 
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 	"github.com/TheAlsaadi/SoireeHost/internal/svcrun"
+	"github.com/TheAlsaadi/SoireeHost/internal/update"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
@@ -44,10 +45,22 @@ func RunService(version string) error {
 			WorkerCanRead: func(r string) (bool, error) {
 				return winsec.GrantsRead(r, winsec.WorkerGroups(winsec.ServiceSID(winsec.WebService))...)
 			},
+			// a key file that does not parse trusts nothing, so every
+			// update is refused (S-60)
+			Updates: &UpdateOptions{Keys: trustedKeys()},
 		})
 		if err != nil {
 			return err
 		}
 		return s.Run(ctx)
 	})
+}
+
+// trustedKeys returns the compiled-in update keys, or none.
+func trustedKeys() update.KeySet {
+	ks, err := update.Trusted()
+	if err != nil {
+		return nil
+	}
+	return ks
 }

@@ -37,6 +37,9 @@ const (
 	MethodAccessList   = "access.list"
 	MethodConfigExport = "config.export"
 	MethodConfigImport = "config.import"
+	// Phase 6 (ADR-0004)
+	MethodUpdateCheck    = "update.check"
+	MethodUpdateSetCheck = "update.set_check"
 )
 
 // Request is one control call.
@@ -114,6 +117,26 @@ type StatusResult struct {
 	StartedAt  time.Time      `json:"started_at"`
 	ConfigNote string         `json:"config_note,omitempty"`
 	Tunnel     TunnelStatus   `json:"tunnel"`
+	Update     UpdateStatus   `json:"update"`
+}
+
+// Update states (ADR-0004).
+const (
+	UpdateOff         = "off"         // the check is turned off, or this is not a release build
+	UpdateIdle        = "idle"        // up to date, or not checked yet
+	UpdateChecking    = "checking"    // reading the manifest
+	UpdateDownloading = "downloading" // fetching and checking the new version
+	UpdateReady       = "ready"       // verified and staged; Install raises the Windows prompt
+	UpdateFailed      = "failed"      // the last check failed; Problem says why
+)
+
+// UpdateStatus is the update check's state. Problem is a closed-set code
+// (update.Code, or "network", "development_build"), never upstream text.
+type UpdateStatus struct {
+	State     string    `json:"state"`
+	Version   string    `json:"version,omitempty"`
+	LastCheck time.Time `json:"last_check,omitzero"`
+	Problem   string    `json:"problem,omitempty"`
 }
 
 // TunnelStatus is the state of the tunnels as status.get reports it. It never
@@ -152,6 +175,13 @@ type TunnelView struct {
 
 // QuickShareLabel is shown beside every quick share link (S-51).
 const QuickShareLabel = "Temporary link for testing. It changes whenever the tunnel restarts."
+
+// UpdateSetCheckParams turns the update check on or off. Turning it off
+// needs a confirmation (S-32).
+type UpdateSetCheckParams struct {
+	Check        bool   `json:"check"`
+	Confirmation string `json:"confirmation,omitempty"`
+}
 
 // QuickShareParams names the site to share or stop sharing.
 type QuickShareParams struct {
@@ -351,6 +381,8 @@ var paramTypes = map[string]func() any{
 	MethodAccessList:      func() any { return &AccessListParams{} },
 	MethodConfigExport:    func() any { return &None{} },
 	MethodConfigImport:    func() any { return &ConfigImportParams{} },
+	MethodUpdateCheck:     func() any { return &None{} },
+	MethodUpdateSetCheck:  func() any { return &UpdateSetCheckParams{} },
 }
 
 // Methods lists every control method.

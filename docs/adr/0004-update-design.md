@@ -105,7 +105,7 @@ Control panel: "Install update" ─► Windows prompt ────────�
 ### Update check and download (supervisor)
 
 - **When.** A first check 10 minutes after the supervisor starts, then every 24 hours with up to 1 hour of random delay. `update.check` triggers one at once, at most once a minute. A check never runs while the supervisor is stopping.
-- **Setting.** `updates.check` is true by default. Turning it off counts as a weakening action: it needs confirmation and writes an audit entry (S-32), like Detect only. Turning it back on needs neither.
+- **Setting.** The check is on by default. The config stores the opposite, `updates.off`, so settings saved before Phase 6 keep the check on; the control call is `update.set_check`. Turning it off counts as a weakening action: it needs confirmation and writes an audit entry (S-32), like Detect only. Turning it back on needs neither.
 - **HTTP client.**
   - Normal TLS verification against the Windows root store, never disabled, with TLS 1.2 or newer.
   - No proxy from the environment: a service has none.
@@ -183,7 +183,7 @@ The downloaded file is never run before both checks pass: the supervisor's at do
 Only two components make outbound connections:
 
 - cloudflared, to Cloudflare, while a site is online;
-- the supervisor's update check, to the three GitHub hosts above, while `updates.check` is on.
+- the supervisor's update check, to the three GitHub hosts above, while the check is on.
 
 Settings already lists both. The CI isolation job proves it:
 
@@ -277,8 +277,8 @@ GitHub's auto-merge then waits for CI. The watcher's and Dependabot's pull reque
 ## Action items
 
 1. [x] Owner: accept or amend this record. Accepted 19 Nov 2026.
-2. [ ] `internal/update`: envelope, payload, key list, version precedence, artifact check; unit tests for tampered payload, tampered signature, wrong key, unknown key id, missing signature, truncated envelope and file, oversized input, older and equal versions, `min_from`, product, channel, name and URL; fuzz targets for the envelope and the payload.
-3. [ ] Supervisor: checker, download, staging, `update.check`, the `update` status block, the `updates.check` setting with confirmation and audit; tests against a local TLS server.
+2. [x] `internal/update`: envelope, payload, key list, version precedence, artifact check; unit tests for tampered payload, tampered signature, wrong key, unknown key id, missing signature, truncated envelope and file, oversized input, older and equal versions, `min_from`, product, channel, name and URL; fuzz targets for the envelope and the payload.
+3. [x] Supervisor: checker, download, staging, `update.check`, the `update` status block, the `updates.off` setting (`update.set_check`) with confirmation and audit; tests against a local TLS server (19 Nov 2026).
 4. [ ] Setup `apply-update` with the double check, swap and rollback (ADR-0010); isolation-job tests for a good update and for tampered, wrong-key, truncated, older-version, failed-start and interrupted updates.
 5. [ ] Control panel: "Update ready", Install (Windows prompt), "Check now", last check, the setting.
 6. [ ] `build/updatekey`, `build/signmanifest`, `build/sbom`, `docs/UPDATE_KEY.md`.

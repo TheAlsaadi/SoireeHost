@@ -31,6 +31,7 @@ export function fakeApi(): Api {
     listen: "127.0.0.1:8787",
     server: { max_header_bytes: 65536, read_header_timeout_seconds: 10, read_timeout_seconds: 300, idle_timeout_seconds: 120 },
     tunnel: { offline: false, metrics_port: 20300 },
+    updates: { off: false },
     sites: [
       site("recipes", "Recipe notes", "static", { quick_share: { port: 8788, metrics_port: 20301 } }),
       site("budget", "Budget tracker", "proxy", { static: null, proxy: { target: "127.0.0.1:3000", allow_lan: false }, quick_share: { port: 8789, metrics_port: 20302 } }),
@@ -48,6 +49,7 @@ export function fakeApi(): Api {
     workers: [],
     audit_ok: true,
     started_at: ago(3600),
+    update: { state: "idle", last_check: ago(7200) },
     tunnel: {
       offline,
       token_set: false,

@@ -14,6 +14,7 @@ export class Config {
     "listen": string;
     "server": ServerLimits;
     "tunnel": Tunnel;
+    "updates": Updates;
     "sites": Site[];
 
     /** Creates a new Config instance. */
@@ -30,6 +31,9 @@ export class Config {
         if (!("tunnel" in $$source)) {
             this["tunnel"] = (new Tunnel());
         }
+        if (!("updates" in $$source)) {
+            this["updates"] = (new Updates());
+        }
         if (!("sites" in $$source)) {
             this["sites"] = [];
         }
@@ -43,7 +47,8 @@ export class Config {
     static createFrom($$source: any = {}): Config {
         const $$createField2_0 = $$createType0;
         const $$createField3_0 = $$createType1;
-        const $$createField4_0 = $$createType3;
+        const $$createField4_0 = $$createType2;
+        const $$createField5_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("server" in $$parsedSource) {
             $$parsedSource["server"] = $$createField2_0($$parsedSource["server"]);
@@ -51,8 +56,11 @@ export class Config {
         if ("tunnel" in $$parsedSource) {
             $$parsedSource["tunnel"] = $$createField3_0($$parsedSource["tunnel"]);
         }
+        if ("updates" in $$parsedSource) {
+            $$parsedSource["updates"] = $$createField4_0($$parsedSource["updates"]);
+        }
         if ("sites" in $$parsedSource) {
-            $$parsedSource["sites"] = $$createField4_0($$parsedSource["sites"]);
+            $$parsedSource["sites"] = $$createField5_0($$parsedSource["sites"]);
         }
         return new Config($$parsedSource as Partial<Config>);
     }
@@ -196,7 +204,7 @@ export class Record {
      * Creates a new Record instance from a string or object.
      */
     static createFrom($$source: any = {}): Record {
-        const $$createField4_0 = $$createType4;
+        const $$createField4_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("config" in $$parsedSource) {
             $$parsedSource["config"] = $$createField4_0($$parsedSource["config"]);
@@ -336,13 +344,13 @@ export class Site {
      * Creates a new Site instance from a string or object.
      */
     static createFrom($$source: any = {}): Site {
-        const $$createField3_0 = $$createType5;
-        const $$createField5_0 = $$createType7;
-        const $$createField6_0 = $$createType9;
-        const $$createField10_0 = $$createType10;
-        const $$createField11_0 = $$createType5;
-        const $$createField12_0 = $$createType12;
-        const $$createField13_0 = $$createType13;
+        const $$createField3_0 = $$createType6;
+        const $$createField5_0 = $$createType8;
+        const $$createField6_0 = $$createType10;
+        const $$createField10_0 = $$createType11;
+        const $$createField11_0 = $$createType6;
+        const $$createField12_0 = $$createType13;
+        const $$createField13_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("hostnames" in $$parsedSource) {
             $$parsedSource["hostnames"] = $$createField3_0($$parsedSource["hostnames"]);
@@ -442,18 +450,49 @@ export class Tunnel {
     }
 }
 
+/**
+ * Updates holds the update-check setting (ADR-0004, S-42). The check is on
+ * unless Off is set, so settings saved before this field existed keep it on.
+ */
+export class Updates {
+    /**
+     * Off stops the supervisor's daily update check and "Check now".
+     * Turning it on is a weakening change (S-32): no security fix arrives
+     * while it is set.
+     */
+    "off": boolean;
+
+    /** Creates a new Updates instance. */
+    constructor($$source: Partial<Updates> = {}) {
+        if (!("off" in $$source)) {
+            this["off"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Updates instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Updates {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Updates($$parsedSource as Partial<Updates>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = ServerLimits.createFrom;
 const $$createType1 = Tunnel.createFrom;
-const $$createType2 = Site.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = Config.createFrom;
-const $$createType5 = $Create.Array($Create.Any);
-const $$createType6 = Static.createFrom;
-const $$createType7 = $Create.Nullable($$createType6);
-const $$createType8 = Proxy.createFrom;
-const $$createType9 = $Create.Nullable($$createType8);
-const $$createType10 = $Create.Map($Create.Any, $Create.Any);
-const $$createType11 = QuickShare.createFrom;
-const $$createType12 = $Create.Nullable($$createType11);
-const $$createType13 = Firewall.createFrom;
+const $$createType2 = Updates.createFrom;
+const $$createType3 = Site.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = Config.createFrom;
+const $$createType6 = $Create.Array($Create.Any);
+const $$createType7 = Static.createFrom;
+const $$createType8 = $Create.Nullable($$createType7);
+const $$createType9 = Proxy.createFrom;
+const $$createType10 = $Create.Nullable($$createType9);
+const $$createType11 = $Create.Map($Create.Any, $Create.Any);
+const $$createType12 = QuickShare.createFrom;
+const $$createType13 = $Create.Nullable($$createType12);
+const $$createType14 = Firewall.createFrom;

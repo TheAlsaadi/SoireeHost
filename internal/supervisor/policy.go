@@ -87,6 +87,12 @@ var policies = map[string]policy{
 	ipc.MethodFirewallEvents: {kind: kindRead, handle: withParams(func(s *Supervisor, _ winsec.Caller, p *ipc.FirewallEventsParams) (any, *ipc.Error) {
 		return s.firewallEvents(p)
 	})},
+	ipc.MethodUpdateCheck: {kind: kindChange, handle: func(s *Supervisor, _ context.Context, c winsec.Caller, _ any) (any, *ipc.Error) {
+		return s.updateCheck(c)
+	}},
+	ipc.MethodUpdateSetCheck: {kind: kindWeakening, handle: withParams(func(s *Supervisor, c winsec.Caller, p *ipc.UpdateSetCheckParams) (any, *ipc.Error) {
+		return s.updateSetCheck(c, p)
+	})},
 	ipc.MethodAccessList: {kind: kindRead, handle: withParams(func(s *Supervisor, _ winsec.Caller, p *ipc.AccessListParams) (any, *ipc.Error) {
 		return s.accessList(p)
 	})},

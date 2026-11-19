@@ -33,6 +33,14 @@ func (w *weakenings) add(tag, sentence string) {
 	w.sentences = append(w.sentences, sentence)
 }
 
+// updates adds a sentence when next turns the update check off (ADR-0004;
+// S-32): no security fix arrives while it is off.
+func (w *weakenings) updates(cur, next config.Config) {
+	if config.UpdatesWeakened(cur, next) {
+		w.add("updates_off", "This turns the update check off, so SoiréeHost will not learn of security fixes.")
+	}
+}
+
 // firewallWeakening adds a sentence for each site whose firewall next makes
 // weaker than cur (S-14, S-32; Detect only counts, owner decision of 15 Nov
 // 2026).

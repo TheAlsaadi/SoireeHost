@@ -319,3 +319,11 @@ func CheckFile(r io.Reader, a Artifact) error {
 	}
 	return nil
 }
+
+// ManifestURL is where the supervisor looks for the newest release's
+// manifest (owner decision, 16 Nov 2026: GitHub Releases).
+const ManifestURL = "https://github.com/TheAlsaadi/SoireeHost/releases/latest/download/manifest.json"
+
+// Hosts are the only hosts the update check may connect to, redirects
+// included. Settings lists them as SoiréeHost's update connection (S-42).
+var Hosts = []string{"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
