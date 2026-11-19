@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -113,14 +114,14 @@ func TestOutboundTraffic(t *testing.T) {
 		seen[role]++
 		switch role {
 		case winsec.WebService, winsec.TunnelService:
-			t.Errorf("%s sent to %s port %d: only loopback is allowed (S-42)", role, s.addr, s.port)
+			t.Errorf("%s talked to %s port %d: only loopback is allowed (S-42)", role, s.addr, s.port)
 		case tunnel.ExeName:
 			if !inRanges(s.addr, cloudflare) && s.port != 53 {
-				t.Errorf("cloudflared sent to %s port %d, which is not Cloudflare (S-42)", s.addr, s.port)
+				t.Errorf("cloudflared talked to %s port %d, which is not Cloudflare (S-42)", s.addr, s.port)
 			}
 		case winsec.SupervisorService:
 			if s.port != 53 && (!inRanges(s.addr, github) || s.port != 443) {
-				t.Errorf("the supervisor sent to %s port %d, which is not GitHub's HTTPS (S-42)", s.addr, s.port)
+				t.Errorf("the supervisor talked to %s port %d, which is not GitHub's HTTPS (S-42)", s.addr, s.port)
 			}
 		}
 	}
@@ -158,6 +159,10 @@ func waitUpdateCheck(t *testing.T, c *ipc.Client, within time.Duration) {
 	t.Fatal("the update check did not finish")
 }
 
+// send is one network event: the process and the far end of the
+// conversation. Kernel-Network records sends and receives alike, with
+// daddr and saddr from the packet's point of view, so the far end is
+// whichever address is not this machine's own.
 type send struct {
 	pid  uint32
 	addr netip.Addr
@@ -169,6 +174,7 @@ type send struct {
 // tracerpt's XML.
 func readSends(t *testing.T, path string) []send {
 	t.Helper()
+	local := localAddrs(t)
 	f, err := os.Open(path) //nolint:gosec // G304: this test's own trace file
 	if err != nil {
 		t.Fatal(err)
@@ -204,12 +210,36 @@ func readSends(t *testing.T, path string) []send {
 			fields[strings.ToLower(d.Name)] = strings.TrimSpace(d.Value)
 		}
 		pid, err1 := strconv.ParseUint(fields["pid"], 10, 32)
-		addr, err2 := netip.ParseAddr(fields["daddr"])
-		port, err3 := strconv.Atoi(fields["dport"])
-		if err1 != nil || err2 != nil || err3 != nil {
+		daddr, err2 := netip.ParseAddr(fields["daddr"])
+		dport, err3 := strconv.Atoi(fields["dport"])
+		saddr, err4 := netip.ParseAddr(fields["saddr"])
+		sport, err5 := strconv.Atoi(fields["sport"])
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
 			continue
 		}
-		out = append(out, send{pid: uint32(pid), addr: addr.Unmap(), port: port})
+		daddr, saddr = daddr.Unmap(), saddr.Unmap()
+		far, port := daddr, dport
+		if local[daddr] || daddr.IsLoopback() {
+			// a receive (or a local conversation): the sender is the far end
+			far, port = saddr, sport
+		}
+		out = append(out, send{pid: uint32(pid), addr: far, port: port})
+	}
+	return out
+}
+
+// localAddrs are this machine's own addresses.
+func localAddrs(t *testing.T) map[netip.Addr]bool {
+	t.Helper()
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[netip.Addr]bool{}
+	for _, a := range addrs {
+		if p, err := netip.ParsePrefix(a.String()); err == nil {
+			out[p.Addr().Unmap()] = true
+		}
 	}
 	return out
 }
