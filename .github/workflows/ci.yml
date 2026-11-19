@@ -231,7 +231,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Output "::error title=setup install::exited $LASTEXITCODE"; exit 1 }
           $env:SOIREEHOST_E2E = '1'
           $env:SOIREEHOST_TIMED_START = "$start"
-          $out = & C:\soireehost-ci\e2e.test.exe -test.run '^TestFirstSiteWithinFiveMinutes$' -test.v -test.timeout 10m 2>&1 | Out-String
+          # quoted name=value flags: PowerShell splits a bare -test.run at the dot
+          $out = & C:\soireehost-ci\e2e.test.exe '-test.run=^TestFirstSiteWithinFiveMinutes$' '-test.v' '-test.timeout=10m' 2>&1 | Out-String
           $code = $LASTEXITCODE
           Write-Output $out
           $out -split "`r?`n" | Where-Object { $_ -match 'from the downloaded' } | ForEach-Object { Write-Output "::notice title=First live site::$($_.Trim())" }
