@@ -19,7 +19,8 @@ All ticked lines were read back through the GitHub API on 16 Nov 2026 (QR-32 in 
 ## Actions (Settings > Actions > General)
 
 - [x] Actions permissions: "Allow TheAlsaadi, and select non-TheAlsaadi, actions and reusable workflows", with exactly:
-  `actions/checkout@*, actions/setup-go@*, actions/setup-node@*, github/codeql-action/*, golangci/golangci-lint-action@*`
+  `actions/checkout@*, actions/setup-go@*, actions/setup-node@*, github/codeql-action/*, golangci/golangci-lint-action@*, actions/upload-artifact@*, actions/attest-build-provenance@*, actions/attest@*, actions/create-github-app-token@*`
+  The last four were added by the owner on 19 Nov 2026 for the release workflow and the upstream watcher (ADR-0004), and read back through the API the same day.
 - [x] "Require actions to be pinned to a full-length commit SHA": **on** (S-72).
 - [x] Fork pull request workflows: "Require approval for all external contributors".
 - [x] Workflow permissions: "Read repository contents and packages permissions". Leave "Allow GitHub Actions to create and approve pull requests" **off**; the S-65 watcher will use its own GitHub App instead (Phase 6).
