@@ -119,11 +119,15 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
   - **supply-chain-risk-auditor:** the four new actions, recorded in `docs/DEPENDENCIES.md`.
   - **deploy-checklist and go-release:** `docs/RELEASE_CHECKLIST.md`; a tag run now requires a `main` commit with green CI; CI checks that `go.mod` is tidy and has no `replace`.
   - Setup now writes its results to the event log under `SoireeHost Setup`.
-  - Review fixes in `b7ce967` (CI run 44622599331, Release run 44622599048, both green), the rest in the final Phase 6 commit of pull request 22.
+  - Review fixes in `b7ce967` (CI run 44622599331, Release run 44622599048, both green), the rest in `7304f42` (CI run 44699040829, Release run 44699040833, CodeQL 44699040656, all green).
+- Merged through pull request 22 as `fe68854` (20 Nov 2026), on the owner's standing go-ahead of that day ("do everything that needs my approval").
+- The same day:
+  - the `main` ruleset now requires a pull request and the eight checks in `docs/REPO_SETUP.md`;
+  - the supervisor joined a job object with no child processes (S-21), so nothing it starts outlives a service stop (follow-up to the security review; e2e `TestWorkersAreConfined` now covers it);
+  - the watcher's first run from `main` (run 44704294806) found cloudflared 2026.11.1 and its three hashes agreed, but the App token failed: the secret `WATCHER_APP_KEY` does not hold a valid private key.
 - Left for the owner:
-  - merge pull request 22;
+  - replace the `WATCHER_APP_KEY` secret with a freshly generated App private key, then run the watcher again;
   - the VirtualBox check (S-64's real prompt, Windows 11, Resource Monitor);
-  - the `main` ruleset;
   - before Phase 7's first release, the signing key and the `release` environment.
 
 ## Roadmap after 1.0 (17 Nov 2026)
