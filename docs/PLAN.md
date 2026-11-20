@@ -222,7 +222,7 @@ Version 1 does a small number of things well; everything else waits until the co
 | Sites | Static site from a folder; proxy to a local port; start, stop, rename, remove | App runner that starts a proxied app at boot and restarts it; custom error and maintenance pages; PHP through FastCGI |
 | Going online | Quick share link with no account; permanent address through a tunnel token | Permanent free address through Tailscale Funnel; create tunnels, DNS records and hostnames from the app with a scoped API token |
 | Protection | Web application firewall per site, rate limits, security headers, exposure check | Password-protected sites; private sites behind Cloudflare Access; rule exclusions picked from the firewall log |
-| Visibility | Tunnel and site status in plain words; live access log with filters; firewall events | Doctor; Windows notifications for site down, tunnel down, attack spike, update ready; traffic charts |
+| Visibility | Tunnel and site status in plain words; live access log with filters; firewall events | Doctor; an MCP server so the user's own AI app can read status and ask for changes; Windows notifications for site down, tunnel down, attack spike, update ready; traffic charts |
 | Running | Windows service, starts at boot, tray icon, one switch to take everything offline | Scheduled backups of settings and site folders |
 | Upkeep | Signed updates installed with one click; config export and import; licences screen | Unattended updates; more languages |
 
@@ -435,18 +435,19 @@ Done when:
 - [ ] No high-severity finding is open.
 - [ ] The owner signs off.
 
-After 1.0, in this order (owner decision, 17 Nov 2026). Each item gets its own decision record and the owner's decisions before any code, the same way the phases do, and ships as an ordinary signed update:
+After 1.0, in this order (owner decisions, 17 and 21 Nov 2026). Each item gets its own decision record and the owner's decisions before any code, the same way the phases do, and ships as an ordinary signed update:
 
 1. **Doctor.** Checks across the whole app that name a problem in plain words and offer a fix, building on each site's health line: an app port not answering, the tunnel down, a changed `cloudflared.exe`, the firewall blocking a site's own traffic, risky files found by the exposure check. A fix goes through the same confirmations as the rest of the panel (S-32). No AI: the owner dropped an AI assistant (17 Nov 2026).
-2. **Permanent free address through Tailscale Funnel.** A stable `ts.net` address without buying a domain (section 12, Domain). A new role like the tunnel launcher, using Tailscale's embedded Go library (`tsnet`) and forwarding to the web worker on loopback, so the firewall still sees every request. To settle first: a third outbound connection (S-42), Funnel-only so no other tailnet device reaches it (S-01), the Tailscale sign-in key stored like the tunnel token (S-40), the dependency audit (S-75), and Funnel's current bandwidth limits and free-plan terms.
-3. **Windows notifications** for site down, tunnel down, attack spike and update ready, shown by the tray, which receives them from the supervisor; the user picks which, and repeats are throttled.
-4. **Password-protected sites.** A free way to keep a site private without a domain for Cloudflare Access. Only a strong password hash is stored, encrypted, never on disk where the web worker can read it; the per-client rate limit slows guessing, and access logs already drop the `Authorization` header (S-18). To settle: the browser's own prompt or a login page.
-5. **Scheduled backups** of settings and site folders to a folder the user picks, keeping the last few copies. Secrets are never included (S-40); restoring is a weakening action (S-32); the supervisor needs read access to site folders.
-6. **App runner.** Starts a proxied app at boot and restarts it after a crash, under its own locked-down account instead of the user's. Conflicts with S-31 (no method accepts a command to run); the proposal is that the program is chosen only in an elevated setup step, and the control panel can then only start, stop or restart it by name.
-7. Firewall exclusions in the UI.
-8. Traffic charts.
-9. Unattended updates.
-10. When a domain is available: Cloudflare API automation, and private sites with Access (S-17).
+2. **MCP server for the user's own AI app** (owner decision, 21 Nov 2026). A `soireehost.exe mcp` role that speaks MCP over stdio only, never a port, through its own pipe whose methods the supervisor limits to an allow-list. Off by default; turning it on is a weakening change. The AI can read status, Doctor's checks and log summaries, and can take things offline; anything that exposes or weakens is only a request the user approves in the control panel; secrets, imports, updates and setup are never offered. Design in ADR-0011 (Proposed), with S-37 to S-39 proposed.
+3. **Permanent free address through Tailscale Funnel.** A stable `ts.net` address without buying a domain (section 12, Domain). A new role like the tunnel launcher, using Tailscale's embedded Go library (`tsnet`) and forwarding to the web worker on loopback, so the firewall still sees every request. To settle first: a third outbound connection (S-42), Funnel-only so no other tailnet device reaches it (S-01), the Tailscale sign-in key stored like the tunnel token (S-40), the dependency audit (S-75), and Funnel's current bandwidth limits and free-plan terms.
+4. **Windows notifications** for site down, tunnel down, attack spike and update ready, shown by the tray, which receives them from the supervisor; the user picks which, and repeats are throttled.
+5. **Password-protected sites.** A free way to keep a site private without a domain for Cloudflare Access. Only a strong password hash is stored, encrypted, never on disk where the web worker can read it; the per-client rate limit slows guessing, and access logs already drop the `Authorization` header (S-18). To settle: the browser's own prompt or a login page.
+6. **Scheduled backups** of settings and site folders to a folder the user picks, keeping the last few copies. Secrets are never included (S-40); restoring is a weakening action (S-32); the supervisor needs read access to site folders.
+7. **App runner.** Starts a proxied app at boot and restarts it after a crash, under its own locked-down account instead of the user's. Conflicts with S-31 (no method accepts a command to run); the proposal is that the program is chosen only in an elevated setup step, and the control panel can then only start, stop or restart it by name.
+8. Firewall exclusions in the UI.
+9. Traffic charts.
+10. Unattended updates.
+11. When a domain is available: Cloudflare API automation, and private sites with Access (S-17).
 
 Set aside by the owner (17 Nov 2026): hosting game servers such as Minecraft. Measured that day, the free relay route (playit.gg) answered in about 110 ms from the owner's PC, so about 220 ms between players in the same town, and the direct route needs router port forwarding, which conflicts with S-02 and S-03.
 
@@ -531,7 +532,7 @@ Audience, source, UI framework, Windows version, signing route, domain and a zer
 | Source | Open or closed, and which licence | Decided: source public on GitHub, no outside contributions. Pull requests stay enabled for the upstream watcher (S-65); outside pull requests are closed without merging. Apache-2.0, confirmed by the owner: anyone may copy, change and reuse the code. It is OSI-approved, which free signing requires | Phase 0 |
 | UI framework | Svelte or React | Decided: Svelte | Phase 0 |
 | Windows versions | Windows 11 and Server 2022 or newer; Windows 10; ARM64 | Decided: Windows 11 on x64. Other versions are untested and unsupported | Phase 0 |
-| Domain | Use a domain on Cloudflare, or quick share only | Do not buy one. Use quick share, or a domain the owner already has. After 1.0, evaluate Tailscale Funnel as a second tunnel option: it offers a stable ts.net address on its free personal plan (check current terms). Scheduled as the second item after 1.0 (section 9, owner decision 17 Nov 2026) | Phase 3 |
+| Domain | Use a domain on Cloudflare, or quick share only | Do not buy one. Use quick share, or a domain the owner already has. After 1.0, evaluate Tailscale Funnel as a second tunnel option: it offers a stable ts.net address on its free personal plan (check current terms). Scheduled as the third item after 1.0 (section 9, owner decisions 17 and 21 Nov 2026) | Phase 3 |
 | Firewall default | Block from day one, or Detect only for a site's first week | Decided 15 Nov 2026: block from day one. Every new site starts in Block mode at paranoia level 1 (S-14); a site can be switched to Detect only or Off by hand, and Off shows a standing warning | Phase 4 |
 | Serving `/.well-known/` | Always blocked as a dotfile path; always allowed; allowed per site | Decided 12 Nov 2026: per site, off by default (`allow_well_known`) | Phase 1 |
 | Languages | English only, or more in version 1 | English first; the UI rules in section 7 keep other languages and right-to-left possible | Phase 5 |

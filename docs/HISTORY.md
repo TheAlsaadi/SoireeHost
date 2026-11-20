@@ -144,3 +144,4 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
   - each gets its own decision record and the owner's decisions before any code;
   - no AI assistant; Doctor uses fixed checks;
   - game server hosting set aside: the free relay was too slow for players in the same town, and port forwarding conflicts with S-02 and S-03.
+- Owner decision of 21 Nov 2026: an MCP server for the user's own AI app becomes the second item, right after Doctor. Design proposed in ADR-0011: stdio only, its own pipe with an allow-list the supervisor enforces, off by default, and an AI that can only ask for exposing or weakening changes, which the user approves in the control panel. Security requirements S-37 to S-39 proposed.
