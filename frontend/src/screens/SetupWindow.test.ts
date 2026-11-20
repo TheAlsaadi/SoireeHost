@@ -8,6 +8,7 @@ import { updateLine } from "../lib/setup";
 import { t } from "../lib/i18n";
 
 let ran: SetupAction[] = [];
+let closed = 0;
 let result: gui.SetupResult = { code: 0, cancelled: false };
 
 function stubApi(): Api {
@@ -19,7 +20,11 @@ function stubApi(): Api {
           ran.push(a);
           return result;
         };
-      if (prop === "closeSetup" || prop === "openInstalled") return async () => {};
+      if (prop === "closeSetup")
+        return async () => {
+          closed++;
+        };
+      if (prop === "openInstalled") return async () => {};
       return never;
     },
   });
@@ -44,6 +49,7 @@ describe("setup windows (ADR-0010)", () => {
 
   beforeEach(() => {
     ran = [];
+    closed = 0;
     result = { code: 0, cancelled: false };
     setApi(stubApi());
     target = document.createElement("div");
@@ -70,6 +76,9 @@ describe("setup windows (ADR-0010)", () => {
     await settle();
     expect(ran).toEqual(["install"]);
     expect(target.textContent).toContain(t("setup.install.done"));
+    // the installed control panel opens only once this window closes
+    // (owner's VM check, 20 Nov 2026)
+    expect(closed).toBe(1);
   });
 
   it("says nothing changed when the Windows prompt is declined", async () => {
@@ -78,6 +87,7 @@ describe("setup windows (ADR-0010)", () => {
     button(target, t("setup.install.go")).click();
     await settle();
     expect(target.querySelector('[role="alert"]')?.textContent).toContain(t("setup.cancelled"));
+    expect(closed).toBe(0);
   });
 
   it("keeps settings unless the box is ticked (owner decision, 16 Nov 2026)", async () => {
@@ -87,6 +97,8 @@ describe("setup windows (ADR-0010)", () => {
     button(target, t("setup.uninstall.go")).click();
     await settle();
     expect(ran).toEqual(["uninstall"]);
+    // after an uninstall the window stays, to say a file goes at restart
+    expect(closed).toBe(0);
   });
 
   it("removes settings too when the box is ticked", async () => {
@@ -117,6 +129,7 @@ describe("setup windows (ADR-0010)", () => {
     button(target, t("setup.other.upgrade", { v: "1.3.0" })).click();
     await settle();
     expect(ran).toEqual(["install"]);
+    expect(closed).toBe(1);
   });
 });
 

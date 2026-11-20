@@ -36,7 +36,7 @@ All ticked lines were read back through the GitHub API on 16 Nov 2026 (QR-32 in 
 
 - [x] A GitHub App owned by the owner, installed on this repository only, with Contents and Pull requests read and write (created 19 Nov 2026).
 - [x] Repository variable `WATCHER_APP_CLIENT_ID` (set 19 Nov 2026, 17:43 UTC).
-- [ ] Repository secret `WATCHER_APP_KEY`: the App's private key, the whole `.pem` file as downloaded, from `-----BEGIN` to `-----END`. Set 19 Nov 2026, 17:44 UTC, but the first run (20 Nov 2026, run 44704294806) could not read it as a key ("Invalid keyData"). Replace it: GitHub > Settings > Developer settings > GitHub Apps > the watcher's App > Private keys > Generate a private key, then `gh secret set WATCHER_APP_KEY --repo TheAlsaadi/SoireeHost < path\to\downloaded.pem`, delete the downloaded file, and run the watcher again (`gh workflow run upstream-watch.yml --repo TheAlsaadi/SoireeHost`).
+- [x] Repository secret `WATCHER_APP_KEY`: the App's private key, the whole `.pem` file as downloaded, from `-----BEGIN` to `-----END`. The first value (19 Nov 2026) was not a valid key (run 44704294806, "Invalid keyData"); the owner replaced it on 20 Nov 2026 and run 44706420028 opened pull request 24. To replace it again: GitHub > Settings > Developer settings > GitHub Apps > the watcher's App > Private keys > Generate a private key, then `gh secret set WATCHER_APP_KEY --repo TheAlsaadi/SoireeHost < path\to\downloaded.pem`, and delete the downloaded file.
 
 The watcher (`.github/workflows/upstream-watch.yml`) runs on a schedule and by hand, which GitHub allows only from `main`, so its first run is after Phase 6 is merged.
 

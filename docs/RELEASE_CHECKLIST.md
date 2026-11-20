@@ -32,10 +32,13 @@ Written at the end of Phase 6 from the deploy-checklist review (20 Nov 2026). It
 
 ## Before publishing the draft
 
+VirtualBox on this PC runs on top of Hyper-V. Take snapshots with the VM powered off (a live snapshot froze it), and give it host I/O cache, the VMSVGA display and 2 CPUs. A restart inside the VM sometimes hangs on a black screen; a reset recovers it.
+
+
 - [ ] Download the draft's files. `SHA256SUMS` matches every file.
 - [ ] `gh attestation verify soireehost.exe --repo TheAlsaadi/SoireeHost` passes.
 - [ ] Install the draft's `soireehost.exe` on a clean Windows 11 VM: install window, Windows prompt, Apps entry, a site live through quick share in under 5 minutes.
-- [ ] On a VM running the previous release, the update is found, Install update raises one prompt, the new version runs, the control panel reopens, and the settings are kept.
+- [ ] On a VM running the previous release, the update is found, Install update raises one prompt, the new version runs, the control panel reopens, and the settings are kept (S-64; the first release has no previous one, so this starts with the second).
 - [ ] Uninstall on the VM leaves no service, firewall rule, Apps entry or program file (moved files are gone after a restart).
 
 ## Publish

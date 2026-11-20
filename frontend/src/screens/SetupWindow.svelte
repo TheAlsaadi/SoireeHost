@@ -36,6 +36,10 @@
       const r = await api().runSetup(action);
       if (setupOK(r)) {
         done = success;
+        // after an install the installed control panel starts only once this
+        // window has closed (Setup.afterExit), so close it now; without this
+        // the window stayed on "Opening it now" (owner's VM check, 20 Nov 2026)
+        if (action === "install") await api().closeSetup();
       } else {
         problem = setupProblem(r);
         // uninstalled, but the data folder was kept: still done

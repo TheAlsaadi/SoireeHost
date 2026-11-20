@@ -240,4 +240,4 @@ If the power fails in the instant between the two renames of step 6, `soireehost
 3. [x] `internal/gui`: install window, upgrade offer, Repair and Install buttons, uninstall window, the elevation call, exit after uninstall (pull request 22, CI green 20 Nov 2026; the owner approved the four new screens on 19 Nov 2026).
 4. [x] `cmd/soireehost`: the new subcommands; refuse extra arguments (pull request 22, CI green 20 Nov 2026).
 5. [x] CI isolation job: every check above, plus the timed five-minute path (57 s on 20 Nov 2026; pull request 22, CI green 20 Nov 2026).
-6. [ ] Owner: the VirtualBox check, after giving the go-ahead to install VirtualBox.
+6. [x] Owner: the VirtualBox check (20 Nov 2026, pull request 25). Everything passed except one bug, now fixed: the install window did not close, so the installed control panel did not open. The update by clicking waits for a previous signed release (`docs/RELEASE_CHECKLIST.md`).

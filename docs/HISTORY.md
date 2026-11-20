@@ -125,10 +125,17 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
   - the `main` ruleset now requires a pull request and the eight checks in `docs/REPO_SETUP.md`;
   - the supervisor joined a job object with no child processes (S-21), so nothing it starts outlives a service stop (follow-up to the security review; e2e `TestWorkersAreConfined` now covers it);
   - the watcher's first run from `main` (run 44704294806) found cloudflared 2026.11.1 and its three hashes agreed, but the App token failed: the secret `WATCHER_APP_KEY` does not hold a valid private key.
-- Left for the owner:
-  - replace the `WATCHER_APP_KEY` secret with a freshly generated App private key, then run the watcher again;
-  - the VirtualBox check (S-64's real prompt, Windows 11, Resource Monitor);
-  - before Phase 7's first release, the signing key and the `release` environment.
+- The owner replaced `WATCHER_APP_KEY`; the watcher's run 44706420028 opened pull request 24 (cloudflared 2026.11.1), merged after green CI as `bd4cf34` (20 Nov 2026).
+- The owner's VM check (20 and 21 Nov 2026): Windows 11 Enterprise evaluation (build 26100) in VirtualBox 7.2.22, with the dry-run build of Release run 44713776968 on `bd4cf34`; its SHA-256 matched `SHA256SUMS`.
+  - From double-clicking the download to the page served over quick share: about 2 minutes, under 5. Install window, the Windows prompt, the first-site screen; the page fetched over the internet.
+  - The Settings > Apps entry (SoiréeHost 0.0.0-dryrun.16), the three services running, the `SoireeHost Setup` event-log entry.
+  - S-42 by hand: only cloudflared had outside connections, to 198.41.192.47:7844 and 104.16.230.132:443, both in Cloudflare's published ranges.
+  - Uninstall keeping data: no service and no program folder; the file in use waited in `SoireeHost.removed-*` and was gone after a restart; the data folder stayed, and a reinstall brought the site back.
+  - Uninstall with "Also remove settings": the data folder went too, and the `.removed-` folder was gone after a restart.
+- Found by the VM check: after a successful install the setup window stayed on "Opening it now", because the installed control panel starts only once that window closes. The window now closes itself (`SetupWindow.svelte`, tested in `SetupWindow.test.ts`, pull request 25).
+- S-64's update by clicking needs a previous signed release, so it is on `docs/RELEASE_CHECKLIST.md` for Phase 7.
+- Phase 6 is done.
+- Left for the owner before Phase 7's first release: the signing key and the `release` environment.
 
 ## Roadmap after 1.0 (17 Nov 2026)
 
