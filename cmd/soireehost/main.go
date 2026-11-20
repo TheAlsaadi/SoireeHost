@@ -106,20 +106,22 @@ func runSetup(args []string) int {
 	}
 	switch inv.Cmd {
 	case setup.CmdInstall:
-		return setupExit(setup.Install(l))
+		return setupExit(inv.Cmd, setup.Install(l))
 	case setup.CmdRepair:
-		return setupExit(setup.Repair(l))
+		return setupExit(inv.Cmd, setup.Repair(l))
 	case setup.CmdApplyUpdate:
-		return setupExit(setup.ApplyUpdate(l))
+		return setupExit(inv.Cmd, setup.ApplyUpdate(l))
 	case setup.CmdUninstall:
-		return setupExit(setup.Uninstall(l, inv.Purge))
+		return setupExit(inv.Cmd, setup.Uninstall(l, inv.Purge))
 	}
 	return int(setup.CodeUsage)
 }
 
 // setupExit reports a setup result as its closed-set exit code, which the
-// control panel turns into a sentence (ADR-0010).
-func setupExit(err error) int {
+// control panel turns into a sentence, and writes its detail to the event
+// log and to standard error (ADR-0010).
+func setupExit(cmd setup.Command, err error) int {
+	setup.Report(cmd, err)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "soireehost:", err)
 	}

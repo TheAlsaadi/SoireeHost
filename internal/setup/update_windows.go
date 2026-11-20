@@ -692,5 +692,7 @@ func checkSignatures(path string, h windows.Handle) error {
 	if err != nil {
 		return fail(CodeUpdateRefused, fmt.Errorf("checking the update's signature: %w", err))
 	}
-	return signatureAllows(run.Valid, run.Subject, cand.Valid, cand.Subject)
+	// the publisher is the subject with its issuer, so a same-named
+	// certificate from another authority does not pass
+	return signatureAllows(run.Signed, run.Valid, run.Publisher(), cand.Valid, cand.Publisher())
 }

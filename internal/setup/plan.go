@@ -306,22 +306,51 @@ func rollbackResult(to string, cause error, restoreErrs []error) error {
 	return fail(CodeRolledBack, fmt.Errorf("the update to %s was rolled back: %w", to, cause))
 }
 
+// EventSource is setup's own Application event log source (ADR-0010).
+const EventSource = "SoireeHost Setup"
+
+// Event kinds for Report.
+const (
+	eventInfo = iota + 1
+	eventWarning
+	eventError
+)
+
+// eventFor is what Report writes for a setup result: success is
+// information, a rolled-back update a warning tagged update.rollback, and
+// every other failure an error. The event id is the exit code (1 for
+// success), within the 1 to 1000 range the EventCreate message file covers.
+func eventFor(cmd Command, err error) (kind int, id uint32, text string) {
+	code := ExitCode(err)
+	switch {
+	case err == nil:
+		return eventInfo, 1, fmt.Sprintf("setup %s finished; SoiréeHost %s.", cmd, version.Current())
+	case code == CodeRolledBack:
+		return eventWarning, uint32(code), fmt.Sprintf("update.rollback: setup %s exited with code %d: %v", cmd, code, err) // #nosec G115 -- a small exit code
+	}
+	return eventError, uint32(code), fmt.Sprintf("setup %s failed with code %d: %v", cmd, code, err) // #nosec G115 -- a small exit code
+}
+
 // signatureAllows is the S-61 rule for an update (ADR-0004): while the
 // running program is unsigned, the signed manifest (S-60) is the only proof
 // of origin and any candidate may follow; once the running program carries
 // a valid Authenticode signature, the candidate must carry one too, from
 // the same publisher, so an update never moves from signed to unsigned.
-// A signed program whose publisher cannot be read refuses every update.
-func signatureAllows(runValid bool, runSubject string, newValid bool, newSubject string) error {
+// A signed program whose own signature does not verify here, or whose
+// publisher cannot be read, refuses every update: a check that cannot run
+// never counts as "unsigned" (insecure-defaults audit of 20 Nov 2026).
+func signatureAllows(runSigned, runValid bool, runPublisher string, newValid bool, newPublisher string) error {
 	switch {
+	case runSigned && !runValid:
+		return fail(CodeUpdateRefused, errors.New("this program is signed, but its own signature does not verify on this PC, so the update cannot be checked against it (S-61); run Repair or reinstall"))
 	case !runValid:
 		return nil
-	case runSubject == "":
+	case runPublisher == "":
 		return fail(CodeUpdateRefused, errors.New("this program is signed, but its publisher could not be read"))
 	case !newValid:
 		return fail(CodeUpdateRefused, errors.New("the update is not validly signed, and this version is; SoiréeHost never moves from signed to unsigned (S-61)"))
-	case newSubject != runSubject:
-		return fail(CodeUpdateRefused, fmt.Errorf("the update is signed by %q, not by %q", newSubject, runSubject))
+	case newPublisher != runPublisher:
+		return fail(CodeUpdateRefused, fmt.Errorf("the update is signed by %q, not by %q", newPublisher, runPublisher))
 	}
 	return nil
 }

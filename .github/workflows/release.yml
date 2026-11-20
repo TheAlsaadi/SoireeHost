@@ -37,6 +37,8 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 60
     permissions:
+      # actions: read lets a tag run check the commit's CI result
+      actions: read
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -65,6 +67,21 @@ jobs:
           if ($env:REF -like 'refs/tags/v*') { $v = $env:REF.Substring('refs/tags/v'.Length) } else { $v = "0.0.0-dryrun.$env:RUN" }
           if ($v -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$') { Write-Output "::error::'$v' is not a valid version"; exit 1 }
           "version=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+      - name: A release is built only from main, after its CI passed
+        # the build below skips the checks CI already ran on that commit
+        # (docs/RELEASE_CHECKLIST.md; deploy-checklist review, 20 Nov 2026)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          git fetch --quiet origin main
+          git merge-base --is-ancestor $env:SHA origin/main
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::the tag points at $env:SHA, which is not on main"; exit 1 }
+          $ok = gh api "repos/$env:REPO/actions/workflows/ci.yml/runs?head_sha=$env:SHA&status=success&per_page=1" --jq '.total_count'
+          if ($LASTEXITCODE -ne 0 -or [int]$ok -lt 1) { Write-Output "::error::CI has not passed on $env:SHA"; exit 1 }
       - name: Build
         shell: pwsh
         env:
@@ -261,5 +278,5 @@ jobs:
         run: |
           gh release create "$TAG" --repo "${{ github.repository }}" --draft --verify-tag \
             --title "SoiréeHost ${{ needs.build.outputs.version }}" \
-            --notes "This release is not Authenticode-signed yet. Check soireehost.exe against SHA256SUMS and its build provenance (gh attestation verify soireehost.exe --repo ${{ github.repository }}). Tunnel-token mode with a real hostname is not yet verified." \
+            --notes "For Windows 11 x64 only. This release is not Authenticode-signed yet. Check soireehost.exe against SHA256SUMS and its build provenance (gh attestation verify soireehost.exe --repo ${{ github.repository }}). Tunnel-token mode with a real hostname is not yet verified." \
             dist/soireehost.exe dist/manifest.json dist/SHA256SUMS dist/soireehost.cdx.json dist/frontend.cdx.json

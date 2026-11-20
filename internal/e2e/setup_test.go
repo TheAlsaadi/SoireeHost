@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows/registry"
@@ -71,6 +72,26 @@ func TestSetupRefusesOtherCopiesAndArguments(t *testing.T) {
 		if setup.Code(code) != tc.want {
 			t.Errorf("%s %v exited %d, want %d", tc.exe, tc.args, code, tc.want)
 		}
+	}
+}
+
+// TestSetupEventLog: install registered setup's own event source and wrote
+// its result there (ADR-0010): setup started from the Windows prompt has no
+// console, so the event log is where its detail is found.
+func TestSetupEventLog(t *testing.T) {
+	layout(t)
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Services\EventLog\Application\`+setup.EventSource, registry.QUERY_VALUE)
+	if err != nil {
+		t.Fatalf("no event source %q: %v", setup.EventSource, err)
+	}
+	_ = k.Close()
+	query := "*[System[Provider[@Name='" + setup.EventSource + "']]]"
+	out, err := exec.CommandContext(t.Context(), `C:\Windows\System32\wevtutil.exe`, "qe", "Application", "/q:"+query, "/c:20", "/rd:true", "/f:text").CombinedOutput() // #nosec G204 -- a fixed query
+	if err != nil {
+		t.Fatalf("wevtutil: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "setup install finished") {
+		t.Fatalf("no 'setup install finished' entry from %s:\n%s", setup.EventSource, out)
 	}
 }
 

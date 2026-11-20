@@ -385,9 +385,39 @@ func checkContents(root string, services ...string) error {
 // registerEventSources lets each service write to the Application event
 // log under its own name. A source that already exists is replaced.
 func registerEventSources() {
+	for _, name := range eventSources() {
+		_ = eventlog.Remove(name)
+		_ = eventlog.InstallAsEventCreate(name, eventlog.Error|eventlog.Warning|eventlog.Info)
+	}
+}
+
+// eventSources are the three services' sources and setup's own (ADR-0010).
+func eventSources() []string {
+	names := []string{EventSource}
 	for _, spec := range services {
-		_ = eventlog.Remove(spec.name)
-		_ = eventlog.InstallAsEventCreate(spec.name, eventlog.Error|eventlog.Warning|eventlog.Info)
+		names = append(names, spec.name)
+	}
+	return names
+}
+
+// Report writes the outcome of a setup command to the Application event
+// log under EventSource (ADR-0010): setup started from the Windows prompt
+// has no console, so this is where its detail goes. Setup's errors never
+// carry a secret. Nothing is written if the log cannot be opened.
+func Report(cmd Command, err error) {
+	el, oerr := eventlog.Open(EventSource)
+	if oerr != nil {
+		return
+	}
+	defer el.Close() //nolint:errcheck // nothing to do on failure
+	kind, id, text := eventFor(cmd, err)
+	switch kind {
+	case eventInfo:
+		_ = el.Info(id, text)
+	case eventWarning:
+		_ = el.Warning(id, text)
+	default:
+		_ = el.Error(id, text)
 	}
 }
 
@@ -567,6 +597,7 @@ func Uninstall(l Layout, purge bool) error {
 		_ = s.Close()
 		_ = eventlog.Remove(spec.name)
 	}
+	_ = eventlog.Remove(EventSource)
 	for _, pid := range pids {
 		if !processExited(pid, 10*time.Second) {
 			allStopped = false

@@ -235,22 +235,48 @@ func TestSignatureAllows(t *testing.T) {
 		newValid   bool
 		newSubject string
 		ok         bool
+		runSigned  bool
 	}{
-		{"unsigned to unsigned", false, "", false, "", true},
-		{"unsigned to signed", false, "", true, pub, true},
-		{"signed to signed, same publisher", true, pub, true, pub, true},
-		{"signed to unsigned", true, pub, false, "", false},
-		{"signed to another publisher", true, pub, true, other, false},
-		{"signed to a broken signature claiming the publisher", true, pub, false, pub, false},
-		{"signed, publisher unreadable", true, "", true, "", false},
-		{"publisher differs only in case", true, pub, true, "soiréehost project", false},
+		{"unsigned to unsigned", false, "", false, "", true, false},
+		{"unsigned to signed", false, "", true, pub, true, false},
+		{"signed to signed, same publisher", true, pub, true, pub, true, true},
+		{"signed to unsigned", true, pub, false, "", false, true},
+		{"signed to another publisher", true, pub, true, other, false, true},
+		{"signed to a broken signature claiming the publisher", true, pub, false, pub, false, true},
+		{"signed, publisher unreadable", true, "", true, "", false, true},
+		{"publisher differs only in case", true, pub, true, "soiréehost project", false, true},
+		// the running program's own signature does not verify here (expired,
+		// uncached chain): never treated as unsigned
+		{"signed but not verifying, to unsigned", false, "", false, "", false, true},
+		{"signed but not verifying, to signed", false, "", true, pub, false, true},
 	} {
-		err := signatureAllows(tt.runValid, tt.runSubject, tt.newValid, tt.newSubject)
+		err := signatureAllows(tt.runSigned, tt.runValid, tt.runSubject, tt.newValid, tt.newSubject)
 		if (err == nil) != tt.ok {
 			t.Errorf("%s: %v", tt.name, err)
 		}
 		if err != nil && ExitCode(err) != CodeUpdateRefused {
 			t.Errorf("%s: exit code %d, want %d", tt.name, ExitCode(err), CodeUpdateRefused)
+		}
+	}
+}
+
+// TestEventFor: setup's event log entries (ADR-0010) name the command and
+// the exit code; a rolled-back update is a warning tagged update.rollback.
+func TestEventFor(t *testing.T) {
+	if k, id, text := eventFor(CmdInstall, nil); k != eventInfo || id != 1 || !strings.Contains(text, "setup install finished") {
+		t.Fatalf("success: %d %d %q", k, id, text)
+	}
+	rolled := fail(CodeRolledBack, errors.New("the new supervisor did not answer"))
+	if k, id, text := eventFor(CmdApplyUpdate, rolled); k != eventWarning || id != uint32(CodeRolledBack) ||
+		!strings.HasPrefix(text, "update.rollback: setup apply-update") || !strings.Contains(text, "did not answer") {
+		t.Fatalf("rollback: %d %d %q", k, id, text)
+	}
+	if k, id, text := eventFor(CmdRepair, errors.New("disk full")); k != eventError || id != uint32(CodeFailed) || !strings.Contains(text, "code 1: disk full") {
+		t.Fatalf("failure: %d %d %q", k, id, text)
+	}
+	for _, c := range Codes() {
+		if c > 1000 {
+			t.Fatalf("exit code %d is outside the event ids EventCreate covers", c)
 		}
 	}
 }

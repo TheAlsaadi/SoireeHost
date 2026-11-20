@@ -52,6 +52,14 @@ jobs:
           go-version-file: go.mod
       - name: Verify module checksums
         run: go mod verify
+      - name: go.mod and go.sum are tidy, with no replace directive
+        # a release must ship exactly the modules it was tested with (go-release
+        # review, 20 Nov 2026)
+        shell: pwsh
+        run: |
+          go mod tidy -diff
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::go.mod or go.sum is not tidy; run go mod tidy"; exit 1 }
+          if (Select-String -Path go.mod -Pattern '^\s*replace\b' -Quiet) { Write-Output "::error::go.mod has a replace directive"; exit 1 }
       - name: Vendored Core Rule Set matches its signed release (S-71, ADR-0008)
         shell: pwsh
         run: ./build/check-crs.ps1

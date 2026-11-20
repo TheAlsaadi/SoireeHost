@@ -30,7 +30,7 @@ func TestFileSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sig := signatureOf(t, self); sig.Valid || sig.Subject != "" {
+	if sig := signatureOf(t, self); sig.Signed || sig.Valid || sig.Subject != "" {
 		t.Fatalf("this unsigned test binary reads as %+v", sig)
 	}
 	signed := filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe")
@@ -38,8 +38,14 @@ func TestFileSignature(t *testing.T) {
 		t.Skipf("no signed sample here (%v)", err)
 	}
 	sig := signatureOf(t, signed)
-	if !sig.Valid || sig.Subject != "Microsoft Corporation" {
+	if !sig.Signed || !sig.Valid || sig.Subject != "Microsoft Corporation" || sig.Issuer == "" || sig.Issuer == sig.Subject {
 		t.Fatalf("msedge.exe reads as %+v", sig)
+	}
+	if p := sig.Publisher(); p != "Microsoft Corporation (issued by "+sig.Issuer+")" {
+		t.Fatalf("publisher %q", p)
+	}
+	if (Signature{Subject: "x", Issuer: "y"}).Publisher() != "" {
+		t.Fatal("an invalid signature names a publisher")
 	}
 	b, err := os.ReadFile(signed) //nolint:gosec // G304, G703: a fixed system program
 	if err != nil {
@@ -50,7 +56,8 @@ func TestFileSignature(t *testing.T) {
 	if err := os.WriteFile(changed, b, 0o600); err != nil { //nolint:gosec // G703: a file in this test's own temporary folder
 		t.Fatal(err)
 	}
-	if sig := signatureOf(t, changed); sig.Valid {
-		t.Fatalf("a changed copy of msedge.exe still verifies: %+v", sig)
+	// a broken signature is still a signature: never mistaken for none
+	if sig := signatureOf(t, changed); sig.Valid || !sig.Signed {
+		t.Fatalf("a changed copy of msedge.exe reads as %+v, want signed but not valid", sig)
 	}
 }

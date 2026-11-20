@@ -4,7 +4,7 @@ Every dependency needs a reason, a pinned version, a licence check and a `govuln
 
 Dependabot proposes weekly version updates for Go modules, npm packages and GitHub Actions (`.github/dependabot.yml`), and security updates as they appear. Its pull requests do not touch this file: after merging one, bring the versions here up to date. The vendored Core Rule Set and the embedded cloudflared are outside it (S-65).
 
-Last reviewed: 16 Nov 2026 (quality review: every direct Go module is at its newest release; ESLint raised to 10.15.0 on the owner's word; TypeScript 7 is held back, below).
+Last reviewed: 16 Nov 2026 (quality review: every direct Go module is at its newest release; ESLint raised to 10.15.0 on the owner's word; TypeScript 7 is held back, below); 20 Nov 2026, end of Phase 6: no new module, four GitHub actions audited, below.
 
 ## Linked into soireehost.exe (Go)
 
@@ -100,6 +100,35 @@ Other CI and developer tools, pinned in the `env` block of `.github/workflows/ci
 | Tool | Version | Licence | Why |
 | --- | --- | --- | --- |
 | Semgrep (Community Edition, from PyPI) | 1.185.0 | LGPL-2.1-or-later | Plan section 10 requires Semgrep with the project's own rules (`.semgrep/`: S-01, S-34, S-40, R-14, CLAUDE.md rule 6), which golangci-lint and gosec cannot express. Runs offline with `--metrics=off`; no login or cloud platform. Developers install it per user with `python -m pip install --user semgrep==1.185.0` |
+
+## GitHub Actions and release tools (Phase 6, 20 Nov 2026)
+
+Phase 6 added no Go module and no npm package (S-75). It added four GitHub-owned actions to the release and watcher workflows, each pinned by commit SHA and on the repository's Actions allow list (owner, 19 Nov 2026; `docs/REPO_SETUP.md`):
+
+| Action | Version (commit) | Licence | Used by | Why |
+| --- | --- | --- | --- | --- |
+| `actions/upload-artifact` | v7.0.2 (`cf430e03`) | MIT | `release.yml` | Keeps the dry run's files as workflow artifacts; later jobs fetch them with the `gh` already on the runner, so `download-artifact` is not needed |
+| `actions/attest-build-provenance` | v4.2.2 (`4d101475`) | MIT | `release.yml`, tag runs only | Build provenance for `soireehost.exe` (S-73). A composite action that calls `actions/attest` |
+| `actions/attest` | v4.2.1 (`508db95d`) | MIT | through the above | Signs the provenance with GitHub's Sigstore instance |
+| `actions/create-github-app-token` | v3.3.0 (`64ab729a`) | MIT | `upstream-watch.yml` | A one-hour token from the owner's GitHub App, narrowed to Contents and Pull requests write, so the watcher's pull requests run CI (S-65) |
+
+**Supply-chain audit, 20 Nov 2026.** `supply-chain-risk-auditor` 2.0.4 collects data for npm, PyPI and Go only, so it ran on each action's own `package.json` and `package-lock.json` at the pinned commit (what the action's bundled code is built from). The results describe the actions' dependencies, not SoiréeHost's:
+
+- `upload-artifact`: 21 direct dependencies. One that ships in the action carries an advisory: `minimatch` 10.2.4 (GHSA-g3hv-75wg-m249, denial of service). 20 transitive packages carry advisories at their locked versions. Those that ship are `brace-expansion`, `fast-xml-parser` and `fast-xml-builder`, `glob`, `lodash`, `minimatch` 9.0.8 and `undici` 6.23.0.
+- `create-github-app-token`: 11 direct dependencies, none that ships with an advisory. Two that ship have a single human publisher: `is-network-error` and `p-retry`. Three transitive packages carry advisories; the one that ships is `undici` 6.29.0.
+- `actions/attest` (through `attest-build-provenance`): 25 direct dependencies. Two that ship carry an advisory: `@sigstore/oci` 0.7.1 (GHSA-j63v-mwhm-56jx) and `csv-parse` 7.0.1 (GHSA-8cw4-87c7-c6xx). 25 transitive packages carry advisories; those that ship include `@sigstore/core` 2.0.0, `ip-address` 10.2.0 and `undici` 6.25.0.
+
+**Accepted.** These actions run only on GitHub's runners, never on a user's PC. Their inputs are this repository's own paths and GitHub's API answers, not attacker-controlled data. The jobs that use them hold no update-signing key, which the `manifest` job keeps to itself (it runs no action but `checkout` and `setup-go`). Each job also has the least permissions it needs. Most advisories are denial-of-service issues in glob matching and the HTTP client. Dependabot proposes newer pinned versions of these actions weekly; take them when they arrive. Review again at each Dependabot pull request for an action, and before the first real release (Phase 7).
+
+**Release tools on the runner.**
+- `wails3` v3.1.0 matches the Wails module.
+- `npm sbom`, built into npm, writes the frontend SBOM.
+- `build/sbom`, `build/signmanifest`, `build/updatekey` and `build/upstream` use the Go standard library only.
+- The `gh` CLI and Git's `gpg` are preinstalled on GitHub's runners. `gpg` checks the Core Rule Set signature in the watcher, against the fingerprint pinned in `build/crs.lock`.
+
+None of them ships in `soireehost.exe`.
+
+`govulncheck -tags no_fs_access ./...` (20 Nov 2026): no vulnerabilities found.
 
 ## Overrides
 

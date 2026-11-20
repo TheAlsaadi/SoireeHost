@@ -30,7 +30,19 @@ All ticked lines were read back through the GitHub API on 16 Nov 2026 (QR-32 in 
 - [x] Branch ruleset for `main`: block force pushes, restrict deletions.
 - [x] Tag ruleset for `v*`: restrict creation, update and deletion to the owner (release tags trigger signing later, S-72).
 
-Requiring pull requests and passing checks on `main` is stricter but means every change goes through a pull request; decide before Phase 6, when signing starts.
+- [ ] Extend the `main` ruleset (owner decision, 16 Nov 2026; ADR-0004): require a pull request (no required approvals) and these status checks: Go checks, Frontend checks, Build soireehost.exe, Secret scan, Semgrep (project rules), Isolation (installs services on the runner), and CodeQL's `Analyze (go)` and `Analyze (javascript-typescript)`. Until this is set, `gh pr merge --auto` merges at once, so merges wait for a green run by hand.
+
+## Upstream watcher (S-65, ADR-0004)
+
+- [x] A GitHub App owned by the owner, installed on this repository only, with Contents and Pull requests read and write (created 19 Nov 2026).
+- [x] Repository variable `WATCHER_APP_CLIENT_ID` (set 19 Nov 2026, 17:43 UTC) and repository secret `WATCHER_APP_KEY`, the App's private key (set 19 Nov 2026, 17:44 UTC). Both confirmed by name through the API; the secret's value is never readable.
+
+The watcher (`.github/workflows/upstream-watch.yml`) runs on a schedule and by hand, which GitHub allows only from `main`, so its first run is after Phase 6 is merged.
+
+## Release environment (before the first release, Phase 7)
+
+- [ ] Environment `release` (Settings > Environments): deployment branches and tags limited to `v*` tags; the owner as required reviewer; secret `UPDATE_SIGNING_KEY` as described in `docs/UPDATE_KEY.md`.
+- [ ] Repository variable `SIGNING_ENABLED` left unset until the SignPath steps exist (`docs/RELEASE_CHECKLIST.md`).
 
 ## Repository details
 

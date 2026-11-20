@@ -187,6 +187,18 @@ If the power fails in the instant between the two renames of step 6, `soireehost
 - **The five-minute check (CI).** A job step times the whole path on Windows Server 2025: copy the built exe to a fresh folder, `setup install`, add a static site over the control pipe, start a quick share, fetch the page over the internet. It fails if this takes 5 minutes or more. Windows Server is a stand-in for Windows 11; the VM check covers the real target.
 - **The five-minute check (owner, once).** Windows 11 Enterprise evaluation in VirtualBox, using the dry-run release build. It covers the real Windows prompts, the Apps entry in Settings, the S-42 capture with Resource Monitor, an update installed by clicking (S-64) and uninstall. It is recorded in `docs/SECURITY_CHECKLIST.md`. Installing VirtualBox needs administrator rights, so it waits for the owner's go-ahead.
 
+### Notes added during the build and the Stage 4 reviews (19 and 20 Nov 2026)
+
+- **Journal names its process.** The journal holds the PID of the `apply-update` process. The new version's `setup repair`, started by that process while it holds the setup lock, is admitted without the lock only when its parent is that PID and the journal is at the swap step.
+- **Step order.** The settings snapshot is taken after the services stop, so no change made meanwhile is lost: verified, staged, stopped, snapshot, swapped, finished. An interruption at any step before the swap is cleaned up. Stale `.previous` files from an earlier update are deleted before the journal is first written, so every `.previous` file present while a journal exists belongs to this update (code review, 20 Nov 2026).
+- **Settings through handles.** The snapshot and the restore open `%ProgramData%\SoireeHost\config` and its `history` folder by handle and every file relative to it, never through a junction, a mount point or a file with several hard links (`winsec.Dir`). The supervisor's account can change that folder, and path-based copying would have let a compromised supervisor make an elevated rollback write or delete files anywhere (security review, 20 Nov 2026, confirmed true positive and fixed).
+- **Rollback result.** Exit code 22 means the previous version was restored and started. A rollback that could not restore it exits with code 1 and names both causes, so the control panel never says the previous version runs when it may not.
+- **Upgrade over a running control panel.** Windows refuses to replace a running program, and the tray starts at sign-in. `setup install` therefore moves the old program aside and deletes it at the next restart, as uninstall does.
+- **After an update**, the control panel that raised the prompt closes. The installed one it starts waits for it to exit, because Wails holds its single-instance lock until the process ends.
+- **S-61 publisher.** The publisher compared is the signer's name together with its issuer. A running program whose own signature does not verify offline refuses every update; a failed check never counts as "unsigned" (differential review and insecure-defaults audit, 20 Nov 2026).
+- **Uninstall does not recover an interrupted update.** It removes the program folder, `.previous` files and journal included, whatever state they are in.
+- **Event log.** Setup registers the source `SoireeHost Setup` with the services' sources and writes each command's result there: information on success, a warning tagged `update.rollback`, and an error otherwise. The event id is the exit code.
+
 ## Options considered
 
 ### Removing the running executable
@@ -223,8 +235,8 @@ If the power fails in the instant between the two renames of step 6, `soireehost
 ## Action items
 
 1. [x] Owner: accept or amend this record. Accepted 19 Nov 2026.
-2. [ ] `internal/setup`: mutex, journal, `repair`, `apply-update`, the Apps entry, the Run entry, the uninstall plan and self-removal, exit codes, event source.
-3. [ ] `internal/gui`: install window, upgrade offer, Repair and Install buttons, uninstall window, the elevation call, exit after uninstall.
-4. [ ] `cmd/soireehost`: the new subcommands; refuse extra arguments.
-5. [ ] CI isolation job: every check above, plus the timed five-minute path.
+2. [x] `internal/setup`: mutex, journal, `repair`, `apply-update`, the Apps entry, the Run entry, the uninstall plan and self-removal, exit codes, event source (pull request 22, CI green 20 Nov 2026).
+3. [x] `internal/gui`: install window, upgrade offer, Repair and Install buttons, uninstall window, the elevation call, exit after uninstall (pull request 22, CI green 20 Nov 2026; the owner approved the four new screens on 19 Nov 2026).
+4. [x] `cmd/soireehost`: the new subcommands; refuse extra arguments (pull request 22, CI green 20 Nov 2026).
+5. [x] CI isolation job: every check above, plus the timed five-minute path (57 s on 20 Nov 2026; pull request 22, CI green 20 Nov 2026).
 6. [ ] Owner: the VirtualBox check, after giving the go-ahead to install VirtualBox.

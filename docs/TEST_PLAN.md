@@ -110,6 +110,19 @@ Plant canary tokens as the tunnel token and in site config, run the app through 
 
 Every Go command needs the `no_fs_access` tag; CI sets it in `GOFLAGS`.
 
+## Phase 6 plan (setup and updates, ADR-0004, ADR-0010)
+
+| Area | Type | What |
+| --- | --- | --- |
+| Signed manifest (S-60, S-62) | Unit, fuzz | Signature before decoding, strict JSON (no unknown, duplicate or case-folded keys), canonical base64, key id bound to its key, empty key list refuses, version precedence with pre-releases (`update` `TestVerifyAccepts`, `TestVerifyRefusesForgeries`, `TestVerifyRefusesTruncated`, `TestVerifyVersions`, `TestVerifyRefusesPayloads`, `TestCheckFile`, `TestParseKeys`, `TestEmbeddedKeys`; `version` `TestCompareOrder`; `FuzzVerify`, `FuzzDecodePayload`, `FuzzParseKeys`, `FuzzCompare`) |
+| Update check and staging (S-42, S-63) | Integration, local TLS server | Verified download only; redirects only to the three GitHub hosts over HTTPS; an older manifest never replaces a newer one; a failed check keeps a staged update; restore after restart (`supervisor` `TestUpdateStagesVerifiedFile`, `TestUpdateRefusesForgedManifest`, `TestUpdateRefusesBadDownload`, `TestUpdateRefusesOlderVersions`, `TestUpdateStagedSurvivesFailedCheck`, `TestUpdateStaysOnGitHub`, `TestUpdateRestore`, `TestUpdateSetCheckNeedsConfirmation`) |
+| Setup decisions (ADR-0010) | Unit, fuzz | Arguments, exit codes, install decision, Apps entry, journal and recovery, rollback result, S-61 rule, event log entries (`setup` `TestParseArgs`, `TestExitCodes`, `TestDecideInstall`, `TestAppsEntry`, `TestDecide`, `TestRollbackResult`, `TestSignatureAllows`, `TestEventFor`, `FuzzDecodeJournal`) |
+| Elevated file handling | Unit | Upgrade over a running program, self-removal while running, settings snapshot and restore through handles that never follow links (`setup` `TestReplaceProgramWhileRunning`, `TestRemoveProgramFolderWhileRunning`, `TestStoreSnapshotAndRestore`, `TestStoreRestoreRefusesJunction`; `winsec` `TestDirNeverFollowsLinks`, `TestFileSignature`) |
+| Control panel setup windows | Unit | Window mode, closed action set, relaunch after an update (`gui` `TestSetupState`, `TestSetupActions`, `TestSetupRun`, `TestWaitForPredecessor`; `frontend/src/screens/SetupWindow.test.ts`) |
+| Installed system (CI isolation) | E2E | Timed first site under 5 minutes; Apps entry; event log; updates good, tampered, wrong key, truncated, equal, older, failing to start, killed at the swap; signed updates; S-42 traffic capture; uninstall from the installed program with self-removal (`e2e` `TestFirstSiteWithinFiveMinutes`, `TestAppsEntry`, `TestSetupEventLog`, `TestSetupRefusesOtherCopiesAndArguments`, `TestApplyUpdate`, `TestSignedUpdates`, `TestOutboundTraffic`) |
+| Release and watcher tools | Unit, workflow | Manifest signing refuses test-key builds; key generation refuses paths in the repository; SBOM; watcher hash agreement (`signmanifest` `TestSignVerifies`, `TestSignRefuses`; `updatekey` `TestGenAndCheck`, `TestGenRefusesInsideRepository`; `sbom` `TestSBOMOfTestBinary`; `upstream` `TestNotesHashAndAgree`, `TestEditsOnRepositoryFiles`); release dry run on every pull request that touches the release path |
+| Owner's VM check | Manual | Windows 11 evaluation in VirtualBox: install, Windows prompts, Apps entry, Resource Monitor capture, an update by clicking, uninstall. Not yet done (needs the owner's go-ahead to install VirtualBox) |
+
 ## Current coverage (16 Nov 2026, end of Phase 5)
 
 | Area | Tests |

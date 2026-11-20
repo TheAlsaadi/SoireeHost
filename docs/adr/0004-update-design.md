@@ -224,6 +224,12 @@ The owner extends the `main` ruleset:
 
 GitHub's auto-merge then waits for CI. The watcher's and Dependabot's pull requests go through the same checks.
 
+### Notes added at the Stage 4 reviews (20 Nov 2026)
+
+- **A staged update stays installable.** A later check that fails, or a failed download of a still newer release, keeps the earlier staged update in the `ready` state, with the problem code alongside.
+- **Release workflow order.** The manifest, the dry-run manifest and the draft release wait for the Authenticode job: skipped (signing off) is fine, failed stops them. A tag run first checks that the tagged commit is on `main` and that CI passed on it, because the release build skips the checks CI already ran. CI also checks that `go.mod` and `go.sum` are tidy and that `go.mod` has no `replace` directive.
+- **The four new actions** were audited through their pinned lockfiles (`docs/DEPENDENCIES.md`).
+
 ## Options considered
 
 ### Option A: Own verifier with a pinned Ed25519 manifest (chosen)
@@ -281,8 +287,8 @@ GitHub's auto-merge then waits for CI. The watcher's and Dependabot's pull reque
 1. [x] Owner: accept or amend this record. Accepted 19 Nov 2026.
 2. [x] `internal/update`: envelope, payload, key list, version precedence, artifact check; unit tests for tampered payload, tampered signature, wrong key, unknown key id, missing signature, truncated envelope and file, oversized input, older and equal versions, `min_from`, product, channel, name and URL; fuzz targets for the envelope and the payload.
 3. [x] Supervisor: checker, download, staging, `update.check`, the `update` status block, the `updates.off` setting (`update.set_check`) with confirmation and audit; tests against a local TLS server (19 Nov 2026).
-4. [ ] Setup `apply-update` with the double check, swap and rollback (ADR-0010); isolation-job tests for a good update and for tampered, wrong-key, truncated, older-version, failed-start and interrupted updates.
-5. [ ] Control panel: "Update ready", Install (Windows prompt), "Check now", last check, the setting.
-6. [ ] `build/updatekey`, `build/signmanifest`, `build/sbom`, `docs/UPDATE_KEY.md`.
-7. [ ] `release.yml` (dry run) and `upstream-watch.yml`; the S-42 capture in the isolation job.
-8. [ ] Owner, before the first release: generate the key, store the backup, commit `keys.json`, create the `release` environment and the GitHub App.
+4. [x] Setup `apply-update` with the double check, swap and rollback (ADR-0010); isolation-job tests for a good update and for tampered, wrong-key, truncated, older-version, failed-start and interrupted updates (pull request 22, CI green 20 Nov 2026).
+5. [x] Control panel: "Update ready", Install (Windows prompt), "Check now", last check, the setting (pull request 22, CI green 20 Nov 2026).
+6. [x] `build/updatekey`, `build/signmanifest`, `build/sbom`, `docs/UPDATE_KEY.md` (pull request 22, CI green 20 Nov 2026).
+7. [x] `release.yml` (dry run) and `upstream-watch.yml`; the S-42 capture in the isolation job (pull request 22, CI green 20 Nov 2026). The release steps are in `docs/RELEASE_CHECKLIST.md`.
+8. [ ] Owner, before the first release: generate the key, store the backup, commit `keys.json`, create the `release` environment and the GitHub App. (The GitHub App and its variable and secret exist, 19 Nov 2026; the key and the environment are for Phase 7.)
