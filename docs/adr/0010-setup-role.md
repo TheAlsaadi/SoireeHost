@@ -197,6 +197,7 @@ If the power fails in the instant between the two renames of step 6, `soireehost
 - **After an update**, the control panel that raised the prompt closes. The installed one it starts waits for it to exit, because Wails holds its single-instance lock until the process ends.
 - **S-61 publisher.** The publisher compared is the signer's name together with its issuer. A running program whose own signature does not verify offline refuses every update; a failed check never counts as "unsigned" (differential review and insecure-defaults audit, 20 Nov 2026).
 - **Uninstall does not recover an interrupted update.** It removes the program folder, `.previous` files and journal included, whatever state they are in.
+- **The supervisor is confined** (20 Nov 2026), like the workers: a kill-on-close job object that allows no child process. Nothing it could start outlives the service stop that `apply-update` waits for before it touches the supervisor's folders.
 - **Event log.** Setup registers the source `SoireeHost Setup` with the services' sources and writes each command's result there: information on success, a warning tagged `update.rollback`, and an error otherwise. The event id is the exit code.
 
 ## Options considered

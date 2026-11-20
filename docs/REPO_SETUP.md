@@ -30,12 +30,13 @@ All ticked lines were read back through the GitHub API on 16 Nov 2026 (QR-32 in 
 - [x] Branch ruleset for `main`: block force pushes, restrict deletions.
 - [x] Tag ruleset for `v*`: restrict creation, update and deletion to the owner (release tags trigger signing later, S-72).
 
-- [ ] Extend the `main` ruleset (owner decision, 16 Nov 2026; ADR-0004): require a pull request (no required approvals) and these status checks: Go checks, Frontend checks, Build soireehost.exe, Secret scan, Semgrep (project rules), Isolation (installs services on the runner), and CodeQL's `Analyze (go)` and `Analyze (javascript-typescript)`. Until this is set, `gh pr merge --auto` merges at once, so merges wait for a green run by hand.
+- [x] Extend the `main` ruleset (owner decision, 16 Nov 2026; ADR-0004; applied through the API and read back on 20 Nov 2026): require a pull request (no required approvals) and these status checks: Go checks, Frontend checks, Build soireehost.exe, Secret scan, Semgrep (project rules), Isolation (installs services on the runner), and CodeQL's `Analyze (go)` and `Analyze (javascript-typescript)`.
 
 ## Upstream watcher (S-65, ADR-0004)
 
 - [x] A GitHub App owned by the owner, installed on this repository only, with Contents and Pull requests read and write (created 19 Nov 2026).
-- [x] Repository variable `WATCHER_APP_CLIENT_ID` (set 19 Nov 2026, 17:43 UTC) and repository secret `WATCHER_APP_KEY`, the App's private key (set 19 Nov 2026, 17:44 UTC). Both confirmed by name through the API; the secret's value is never readable.
+- [x] Repository variable `WATCHER_APP_CLIENT_ID` (set 19 Nov 2026, 17:43 UTC).
+- [ ] Repository secret `WATCHER_APP_KEY`: the App's private key, the whole `.pem` file as downloaded, from `-----BEGIN` to `-----END`. Set 19 Nov 2026, 17:44 UTC, but the first run (20 Nov 2026, run 44704294806) could not read it as a key ("Invalid keyData"). Replace it: GitHub > Settings > Developer settings > GitHub Apps > the watcher's App > Private keys > Generate a private key, then `gh secret set WATCHER_APP_KEY --repo TheAlsaadi/SoireeHost < path\to\downloaded.pem`, delete the downloaded file, and run the watcher again (`gh workflow run upstream-watch.yml --repo TheAlsaadi/SoireeHost`).
 
 The watcher (`.github/workflows/upstream-watch.yml`) runs on a schedule and by hand, which GitHub allows only from `main`, so its first run is after Phase 6 is merged.
 

@@ -46,7 +46,7 @@ Release builds use `-tags production` (developer tools off, dev-server redirect 
 
 ## Status
 
-- **Done:** Phases 0 to 5 and the quality review after Phase 5 (16 Nov 2026). Phase 6 (setup, signing, updates) is built and verified in pull request 22 (20 Nov 2026), waiting for the owner to merge it. The history, with pull requests, CI runs and the owner's decisions, is in [docs/HISTORY.md](docs/HISTORY.md); add to it when a phase completes.
-- **Next:** after the merge, the owner's VirtualBox check of Phase 6 (needs the go-ahead to install VirtualBox), and the watcher's first pull request (cloudflared 2026.11.1). Phase 7 starts only when the owner says so; before its first release, follow [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
-- **Open:** tunnel-token mode with a real hostname is not verified (no domain). The `main` ruleset does not yet require pull requests and checks (docs/REPO_SETUP.md).
+- **Done:** Phases 0 to 5 and the quality review after Phase 5 (16 Nov 2026). Phase 6 (setup, signing, updates) merged through pull request 22 (20 Nov 2026); only the owner's VM check is left of it. The history, with pull requests, CI runs and the owner's decisions, is in [docs/HISTORY.md](docs/HISTORY.md); add to it when a phase completes.
+- **Next:** the owner replaces the watcher's `WATCHER_APP_KEY` secret (the first run failed on it), then the watcher proposes cloudflared 2026.11.1; the owner's VirtualBox check of Phase 6. Phase 7 starts only when the owner says so; before its first release, follow [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
+- **Open:** tunnel-token mode with a real hostname is not verified (no domain).
 - Vetted plugins are declared in `.claude/settings.json` and load in a new session. See the checklist at the end of each phase in docs/PLAN.md section 9.

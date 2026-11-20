@@ -457,7 +457,9 @@ func readDir(path string) error {
 // cannot start a child.
 func TestWorkersAreConfined(t *testing.T) {
 	waitAllRunning(t)
-	for _, name := range []string{winsec.WebService, winsec.TunnelService} {
+	// the supervisor too, since 20 Nov 2026: no process it starts may
+	// outlive a stop
+	for _, name := range []string{winsec.WebService, winsec.TunnelService, winsec.SupervisorService} {
 		pid := state(t, name).ProcessId
 		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
 		if err != nil {

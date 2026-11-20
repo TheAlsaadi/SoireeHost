@@ -20,9 +20,21 @@ func DataRoot() (string, error) {
 	return filepath.Join(loc.ProgramData, "SoireeHost"), nil
 }
 
+// Limits confine the supervisor as the workers are confined (S-21): it
+// starts no process of its own (the workers are services, started by the
+// service manager), so it may start none. A process it could start would
+// outlive the service stop that setup relies on before it touches the
+// supervisor's folders (security review of 20 Nov 2026), and the job ends
+// with the service. The supervisor's token already holds only
+// SeChangeNotifyPrivilege (setup's required-privileges setting).
+var Limits = winsec.Limits{MemoryBytes: 1 << 30, ActiveProcesses: 1, NoChildProcesses: true}
+
 // RunService runs the supervisor as the SoireeHost Windows service.
 func RunService(version string) error {
 	return svcrun.Run(winsec.SupervisorService, true, func(ctx context.Context) error {
+		if err := winsec.Confine(Limits); err != nil {
+			return err
+		}
 		if failStartForTest {
 			return errors.New("this test build's supervisor refuses to start (updatetestfail)")
 		}
