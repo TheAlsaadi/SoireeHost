@@ -10,18 +10,32 @@
   import Backups from "./screens/Backups.svelte";
   import Settings from "./screens/Settings.svelte";
   import FirstRun from "./screens/FirstRun.svelte";
-  import { api } from "./lib/api";
+  import SetupWindow from "./screens/SetupWindow.svelte";
+  import { api, type gui } from "./lib/api";
   import { app, startPolling } from "./lib/state.svelte";
   import type { Screen } from "./lib/nav";
 
   let screen = $state<Screen>("sites");
   let firstRunDone = $state(false);
   let dropped = $state("");
+  // install, upgrade and uninstall windows (ADR-0010); undefined until known
+  let setup = $state<gui.SetupState | undefined>();
 
   const showFirstRun = $derived(!firstRunDone && !!app.config && app.config.sites.length === 0 && !app.failed);
 
   onMount(() => {
-    const stop = startPolling();
+    let stop = () => {};
+    api()
+      .setupState()
+      .then((s) => {
+        setup = s;
+        // only the installed control panel talks to the supervisor
+        if (s.mode === "installed") stop = startPolling();
+      })
+      .catch(() => {
+        setup = { mode: "installed", installed_version: "", this_version: "", newer: false };
+        stop = startPolling();
+      });
     api()
       .version()
       .then((v) => (app.version = v))
@@ -54,24 +68,28 @@
   }
 </script>
 
-<div class="app">
-  <Rail current={screen} onselect={go} />
-  <div class="main">
-    <StatusLine />
-    {#if showFirstRun}
-      <FirstRun initialFolder={dropped} ondone={() => (firstRunDone = true)} />
-    {:else if screen === "sites"}
-      <Sites bind:droppedFolder={dropped} />
-    {:else if screen === "activity"}
-      <Activity />
-    {:else if screen === "security"}
-      <Security {go} />
-    {:else if screen === "backups"}
-      <Backups />
-    {:else}
-      <Settings />
-    {/if}
+{#if setup && setup.mode !== "installed"}
+  <SetupWindow info={setup} />
+{:else if setup}
+  <div class="app">
+    <Rail current={screen} onselect={go} />
+    <div class="main">
+      <StatusLine />
+      {#if showFirstRun}
+        <FirstRun initialFolder={dropped} ondone={() => (firstRunDone = true)} />
+      {:else if screen === "sites"}
+        <Sites bind:droppedFolder={dropped} />
+      {:else if screen === "activity"}
+        <Activity />
+      {:else if screen === "security"}
+        <Security {go} />
+      {:else if screen === "backups"}
+        <Backups />
+      {:else}
+        <Settings />
+      {/if}
+    </div>
   </div>
-</div>
+{/if}
 <ConfirmDialog />
 <Toasts />

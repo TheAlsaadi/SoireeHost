@@ -1,0 +1,157 @@
+# Upstream watcher (S-65, ADR-0004). Once a day it compares the pinned
+# cloudflared, Core Rule Set and Go toolchain with their newest stable
+# releases. For each newer one it opens a pull request, using a token from
+# the owner's own GitHub App (a pull request opened with the default
+# GITHUB_TOKEN would not run CI). Nothing merges on its own: the owner
+# reviews and merges. Caddy, Coraza and the other Go modules are
+# Dependabot's. Until the App is set up, the run only warns.
+name: Upstream watcher
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: upstream-watch
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: -mod=readonly -tags=no_fs_access
+
+jobs:
+  check:
+    name: Compare the pins with upstream releases
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      updates: ${{ steps.check.outputs.updates }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Check
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          go run ./build/upstream check > updates.txt
+          cat updates.txt
+          # one matrix entry per update; component and version were checked
+          # by the tool (a known name, a stable version of digits and dots)
+          json=$(jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ") | {component: .[0], version: .[1]})' updates.txt)
+          echo "updates=$json" >> "$GITHUB_OUTPUT"
+
+  not-set-up:
+    name: Warn while the watcher's GitHub App is not set up
+    needs: check
+    if: needs.check.outputs.updates != '[]' && vars.WATCHER_APP_CLIENT_ID == ''
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - env:
+          UPDATES: ${{ needs.check.outputs.updates }}
+        run: echo "::warning title=Upstream updates waiting::$UPDATES. The watcher's GitHub App is not set up, so no pull request was opened (ADR-0004)."
+
+  propose:
+    name: Propose ${{ matrix.component }} ${{ matrix.version }}
+    needs: check
+    if: needs.check.outputs.updates != '[]' && vars.WATCHER_APP_CLIENT_ID != ''
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJSON(needs.check.outputs.updates) }}
+    env:
+      COMPONENT: ${{ matrix.component }}
+      VERSION: ${{ matrix.version }}
+      BRANCH: upstream/${{ matrix.component }}-${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Already proposed?
+        id: open
+        shell: pwsh
+        run: |
+          $found = git ls-remote --heads origin "refs/heads/$env:BRANCH"
+          "exists=$([bool]$found)".ToLower() | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+          if ($found) { Write-Output "$env:BRANCH already exists; its pull request is waiting for review" }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: steps.open.outputs.exists != 'true'
+        with:
+          go-version-file: go.mod
+      - name: Move the pin
+        if: steps.open.outputs.exists != 'true'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          switch ($env:COMPONENT) {
+            'cloudflared' {
+              # the release notes, GitHub's digest and the download must agree
+              go run ./build/upstream apply cloudflared $env:VERSION
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+            }
+            'crs' {
+              $dir = Join-Path $env:RUNNER_TEMP 'crs'
+              New-Item -ItemType Directory -Force $dir | Out-Null
+              go run ./build/upstream apply crs $env:VERSION -dir $dir
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+              # the archive must be signed by the key pinned in crs.lock
+              $fpr = (Select-String -Path build/crs.lock -Pattern '^signer=([0-9A-F]{40})$').Matches[0].Groups[1].Value
+              $gpg = 'C:\Program Files\Git\usr\bin\gpg.exe'
+              $env:GNUPGHOME = Join-Path $env:RUNNER_TEMP 'gnupg'
+              New-Item -ItemType Directory -Force $env:GNUPGHOME | Out-Null
+              & $gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys $fpr
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+              $name = "coreruleset-$env:VERSION-minimal.tar.gz"
+              $status = & $gpg --batch --status-fd 1 --verify (Join-Path $dir "$name.asc") (Join-Path $dir $name) 2>$null
+              if (-not ($status -match "VALIDSIG $fpr")) { Write-Output "::error::the CRS $env:VERSION archive is not signed by $fpr"; exit 1 }
+              ./build/check-crs.ps1 -Update
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+            }
+            'go' {
+              go run ./build/upstream apply go $env:VERSION
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+            }
+            default { Write-Output "::error::unknown component $env:COMPONENT"; exit 1 }
+          }
+          git status --short
+      - name: Token from the watcher's GitHub App
+        if: steps.open.outputs.exists != 'true'
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.WATCHER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.WATCHER_APP_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Push the branch and open the pull request
+        if: steps.open.outputs.exists != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          REPO: ${{ github.repository }}
+        run: |
+          git switch -c $env:BRANCH
+          git add -A
+          git -c user.name="$env:APP_SLUG[bot]" -c user.email="$env:APP_SLUG[bot]@users.noreply.github.com" commit -q -m "Upstream: $env:COMPONENT $env:VERSION (S-65)"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          git push -q "https://x-access-token:$env:GH_TOKEN@github.com/$env:REPO.git" "HEAD:refs/heads/$env:BRANCH"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $body = "The upstream watcher (S-65, ADR-0004) found $env:COMPONENT $env:VERSION and moved the pin after its checks. Review the diff and CI, then merge by hand; nothing merges on its own. Target: a release within 7 days of an upstream security fix."
+          gh pr create --repo $env:REPO --base main --head $env:BRANCH --title "Upstream: $env:COMPONENT $env:VERSION" --body $body

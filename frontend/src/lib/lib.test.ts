@@ -74,6 +74,7 @@ function status(tunnels: ipc.TunnelView[], over: Partial<ipc.TunnelStatus> = {})
     workers: [],
     audit_ok: true,
     started_at: "",
+    update: { state: "idle" },
     tunnel: { offline: false, token_set: false, service_url: "", repair_needed: false, tunnels, ...over },
   };
 }

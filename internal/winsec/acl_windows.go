@@ -438,3 +438,37 @@ func ForceSDDLUnlessLinked(path, sddl string) (skipped bool, err error) {
 	}
 	return false, ForceSDDL(path, sddl)
 }
+
+// CreateMutexSDDL creates or opens a named mutex with the given descriptor.
+// existed reports that the mutex was already there, in which case its own
+// descriptor applies and the caller should check its owner (OwnerOf).
+func CreateMutexSDDL(name, sddl string) (h windows.Handle, existed bool, err error) {
+	sd, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		return 0, false, fmt.Errorf("security descriptor: %w", err)
+	}
+	p, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return 0, false, err
+	}
+	sa := windows.SecurityAttributes{SecurityDescriptor: sd}
+	sa.Length = uint32(unsafe.Sizeof(sa)) // #nosec G103 G115 -- the size of a fixed Windows structure
+	h, err = windows.CreateMutex(&sa, false, p)
+	if h == 0 {
+		return 0, false, err
+	}
+	return h, errors.Is(err, windows.ERROR_ALREADY_EXISTS), nil
+}
+
+// OwnerOf returns the owner SID of a kernel object, as a string.
+func OwnerOf(h windows.Handle) (string, error) {
+	sd, err := windows.GetSecurityInfo(h, windows.SE_KERNEL_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		return "", err
+	}
+	o, _, err := sd.Owner()
+	if err != nil || o == nil {
+		return "", errors.New("no owner")
+	}
+	return o.String(), nil
+}

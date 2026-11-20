@@ -40,7 +40,16 @@ export interface Api {
   startAtSignIn(): Promise<boolean>;
   setStartAtSignIn(on: boolean): Promise<void>;
   onFolderDropped(handler: (path: string) => void): () => void;
+  checkForUpdates(): Promise<ipc.UpdateStatus>;
+  setUpdateCheck(check: boolean, confirmation: string): Promise<ipc.ConfigResult>;
+  setupState(): Promise<gui.SetupState>;
+  runSetup(action: SetupAction): Promise<gui.SetupResult>;
+  openInstalled(): Promise<void>;
+  closeSetup(): Promise<void>;
 }
+
+/** The setup actions the control panel may start; the closed set of internal/gui. */
+export type SetupAction = "install" | "repair" | "apply-update" | "uninstall" | "uninstall-purge";
 
 export type KnownLink = "cloudflare-dashboard" | "tunnel-token-help" | "project" | "security-policy";
 
@@ -58,7 +67,7 @@ export function setApi(a: Api): void {
 
 /** The real bindings. Imported lazily so tests never load the runtime. */
 export async function bindingsApi(): Promise<Api> {
-  const [{ AppService, Control, Local }, { Events }] = await Promise.all([
+  const [{ AppService, Control, Local, Setup }, { Events }] = await Promise.all([
     import("../../bindings/github.com/TheAlsaadi/SoireeHost/internal/gui"),
     import("@wailsio/runtime"),
   ]);
@@ -96,5 +105,11 @@ export async function bindingsApi(): Promise<Api> {
       Events.On("folder-dropped", (ev: { data: unknown }) => {
         if (typeof ev.data === "string") h(ev.data);
       }),
+    checkForUpdates: () => Control.CheckForUpdates(),
+    setUpdateCheck: (on, c) => Control.SetUpdateCheck(on, c),
+    setupState: () => Setup.State(),
+    runSetup: (a) => Setup.Run(a),
+    openInstalled: () => Setup.OpenInstalled(),
+    closeSetup: () => Setup.Close(),
   };
 }

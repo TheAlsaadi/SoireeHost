@@ -52,6 +52,14 @@ jobs:
           go-version-file: go.mod
       - name: Verify module checksums
         run: go mod verify
+      - name: go.mod and go.sum are tidy, with no replace directive
+        # a release must ship exactly the modules it was tested with (go-release
+        # review, 20 Nov 2026)
+        shell: pwsh
+        run: |
+          go mod tidy -diff
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::go.mod or go.sum is not tidy; run go mod tidy"; exit 1 }
+          if (Select-String -Path go.mod -Pattern '^\s*replace\b' -Quiet) { Write-Output "::error::go.mod has a replace directive"; exit 1 }
       - name: Vendored Core Rule Set matches its signed release (S-71, ADR-0008)
         shell: pwsh
         run: ./build/check-crs.ps1
@@ -217,11 +225,37 @@ jobs:
           icacls C:\soireehost-ci /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Copy-Item bin\soireehost.exe C:\soireehost-ci\soireehost.exe
-      - name: setup install
-        run: C:\soireehost-ci\soireehost.exe setup install
+      - name: Compile the e2e tests before the clock starts
+        run: go test -c -tags e2e,no_fs_access -o C:\soireehost-ci\e2e.test.exe ./internal/e2e/
+      - name: setup install, timed to the first live site (Phase 6 check)
+        # From the downloaded soireehost.exe to a page served over the
+        # internet through quick share, on a runner where SoiréeHost was
+        # never installed; must take under 5 minutes. Windows Server stands
+        # in for Windows 11 here; the owner's VM check covers the real one.
+        shell: pwsh
+        run: |
+          $start = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+          & C:\soireehost-ci\soireehost.exe setup install | Out-Default
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=setup install::exited $LASTEXITCODE"; exit 1 }
+          $env:SOIREEHOST_E2E = '1'
+          $env:SOIREEHOST_TIMED_START = "$start"
+          # quoted name=value flags: PowerShell splits a bare -test.run at the dot
+          $out = & C:\soireehost-ci\e2e.test.exe '-test.run=^TestFirstSiteWithinFiveMinutes$' '-test.v' '-test.timeout=10m' 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          $out -split "`r?`n" | Where-Object { $_ -match 'from the downloaded' } | ForEach-Object { Write-Output "::notice title=First live site::$($_.Trim())" }
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|error|limit|--- |\.go:\d+' } | Select-Object -First 20
+            Write-Output "::error title=first live site::$(($lines -join '%0A') -replace '::', ': :')"
+            exit $code
+          }
       - name: Isolation and tunnel tests
         env:
           SOIREEHOST_E2E: "1"
+          # the tunnel half of the S-42 capture runs here, while the runner's
+          # address can still get quick tunnels from trycloudflare.com
+          SOIREEHOST_S42_E2E: "1"
+          SOIREEHOST_S42_TUNNEL: "1"
         shell: pwsh
         run: |
           $out = go test -tags e2e,no_fs_access -count=1 -v -timeout 60m ./internal/e2e/ 2>&1 | Out-String
@@ -263,6 +297,114 @@ jobs:
           }
           Write-Output "::error title=reinstall::services not running 90 seconds after reinstall"
           exit 1
+      - name: setup repair from the installed program (ADR-0010)
+        shell: pwsh
+        run: |
+          & "$env:ProgramFiles\SoireeHost\soireehost.exe" setup repair | Out-Default
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=repair::setup repair exited $LASTEXITCODE"; exit 1 }
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Get-Date) -lt $deadline) {
+            $down = Get-Service SoireeHost, SoireeHostWeb, SoireeHostTunnel | Where-Object Status -ne 'Running'
+            if (-not $down) { exit 0 }
+            Start-Sleep -Seconds 2
+          }
+          Write-Output "::error title=repair::services not running 90 seconds after repair"
+          exit 1
+      - name: Update tests (S-60 to S-64, ADR-0004, ADR-0010)
+        # Builds test versions that trust a key made here and now
+        # (updatetestkey; never a release build), installs 1.0.0 over the
+        # install above, and runs TestApplyUpdate against it
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          $d = 'C:\soireehost-ci\upd'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          [IO.File]::WriteAllText("$PWD\internal\update\testkey.json", '{"keys":[]}')
+          go run ./build/updatekey gen -out C:\soireehost-ci\update-test.key -keys internal/update/testkey.json
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=update tests::could not make the test key"; exit 1 }
+          $builds = @(
+            @{ v = '1.0.0'; extra = ',setuptesthooks'; name = '1.0.0.exe' },
+            @{ v = '1.1.0'; extra = ',setuptesthooks'; name = '1.1.0.exe' },
+            @{ v = '1.2.0'; extra = ',updatetestfail'; name = '1.2.0-fail.exe' },
+            @{ v = '1.2.0'; extra = ''; name = '1.2.0.exe' }
+          )
+          foreach ($b in $builds) {
+            go build -trimpath -tags "cloudflared,no_fs_access,updatetestkey$($b.extra)" -ldflags "-X github.com/TheAlsaadi/SoireeHost/internal/version.Version=$($b.v)" -o "$d\$($b.name)" ./cmd/soireehost
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error title=update tests::building $($b.name) failed"; exit 1 }
+          }
+          & "$d\1.0.0.exe" setup install | Out-Default
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=update tests::installing the 1.0.0 test build exited $LASTEXITCODE"; exit 1 }
+          $env:SOIREEHOST_E2E = '1'
+          $env:SOIREEHOST_UPDATE_E2E = '1'
+          $env:SOIREEHOST_UPDATE_KEY = 'C:\soireehost-ci\update-test.key'
+          $out = go test -tags e2e,no_fs_access -count=1 -v -timeout 30m -run '^TestApplyUpdate$' ./internal/e2e/ 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|error|exited|--- |\.go:\d+' } | Select-Object -First 40
+            $msg = ($lines -join '%0A') -replace '::', ': :'
+            Write-Output "::error title=update tests failed::$msg"
+            exit $code
+          }
+      - name: Signed update tests (S-61, ADR-0004)
+        # Two throwaway code-signing certificates, trusted on this runner
+        # only, sign test builds; TestSignedUpdates then checks that a signed
+        # install refuses an unsigned update and another publisher's
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          $d = 'C:\soireehost-ci\upd\signed'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          foreach ($v in '1.3.0', '1.4.0') {
+            go build -trimpath -tags "cloudflared,no_fs_access,updatetestkey" -ldflags "-X github.com/TheAlsaadi/SoireeHost/internal/version.Version=$v" -o "$d\$v.exe" ./cmd/soireehost
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error title=signed update tests::building $v failed"; exit 1 }
+          }
+          $certs = @{}
+          foreach ($who in 'A', 'B') {
+            $c = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=SoireeHost Test Signer $who" -CertStoreLocation Cert:\LocalMachine\My -NotAfter (Get-Date).AddDays(1)
+            foreach ($store in 'Root', 'TrustedPublisher') {
+              $s = [System.Security.Cryptography.X509Certificates.X509Store]::new($store, 'LocalMachine')
+              $s.Open('ReadWrite'); $s.Add($c); $s.Close()
+            }
+            $certs[$who] = $c
+          }
+          foreach ($job in @(@{ src = '1.3.0.exe'; dst = '1.3.0-a.exe'; who = 'A' }, @{ src = '1.4.0.exe'; dst = '1.4.0-a.exe'; who = 'A' }, @{ src = '1.4.0.exe'; dst = '1.4.0-b.exe'; who = 'B' })) {
+            Copy-Item "$d\$($job.src)" "$d\$($job.dst)"
+            $r = Set-AuthenticodeSignature -FilePath "$d\$($job.dst)" -Certificate $certs[$job.who] -HashAlgorithm SHA256
+            if ($r.Status -ne 'Valid') { Write-Output "::error title=signed update tests::signing $($job.dst): $($r.Status) $($r.StatusMessage)"; exit 1 }
+          }
+          $env:SOIREEHOST_E2E = '1'
+          $env:SOIREEHOST_SIGNED_E2E = '1'
+          $env:SOIREEHOST_UPDATE_KEY = 'C:\soireehost-ci\update-test.key'
+          $out = go test -tags e2e,no_fs_access -count=1 -v -timeout 20m -run '^TestSignedUpdates$' ./internal/e2e/ 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|error|exited|--- |\.go:\d+' } | Select-Object -First 40
+            $msg = ($lines -join '%0A') -replace '::', ': :'
+            Write-Output "::error title=signed update tests failed::$msg"
+            exit $code
+          }
+      - name: Outbound traffic capture, update check (S-42, ADR-0004)
+        # The update half of the S-42 capture: a network trace while the
+        # release-style test build installed above checks for updates; each
+        # process may reach only what S-42 allows. The tunnel half ran with
+        # the isolation tests.
+        shell: pwsh
+        run: |
+          $env:SOIREEHOST_E2E = '1'
+          $env:SOIREEHOST_S42_E2E = '1'
+          $out = go test -tags e2e,no_fs_access -count=1 -v -timeout 20m -run '^TestOutboundTraffic$' ./internal/e2e/ 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|error|S-42|--- |\.go:\d+' } | Select-Object -First 40
+            $msg = ($lines -join '%0A') -replace '::', ': :'
+            Write-Output "::error title=traffic capture failed::$msg"
+            exit $code
+          }
       - name: Service state on failure
         if: failure()
         shell: pwsh
@@ -289,9 +431,21 @@ jobs:
             $tmsg = (($tail | Select-Object -Last 15) -join '%0A') -replace '::', ': :'
             Write-Output "::error title=tunnel log::$tmsg"
           }
-      - name: setup uninstall --purge
+      - name: setup uninstall --purge, from the installed program (ADR-0010 self-removal)
         if: always()
-        run: C:\soireehost-ci\soireehost.exe setup uninstall --purge
+        shell: pwsh
+        run: |
+          # The installed program removes itself: whatever is still running
+          # is renamed into SoireeHost.removed-* and deleted at the next
+          # restart. The CI copy is the fallback if the install is broken.
+          $installed = "$env:ProgramFiles\SoireeHost\soireehost.exe"
+          if (Test-Path $installed) {
+            "SELF_REMOVAL=1" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+            & $installed setup uninstall --purge | Out-Default
+          } else {
+            & C:\soireehost-ci\soireehost.exe setup uninstall --purge | Out-Default
+          }
+          exit $LASTEXITCODE
       - name: Uninstall left nothing behind
         if: always()
         shell: pwsh
@@ -302,6 +456,21 @@ jobs:
           if (Test-Path "$env:ProgramData\SoireeHost") { $left += "data folder" }
           if (Get-NetFirewallRule -DisplayName "SoireeHost block inbound *" -ErrorAction SilentlyContinue) { $left += "firewall rules" }
           if (Get-Process cloudflared -ErrorAction SilentlyContinue) { $left += "cloudflared process" }
+          if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SoireeHost') { $left += "Apps entry" }
+          if (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SoireeHost -ErrorAction SilentlyContinue) { $left += "sign-in entry" }
+          if ($env:SELF_REMOVAL -eq '1') {
+            # only the program that ran uninstall is left, in the protected
+            # restart folder, and it is marked for deletion at the restart
+            $rm = @(Get-ChildItem $env:ProgramFiles -Directory -Filter 'SoireeHost.removed-*')
+            if ($rm.Count -ne 1) {
+              $left += "restart folders: $($rm.Count)"
+            } else {
+              $files = @(Get-ChildItem $rm[0].FullName -Force | ForEach-Object Name)
+              if ($files.Count -ne 1 -or $files[0] -ne 'soireehost.exe') { $left += "kept for the restart: $($files -join ', ')" }
+              $pending = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations
+              if (-not ($pending | Where-Object { $_ -like "*$($rm[0].Name)*" })) { $left += "the restart folder is not marked for deletion" }
+            }
+          }
           if ($left) { Write-Output "::error title=uninstall left::$($left -join ', ')"; exit 1 }
 
   fuzz:

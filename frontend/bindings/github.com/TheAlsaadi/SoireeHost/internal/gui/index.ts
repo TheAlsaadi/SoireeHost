@@ -4,13 +4,17 @@
 import * as AppService from "./appservice.js";
 import * as Control from "./control.js";
 import * as Local from "./local.js";
+import * as Setup from "./setup.js";
 export {
     AppService,
     Control,
-    Local
+    Local,
+    Setup
 };
 
 export {
     Port,
-    QRCode
+    QRCode,
+    SetupResult,
+    SetupState
 } from "./models.js";

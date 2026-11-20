@@ -67,7 +67,23 @@ type Config struct {
 	Listen  string       `json:"listen"`
 	Server  ServerLimits `json:"server"`
 	Tunnel  Tunnel       `json:"tunnel"`
+	Updates Updates      `json:"updates"`
 	Sites   []Site       `json:"sites"`
+}
+
+// Updates holds the update-check setting (ADR-0004, S-42). The check is on
+// unless Off is set, so settings saved before this field existed keep it on.
+type Updates struct {
+	// Off stops the supervisor's daily update check and "Check now".
+	// Turning it on is a weakening change (S-32): no security fix arrives
+	// while it is set.
+	Off bool `json:"off"`
+}
+
+// UpdatesWeakened reports whether next turns the update check off when cur
+// has it on.
+func UpdatesWeakened(cur, next Config) bool {
+	return !cur.Updates.Off && next.Updates.Off
 }
 
 // Tunnel holds the settings of the Cloudflare tunnels (ADR-0007). The tunnel

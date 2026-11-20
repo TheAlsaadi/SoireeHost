@@ -88,6 +88,77 @@ export class QRCode {
     }
 }
 
+/**
+ * SetupResult is how a setup run ended. Code is setup's closed-set exit
+ * code (internal/setup.Code); Cancelled means the Windows prompt was
+ * declined and nothing ran.
+ */
+export class SetupResult {
+    "code": number;
+    "cancelled": boolean;
+
+    /** Creates a new SetupResult instance. */
+    constructor($$source: Partial<SetupResult> = {}) {
+        if (!("code" in $$source)) {
+            this["code"] = 0;
+        }
+        if (!("cancelled" in $$source)) {
+            this["cancelled"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SetupResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SetupResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SetupResult($$parsedSource as Partial<SetupResult>);
+    }
+}
+
+/**
+ * SetupState tells the UI which window to show.
+ */
+export class SetupState {
+    "mode": string;
+    "installed_version": string;
+    "this_version": string;
+
+    /**
+     * Newer: this copy is newer than the installed version, so it can
+     * upgrade it.
+     */
+    "newer": boolean;
+
+    /** Creates a new SetupState instance. */
+    constructor($$source: Partial<SetupState> = {}) {
+        if (!("mode" in $$source)) {
+            this["mode"] = "";
+        }
+        if (!("installed_version" in $$source)) {
+            this["installed_version"] = "";
+        }
+        if (!("this_version" in $$source)) {
+            this["this_version"] = "";
+        }
+        if (!("newer" in $$source)) {
+            this["newer"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SetupState instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SetupState {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SetupState($$parsedSource as Partial<SetupState>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = $Create.Array($$createType0);

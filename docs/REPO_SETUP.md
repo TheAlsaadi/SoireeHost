@@ -19,7 +19,8 @@ All ticked lines were read back through the GitHub API on 16 Nov 2026 (QR-32 in 
 ## Actions (Settings > Actions > General)
 
 - [x] Actions permissions: "Allow TheAlsaadi, and select non-TheAlsaadi, actions and reusable workflows", with exactly:
-  `actions/checkout@*, actions/setup-go@*, actions/setup-node@*, github/codeql-action/*, golangci/golangci-lint-action@*`
+  `actions/checkout@*, actions/setup-go@*, actions/setup-node@*, github/codeql-action/*, golangci/golangci-lint-action@*, actions/upload-artifact@*, actions/attest-build-provenance@*, actions/attest@*, actions/create-github-app-token@*`
+  The last four were added by the owner on 19 Nov 2026 for the release workflow and the upstream watcher (ADR-0004), and read back through the API the same day.
 - [x] "Require actions to be pinned to a full-length commit SHA": **on** (S-72).
 - [x] Fork pull request workflows: "Require approval for all external contributors".
 - [x] Workflow permissions: "Read repository contents and packages permissions". Leave "Allow GitHub Actions to create and approve pull requests" **off**; the S-65 watcher will use its own GitHub App instead (Phase 6).
@@ -29,7 +30,19 @@ All ticked lines were read back through the GitHub API on 16 Nov 2026 (QR-32 in 
 - [x] Branch ruleset for `main`: block force pushes, restrict deletions.
 - [x] Tag ruleset for `v*`: restrict creation, update and deletion to the owner (release tags trigger signing later, S-72).
 
-Requiring pull requests and passing checks on `main` is stricter but means every change goes through a pull request; decide before Phase 6, when signing starts.
+- [ ] Extend the `main` ruleset (owner decision, 16 Nov 2026; ADR-0004): require a pull request (no required approvals) and these status checks: Go checks, Frontend checks, Build soireehost.exe, Secret scan, Semgrep (project rules), Isolation (installs services on the runner), and CodeQL's `Analyze (go)` and `Analyze (javascript-typescript)`. Until this is set, `gh pr merge --auto` merges at once, so merges wait for a green run by hand.
+
+## Upstream watcher (S-65, ADR-0004)
+
+- [x] A GitHub App owned by the owner, installed on this repository only, with Contents and Pull requests read and write (created 19 Nov 2026).
+- [x] Repository variable `WATCHER_APP_CLIENT_ID` (set 19 Nov 2026, 17:43 UTC) and repository secret `WATCHER_APP_KEY`, the App's private key (set 19 Nov 2026, 17:44 UTC). Both confirmed by name through the API; the secret's value is never readable.
+
+The watcher (`.github/workflows/upstream-watch.yml`) runs on a schedule and by hand, which GitHub allows only from `main`, so its first run is after Phase 6 is merged.
+
+## Release environment (before the first release, Phase 7)
+
+- [ ] Environment `release` (Settings > Environments): deployment branches and tags limited to `v*` tags; the owner as required reviewer; secret `UPDATE_SIGNING_KEY` as described in `docs/UPDATE_KEY.md`.
+- [ ] Repository variable `SIGNING_ENABLED` left unset until the SignPath steps exist (`docs/RELEASE_CHECKLIST.md`).
 
 ## Repository details
 

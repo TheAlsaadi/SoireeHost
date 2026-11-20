@@ -70,6 +70,18 @@ func (s *Control) RemoveSite(ctx context.Context, id string) (ipc.ConfigResult, 
 	return call[ipc.ConfigResult](ctx, s.c, ipc.MethodSiteRemove, ipc.SiteIDParams{ID: id})
 }
 
+// CheckForUpdates is "Check now": the supervisor checks in the background,
+// and status.get follows it (ADR-0004).
+func (s *Control) CheckForUpdates(ctx context.Context) (ipc.UpdateStatus, error) {
+	return call[ipc.UpdateStatus](ctx, s.c, ipc.MethodUpdateCheck, ipc.None{})
+}
+
+// SetUpdateCheck turns the daily update check on or off. Off is a weakening
+// change and needs the supervisor's confirmation token (S-32).
+func (s *Control) SetUpdateCheck(ctx context.Context, check bool, confirmation string) (ipc.ConfigResult, error) {
+	return call[ipc.ConfigResult](ctx, s.c, ipc.MethodUpdateSetCheck, ipc.UpdateSetCheckParams{Check: check, Confirmation: confirmation})
+}
+
 // StartQuickShare shares a site through a temporary link (S-51).
 func (s *Control) StartQuickShare(ctx context.Context, id string) (ipc.ConfigResult, error) {
 	return call[ipc.ConfigResult](ctx, s.c, ipc.MethodQuickShareStart, ipc.QuickShareParams{SiteID: id})

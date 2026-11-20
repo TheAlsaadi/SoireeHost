@@ -1,6 +1,6 @@
-// Package setup is the elevated setup role: install and uninstall (Phase 2
-// subset; Phase 6 adds the Windows prompt, repair, updates, the Apps entry
-// and self-removal). See docs/adr/0006-supervisor-ipc-and-stores.md.
+// Package setup is the elevated setup role: install, repair, apply a
+// verified update, uninstall. See docs/adr/0006-supervisor-ipc-and-stores.md
+// and docs/adr/0010-setup-role.md.
 package setup
 
 import (
@@ -22,6 +22,7 @@ import (
 
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 	"github.com/TheAlsaadi/SoireeHost/internal/supervisor"
+	"github.com/TheAlsaadi/SoireeHost/internal/version"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
@@ -57,14 +58,25 @@ var services = []serviceSpec{
 	{winsec.TunnelService, "SoiréeHost tunnel", "Connects SoiréeHost to Cloudflare. Started by SoiréeHost.", "tunnel", mgr.StartManual},
 }
 
-// Install installs SoiréeHost from the running binary. It must run elevated.
+// Install installs SoiréeHost from the running binary, or upgrades or
+// repairs an install of the same or an older version. It must run elevated.
 func Install(l Layout) error {
-	me, err := winsec.CurrentCaller()
+	sid, err := requireAdmin()
 	if err != nil {
 		return err
 	}
-	if !me.Admin {
-		return errors.New("setup must run from an elevated (administrator) prompt")
+	unlock, err := lockSetup()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if _, err := decideInstall(installedVersion(), version.Current()); err != nil {
+		return err
+	}
+	// an interrupted update is finished or undone before anything else
+	_ = winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege", "SeDebugPrivilege")
+	if _, err := recoverUpdate(l, sid); err != nil && ExitCode(err) != CodeRolledBack {
+		return err
 	}
 	self, err := os.Executable()
 	if err != nil {
@@ -73,7 +85,7 @@ func Install(l Layout) error {
 	// Open the program now, before anything waits, and keep it open: the
 	// copy below reads this handle, so what is installed is the file that
 	// was checked here, whatever happens to the path meanwhile (DR-9).
-	img, err := openSelf(self, me.SID)
+	img, err := openSelf(self, sid)
 	if err != nil {
 		return err
 	}
@@ -86,6 +98,63 @@ func Install(l Layout) error {
 	if err := copyBinary(img, self, l.Exe()); err != nil {
 		return fmt.Errorf("copying the program: %w", err)
 	}
+	if err := installSteps(l, sid); err != nil {
+		return err
+	}
+	// start at sign-in, for the installing user (owner decision of 15 Nov
+	// 2026); a failure here is not worth failing the install for
+	_ = writeRunEntry(l)
+	return startSupervisor()
+}
+
+// Repair runs every install step except copying the program, from the
+// installed program only (ADR-0010).
+//
+// During an update, apply-update holds the setup lock and starts the new
+// version's repair; that child alone runs without the lock, and it is
+// recognised by the journal, which names its parent (ADR-0010).
+func Repair(l Layout) error {
+	sid, err := requireAdmin()
+	if err != nil {
+		return err
+	}
+	if err := requireInstalledCopy(l); err != nil {
+		return err
+	}
+	unlock, err := lockSetup()
+	child := false
+	if err != nil {
+		if ExitCode(err) != CodeBusy || !childOfUpdater(l) {
+			return err
+		}
+		child, unlock = true, func() {}
+	}
+	defer unlock()
+	if err := winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege", "SeTakeOwnershipPrivilege"); err != nil {
+		return err
+	}
+	if !child {
+		_ = winsec.EnablePrivileges("SeDebugPrivilege")
+		rolled, err := recoverUpdate(l, sid)
+		if err != nil {
+			return err
+		}
+		if rolled {
+			// the restored program repeats its own steps when run again
+			return fail(CodeRolledBack, errors.New("an interrupted update was undone and the previous version restored; run Repair again if anything is still wrong"))
+		}
+	}
+	// cloudflared.exe is open while the tunnel runs
+	stopInstalled()
+	if err := installSteps(l, sid); err != nil {
+		return err
+	}
+	return startSupervisor()
+}
+
+// installSteps are the steps install and repair share: everything after the
+// program is in place, up to starting the supervisor.
+func installSteps(l Layout, sid string) error {
 	// S-23: only this elevated role unpacks cloudflared, into the program
 	// folder; install and repair both write it again
 	if _, err := installCloudflared(l); err != nil {
@@ -95,17 +164,17 @@ func Install(l Layout) error {
 	if err := addFirewallRules(l); err != nil {
 		return err
 	}
-	if err := makeFolders(l.DataRoot, me.SID); err != nil {
+	if err := makeFolders(l.DataRoot, sid); err != nil {
 		return fmt.Errorf("creating data folders: %w", err)
 	}
-	if err := writeControlUsers(l.DataRoot, me.SID); err != nil {
+	if err := writeControlUsers(l.DataRoot, sid); err != nil {
 		return err
 	}
 	if err := registerServices(l.Exe()); err != nil {
 		return err
 	}
 	registerEventSources()
-	return startService(winsec.SupervisorService)
+	return writeAppsEntry(l, version.Current())
 }
 
 // sidTrustedInstaller owns Windows' own files.
@@ -123,9 +192,9 @@ func openSelf(self, user string) (*os.File, error) {
 	allowed := []string{winsec.SIDSystem, winsec.SIDAdministrators, user, sidTrustedInstaller, "S-1-3-0", "S-1-3-4"}
 	for _, p := range []string{filepath.Dir(self), self} {
 		if err := winsec.CheckWriters(p, allowed...); err != nil {
-			return nil, fmt.Errorf("refusing to install from %s, because another account could replace the program there (%w); "+
+			return nil, fail(CodeUnsafeSource, fmt.Errorf("refusing to install from %s, because another account could replace the program there (%w); "+
 				"copy soireehost.exe to a folder only you and administrators can change, such as your Downloads folder, and run setup from there",
-				filepath.Dir(self), err)
+				filepath.Dir(self), err))
 		}
 	}
 	p, err := windows.UTF16PtrFromString(self)
@@ -163,9 +232,28 @@ func copyBinary(in *os.File, src, dst string) error {
 	if err := out.Close(); err != nil {
 		return err
 	}
-	from, _ := windows.UTF16PtrFromString(tmp)
-	to, _ := windows.UTF16PtrFromString(dst)
-	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+	return replaceProgram(tmp, dst)
+}
+
+// replaceProgram moves src over dst. A control panel still running from
+// dst (the tray starts at sign-in) keeps it open, and Windows refuses to
+// replace a running program but allows renaming it: the old file is then
+// moved aside and deleted at the next restart, as uninstall does.
+func replaceProgram(src, dst string) error {
+	err := moveFile(src, dst)
+	if err == nil || !exists(dst) {
+		return err
+	}
+	aside, aerr := moveAside(dst)
+	if aerr != nil {
+		return err
+	}
+	if err := moveFile(src, dst); err != nil {
+		// put the old program back where it was
+		_ = moveFile(aside, dst)
+		return err
+	}
+	return nil
 }
 
 // makeFolders creates %ProgramData%\SoireeHost and its subfolders with the
@@ -297,9 +385,39 @@ func checkContents(root string, services ...string) error {
 // registerEventSources lets each service write to the Application event
 // log under its own name. A source that already exists is replaced.
 func registerEventSources() {
+	for _, name := range eventSources() {
+		_ = eventlog.Remove(name)
+		_ = eventlog.InstallAsEventCreate(name, eventlog.Error|eventlog.Warning|eventlog.Info)
+	}
+}
+
+// eventSources are the three services' sources and setup's own (ADR-0010).
+func eventSources() []string {
+	names := []string{EventSource}
 	for _, spec := range services {
-		_ = eventlog.Remove(spec.name)
-		_ = eventlog.InstallAsEventCreate(spec.name, eventlog.Error|eventlog.Warning|eventlog.Info)
+		names = append(names, spec.name)
+	}
+	return names
+}
+
+// Report writes the outcome of a setup command to the Application event
+// log under EventSource (ADR-0010): setup started from the Windows prompt
+// has no console, so this is where its detail goes. Setup's errors never
+// carry a secret. Nothing is written if the log cannot be opened.
+func Report(cmd Command, err error) {
+	el, oerr := eventlog.Open(EventSource)
+	if oerr != nil {
+		return
+	}
+	defer el.Close() //nolint:errcheck // nothing to do on failure
+	kind, id, text := eventFor(cmd, err)
+	switch kind {
+	case eventInfo:
+		_ = el.Info(id, text)
+	case eventWarning:
+		_ = el.Warning(id, text)
+	default:
+		_ = el.Error(id, text)
 	}
 }
 
@@ -367,8 +485,6 @@ func registerServices(exe string) error {
 	return nil
 }
 
-func quote(p string) string { return `"` + p + `"` }
-
 // configureService trims privileges, sets recovery for the supervisor, and
 // locks the worker services so only the supervisor may start and stop them.
 func configureService(s *mgr.Service, spec serviceSpec) error {
@@ -414,7 +530,9 @@ func setRequiredPrivileges(h windows.Handle, privs ...string) error {
 	return windows.ChangeServiceConfig2(h, windows.SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO, (*byte)(unsafe.Pointer(&info)))
 }
 
-func startService(name string) error {
+// startSupervisor starts the supervisor service, which starts the workers.
+func startSupervisor() error {
+	name := winsec.SupervisorService
 	m, err := mgr.Connect()
 	if err != nil {
 		return err
@@ -435,13 +553,14 @@ func startService(name string) error {
 // With purge it also removes %ProgramData%\SoireeHost, taking ownership of
 // folders that only the services could otherwise open.
 func Uninstall(l Layout, purge bool) error {
-	me, err := winsec.CurrentCaller()
+	if _, err := requireAdmin(); err != nil {
+		return err
+	}
+	unlock, err := lockSetup()
 	if err != nil {
 		return err
 	}
-	if !me.Admin {
-		return errors.New("setup must run from an elevated (administrator) prompt")
-	}
+	defer unlock()
 	m, err := mgr.Connect()
 	if err != nil {
 		return err
@@ -478,21 +597,26 @@ func Uninstall(l Layout, purge bool) error {
 		_ = s.Close()
 		_ = eventlog.Remove(spec.name)
 	}
+	_ = eventlog.Remove(EventSource)
 	for _, pid := range pids {
 		if !processExited(pid, 10*time.Second) {
 			allStopped = false
 		}
 	}
 	removeFirewallRules(l)
-	if self, err := os.Executable(); err == nil && strings.EqualFold(filepath.Dir(self), l.ProgramDir) {
-		errs = append(errs, errors.New("run uninstall from a copy outside the program folder to remove it (self-removal comes in Phase 6)"))
-	} else if err := os.RemoveAll(l.ProgramDir); err != nil {
+	if err := removeAppsEntry(); err != nil {
+		errs = append(errs, err)
+	}
+	removeRunEntry()
+	// the program folder goes now; files still in use, this program among
+	// them, go at the next restart (ADR-0010)
+	if _, err := removeProgramFolder(l.ProgramDir, removedFolderSDDL); err != nil {
 		errs = append(errs, err)
 	}
 	if purge && !allStopped {
 		// A service process still running could change the data folder while
 		// it is taken over, so the purge waits for a restart (DR-7).
-		errs = append(errs, errors.New("a SoiréeHost service did not stop, so the data folder was kept; restart the PC and run uninstall --purge again"))
+		errs = append(errs, fail(CodeDataKept, errors.New("a SoiréeHost service did not stop, so the data folder was kept; restart the PC and run uninstall --purge again")))
 	} else if purge {
 		if err := takeBack(l.DataRoot); err != nil {
 			errs = append(errs, err)

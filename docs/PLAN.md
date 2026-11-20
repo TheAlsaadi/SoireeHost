@@ -419,11 +419,11 @@ Complete the setup role of `soireehost.exe`: install (copies itself to `%Program
 
 Done when:
 
-- [ ] On a fresh Windows 11 virtual machine, going from the downloaded `soireehost.exe` to the first live site takes under 5 minutes.
-- [ ] Tampered, wrong-key, truncated and older-version updates are all refused (S-60 to S-63).
-- [ ] Uninstall removes all three services, firewall rules and program files, and removes config and secrets when the user asks.
-- [ ] A traffic capture shows no network connection other than the tunnel and the update check (S-42).
-- [ ] Tests or recorded checks exist for S-64, S-65 and S-70 to S-75.
+- [ ] On a fresh Windows 11 virtual machine, going from the downloaded `soireehost.exe` to the first live site takes under 5 minutes. (The CI stand-in passes on every run, on Windows Server 2025: `e2e` `TestFirstSiteWithinFiveMinutes` timed 57 s from the copied download to a page served over the internet, 20 Nov 2026, run 44611664317. The owner's VirtualBox check on the Windows 11 evaluation is still to do; installing VirtualBox needs the owner's go-ahead)
+- [x] Tampered, wrong-key, truncated and older-version updates are all refused (S-60 to S-63). (20 Nov 2026, pull request 22, CI run 44622599331 on `b7ce967`: `e2e` `TestApplyUpdate` and `TestSignedUpdates` on the installed system, plus the unit tests and 10-minute fuzz runs in `docs/SECURITY_CHECKLIST.md`)
+- [x] Uninstall removes all three services, firewall rules and program files, and removes config and secrets when the user asks. (20 Nov 2026, pull request 22, CI run 44622599331 on `b7ce967`: the isolation job uninstalls from the installed program and checks that no service, firewall rule, Apps entry or program file is left, the files in use waiting in the protected `SoireeHost.removed-*` folder with their delete-at-restart records; `--purge` removes `%ProgramData%\SoireeHost`)
+- [x] A traffic capture shows no network connection other than the tunnel and the update check (S-42). (20 Nov 2026: `e2e` `TestOutboundTraffic` on the isolation runner, run 44611664317 and pull request 22, CI run 44622599331 on `b7ce967`; the owner repeats it with Resource Monitor in the VM check)
+- [x] Tests or recorded checks exist for S-64, S-65 and S-70 to S-75. (20 Nov 2026, `docs/SECURITY_CHECKLIST.md`. Still open there: the S-64 prompt in the owner's VM check, the watcher's first real pull request after the merge (S-65), and provenance on the first tagged release (S-73))
 
 ### Phase 7: Hardening and release candidate
 

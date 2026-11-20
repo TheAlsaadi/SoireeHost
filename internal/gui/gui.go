@@ -54,19 +54,27 @@ func securityHeaders(next http.Handler) http.Handler {
 type Options struct {
 	// Tray starts the control panel hidden in the tray (the sign-in entry).
 	Tray bool
+	// Uninstall opens the uninstall window (the Settings > Apps entry,
+	// ADR-0010).
+	Uninstall bool
 }
 
-// ParseArgs reads the gui role's arguments. Only --tray is known; anything
-// else is an error, so nothing is guessed.
+// ParseArgs reads the gui role's arguments: --tray and --uninstall, at most
+// one of them. Anything else is an error, so nothing is guessed.
 func ParseArgs(args []string) (Options, error) {
 	var o Options
 	for _, a := range args {
 		switch a {
 		case "--tray":
 			o.Tray = true
+		case "--uninstall":
+			o.Uninstall = true
 		default:
 			return Options{}, fmt.Errorf("unknown option %q for the control panel", a)
 		}
+	}
+	if o.Tray && o.Uninstall {
+		return Options{}, errors.New("--tray and --uninstall cannot be used together")
 	}
 	return o, nil
 }
@@ -86,6 +94,9 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
+	// started by a control panel that is exiting after an install or
+	// update: let it release the single-instance lock first
+	waitForPredecessor(os.Getenv)
 	assets, err := frontend.Assets()
 	if err != nil {
 		return fmt.Errorf("loading UI assets: %w", err)
@@ -100,6 +111,18 @@ func Run(args []string) error {
 	ctrl := NewControl(client)
 	desk := &wailsDesktop{}
 	local := NewLocal(desk)
+	host := &systemHost{}
+	setup := NewSetup(host, opts.Uninstall)
+	// The install, upgrade and uninstall windows are not the control panel:
+	// they have their own single-instance lock (otherwise the Apps entry's
+	// Uninstall would only bring a running control panel to the front),
+	// a smaller window and no tray.
+	mode := setup.State().Mode
+	panel := mode == ModeInstalled
+	instance, width, height, minW, minH := "soireehost.controlpanel.", 1200, 760, 640, 420
+	if !panel {
+		instance, width, height, minW, minH = "soireehost.setup.", 720, 640, 560, 480
+	}
 
 	var win *application.WebviewWindow
 	app := application.New(application.Options{
@@ -109,6 +132,7 @@ func Run(args []string) error {
 			application.NewService(&AppService{}),
 			application.NewService(ctrl),
 			application.NewService(local),
+			application.NewService(setup),
 		},
 		Assets: application.AssetOptions{
 			Handler:        application.AssetFileServerFS(assets),
@@ -117,7 +141,7 @@ func Run(args []string) error {
 		},
 		MarshalError: marshalError,
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "soireehost.controlpanel." + currentUserTag(),
+			UniqueID: instance + currentUserTag(),
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
 				if win != nil {
 					win.Show()
@@ -129,15 +153,16 @@ func Run(args []string) error {
 		Windows: application.WindowsOptions{DisableQuitOnLastWindowClosed: true},
 	})
 	desk.app = app
+	host.quitApp = app.Quit
 
 	win = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:                      "SoiréeHost",
-		Width:                      1200,
-		Height:                     760,
-		MinWidth:                   640,
-		MinHeight:                  420,
+		Width:                      width,
+		Height:                     height,
+		MinWidth:                   minW,
+		MinHeight:                  minH,
 		URL:                        "/",
-		Hidden:                     opts.Tray,
+		Hidden:                     opts.Tray && panel,
 		DefaultContextMenuDisabled: true,
 		EnableFileDrop:             true,
 	})
@@ -145,7 +170,12 @@ func Run(args []string) error {
 
 	// Closing the window hides it: sites keep serving either way, and the
 	// tray stays (owner decision of 15 Nov 2026).
+	// A setup window just closes and quits.
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if !panel {
+			app.Quit()
+			return
+		}
 		e.Cancel()
 		win.Hide()
 	})
@@ -158,12 +188,19 @@ func Run(args []string) error {
 		}
 	})
 
-	t := newTray(app, win, ctrl)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go t.watch(ctx)
+	if panel {
+		t := newTray(app, win, ctrl)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go t.watch(ctx)
+		// a control panel whose SoiréeHost was uninstalled closes, and
+		// removes its own sign-in entry (ADR-0010)
+		go watchUninstalled(ctx, host, local, app.Quit)
+	}
 
-	return app.Run()
+	err = app.Run()
+	setup.afterExit()
+	return err
 }
 
 // currentUserTag keeps the single-instance lock per user, so two people

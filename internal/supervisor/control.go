@@ -48,6 +48,10 @@ func (s *Supervisor) status() ipc.StatusResult {
 		AuditOK:   s.auditOK(),
 		StartedAt: s.started,
 		Tunnel:    s.tunnelStatus(rec.Config),
+		Update:    ipc.UpdateStatus{State: ipc.UpdateOff},
+	}
+	if s.upd != nil {
+		st.Update = s.upd.status()
 	}
 	if good := s.store.LastGood(); rec.Revision != 0 && good != rec.Revision {
 		st.ConfigNote = fmt.Sprintf("Revision %d is saved but the web server last loaded revision %d.", rec.Revision, good)
@@ -208,6 +212,7 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 			p.Revision, strings.Join(added, ", ")))
 	}
 	w.firewall(cur.Config, target.Config)
+	w.updates(cur.Config, target.Config)
 	w.headers(cur.Config, target.Config)
 	q := *p
 	q.Confirmation = ""

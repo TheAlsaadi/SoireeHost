@@ -52,7 +52,7 @@ describe("Activity shows attacker text as text (S-34)", () => {
 
   beforeEach(() => {
     setApi(stubApi());
-    app.config = { version: 1, listen: "127.0.0.1:8787", server: {} as never, tunnel: {} as never, sites: [] };
+    app.config = { version: 1, listen: "127.0.0.1:8787", server: {} as never, tunnel: {} as never, updates: { off: false }, sites: [] };
     target = document.createElement("div");
     document.body.append(target);
     (window as unknown as { __pwned?: number }).__pwned = 0;

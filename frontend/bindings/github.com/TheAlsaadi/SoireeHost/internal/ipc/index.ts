@@ -17,5 +17,6 @@ export {
     StatusResult,
     TunnelStatus,
     TunnelView,
+    UpdateStatus,
     WorkerStatus
 } from "./models.js";

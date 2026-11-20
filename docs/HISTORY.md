@@ -89,6 +89,43 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
   - Dependabot version updates: first deferred, then added the same day (`.github/dependabot.yml`);
   - the owner brought the GitHub settings back in line with `docs/REPO_SETUP.md`; read back and ticked the same day.
 
+## Phase 6: setup, signing and updates (16 to 20 Nov 2026)
+
+- Owner decisions of 16 Nov 2026:
+  - ship unsigned, with SHA-256 checksums and build provenance; the Authenticode step is built switched off, and SignPath Foundation is asked after the first release (Certum's €49 excluded by the budget rule);
+  - updates install with one click and the Windows prompt (`setup apply-update`, S-64); no unattended updater;
+  - the update-signing key is made offline on the owner's PC, backed up offline, and held only in a GitHub `release` environment limited to `v*` tags with the owner's approval;
+  - the manifest is hosted on GitHub Releases; the update check is on by default, daily and on "Check now", with a switch in Settings;
+  - the upstream watcher uses a free GitHub App owned by the owner;
+  - Phase 6 releases are dry runs only; the first real release is in Phase 7;
+  - uninstall asks before removing settings, the token and logs, and keeps them by default;
+  - the five-minute check is timed in CI on every pull request and repeated once by the owner in a VirtualBox VM.
+- ADR-0004 (updates) and ADR-0010 (setup role) accepted 19 Nov 2026. The owner approved the four new screens (install, uninstall, already installed, Settings > Updates) on 19 Nov 2026, added the four GitHub actions to the allow list, and created the watcher's GitHub App with its variable and secret the same day.
+- Built on branch `phase6-setup-updates`, pull request 22:
+  - the signed-manifest verifier (`internal/update`) and the supervisor's update check;
+  - setup's install, repair, apply-update with journal and rollback, uninstall with self-removal, and the S-61 offline Authenticode check;
+  - the control panel's setup windows;
+  - the release workflow (reproducible double build, SBOMs, checksums, provenance, signed manifest, draft release);
+  - the upstream watcher, the S-42 traffic capture, and the timed first-site check (57 s on Windows Server 2025).
+- Found and fixed on the way: a data race in `ipc.serveConn` (R-24 code) and a flaky `TestLargeBody`.
+- Stage 4 verification (20 Nov 2026):
+  - the full local check set passed;
+  - the five new fuzz targets ran 10 minutes each with no crasher: `FuzzVerify` 58.0 M runs, `FuzzDecodePayload` 69.4 M, `FuzzParseKeys` 46.7 M, `FuzzCompare` 124.6 M, `FuzzDecodeJournal` 4.9 M.
+- Stage 4 reviews:
+  - **code-review (high):** 10 findings; 9 fixed with tests and 1 explained. The most important: an upgrade by `setup install` failed while the tray control panel ran, the control panel did not come back after an update, and a rollback that failed still reported success.
+  - **security-review:** one high finding, confirmed by a second check and fixed (`winsec.Dir`). Elevated rollback copied settings by path through a folder the supervisor can turn into a junction.
+  - **differential-review:** S-61 now compares the issuer too.
+  - **insecure-defaults (run by hand, as before):** a signature check that failed no longer counts as "unsigned".
+  - **supply-chain-risk-auditor:** the four new actions, recorded in `docs/DEPENDENCIES.md`.
+  - **deploy-checklist and go-release:** `docs/RELEASE_CHECKLIST.md`; a tag run now requires a `main` commit with green CI; CI checks that `go.mod` is tidy and has no `replace`.
+  - Setup now writes its results to the event log under `SoireeHost Setup`.
+  - Review fixes in `b7ce967` (CI run 44622599331, Release run 44622599048, both green), the rest in the final Phase 6 commit of pull request 22.
+- Left for the owner:
+  - merge pull request 22;
+  - the VirtualBox check (S-64's real prompt, Windows 11, Resource Monitor);
+  - the `main` ruleset;
+  - before Phase 7's first release, the signing key and the `release` environment.
+
 ## Roadmap after 1.0 (17 Nov 2026)
 
 - Owner decisions of 17 Nov 2026, recorded in `docs/PLAN.md` sections 6 and 9:

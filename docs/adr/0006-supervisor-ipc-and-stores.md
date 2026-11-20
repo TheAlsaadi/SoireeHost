@@ -141,6 +141,8 @@ Phase 6 adds:
 - self-delete;
 - unpacking cloudflared (in Phase 3).
 
+Note, 19 Nov 2026: ADR-0010 (accepted 19 Nov 2026) designs these Phase 6 additions, and ADR-0004 the update path.
+
 ### Lifecycle
 
 1. **Supervisor start.**

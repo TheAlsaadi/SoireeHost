@@ -473,6 +473,7 @@ export class StatusResult {
     "started_at": string;
     "config_note"?: string;
     "tunnel": TunnelStatus;
+    "update": UpdateStatus;
 
     /** Creates a new StatusResult instance. */
     constructor($$source: Partial<StatusResult> = {}) {
@@ -497,6 +498,9 @@ export class StatusResult {
         if (!("tunnel" in $$source)) {
             this["tunnel"] = (new TunnelStatus());
         }
+        if (!("update" in $$source)) {
+            this["update"] = (new UpdateStatus());
+        }
 
         Object.assign(this, $$source);
     }
@@ -508,6 +512,7 @@ export class StatusResult {
         const $$createField3_0 = $$createType20;
         const $$createField4_0 = $$createType8;
         const $$createField8_0 = $$createType21;
+        const $$createField9_0 = $$createType22;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("workers" in $$parsedSource) {
             $$parsedSource["workers"] = $$createField3_0($$parsedSource["workers"]);
@@ -517,6 +522,9 @@ export class StatusResult {
         }
         if ("tunnel" in $$parsedSource) {
             $$parsedSource["tunnel"] = $$createField8_0($$parsedSource["tunnel"]);
+        }
+        if ("update" in $$parsedSource) {
+            $$parsedSource["update"] = $$createField9_0($$parsedSource["update"]);
         }
         return new StatusResult($$parsedSource as Partial<StatusResult>);
     }
@@ -584,7 +592,7 @@ export class TunnelStatus {
      * Creates a new TunnelStatus instance from a string or object.
      */
     static createFrom($$source: any = {}): TunnelStatus {
-        const $$createField4_0 = $$createType23;
+        const $$createField4_0 = $$createType24;
         const $$createField5_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tunnels" in $$parsedSource) {
@@ -643,6 +651,34 @@ export class TunnelView {
     static createFrom($$source: any = {}): TunnelView {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new TunnelView($$parsedSource as Partial<TunnelView>);
+    }
+}
+
+/**
+ * UpdateStatus is the update check's state. Problem is a closed-set code
+ * (update.Code, or "network", "development_build"), never upstream text.
+ */
+export class UpdateStatus {
+    "state": string;
+    "version"?: string;
+    "last_check"?: string;
+    "problem"?: string;
+
+    /** Creates a new UpdateStatus instance. */
+    constructor($$source: Partial<UpdateStatus> = {}) {
+        if (!("state" in $$source)) {
+            this["state"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UpdateStatus instance from a string or object.
+     */
+    static createFrom($$source: any = {}): UpdateStatus {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new UpdateStatus($$parsedSource as Partial<UpdateStatus>);
     }
 }
 
@@ -712,5 +748,6 @@ const $$createType18 = $Create.Array($$createType17);
 const $$createType19 = WorkerStatus.createFrom;
 const $$createType20 = $Create.Array($$createType19);
 const $$createType21 = TunnelStatus.createFrom;
-const $$createType22 = TunnelView.createFrom;
-const $$createType23 = $Create.Array($$createType22);
+const $$createType22 = UpdateStatus.createFrom;
+const $$createType23 = TunnelView.createFrom;
+const $$createType24 = $Create.Array($$createType23);

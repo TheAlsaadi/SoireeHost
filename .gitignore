@@ -36,3 +36,6 @@ desktop.ini
 
 # Test fixtures created by testutil.SiteDir (removed after each test)
 testsite-*/
+
+# Update test key written by the CI isolation job (ADR-0004), never committed
+/internal/update/testkey.json

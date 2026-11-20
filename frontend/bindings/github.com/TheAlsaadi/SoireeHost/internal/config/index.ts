@@ -10,5 +10,6 @@ export {
     ServerLimits,
     Site,
     Static,
-    Tunnel
+    Tunnel,
+    Updates
 } from "./models.js";

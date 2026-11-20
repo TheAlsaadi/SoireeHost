@@ -2,10 +2,12 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 	"github.com/TheAlsaadi/SoireeHost/internal/svcrun"
+	"github.com/TheAlsaadi/SoireeHost/internal/update"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
@@ -21,6 +23,9 @@ func DataRoot() (string, error) {
 // RunService runs the supervisor as the SoireeHost Windows service.
 func RunService(version string) error {
 	return svcrun.Run(winsec.SupervisorService, true, func(ctx context.Context) error {
+		if failStartForTest {
+			return errors.New("this test build's supervisor refuses to start (updatetestfail)")
+		}
 		root, err := DataRoot()
 		if err != nil {
 			return err
@@ -44,10 +49,22 @@ func RunService(version string) error {
 			WorkerCanRead: func(r string) (bool, error) {
 				return winsec.GrantsRead(r, winsec.WorkerGroups(winsec.ServiceSID(winsec.WebService))...)
 			},
+			// a key file that does not parse trusts nothing, so every
+			// update is refused (S-60)
+			Updates: &UpdateOptions{Keys: trustedKeys()},
 		})
 		if err != nil {
 			return err
 		}
 		return s.Run(ctx)
 	})
+}
+
+// trustedKeys returns the compiled-in update keys, or none.
+func trustedKeys() update.KeySet {
+	ks, err := update.Trusted()
+	if err != nil {
+		return nil
+	}
+	return ks
 }

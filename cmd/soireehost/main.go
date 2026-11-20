@@ -95,26 +95,37 @@ func run(args []string) int {
 func runWebWorker() int { return exitCode(worker.RunService(version.Current())) }
 
 func runSetup(args []string) int {
-	usage := func() int {
-		fmt.Fprintln(os.Stderr, "usage: soireehost setup install | uninstall [--purge]")
-		return 2
-	}
-	if len(args) == 0 {
-		return usage()
+	inv, err := setup.ParseArgs(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return int(setup.CodeUsage)
 	}
 	l, err := setup.DefaultLayout()
 	if err != nil {
 		return exitCode(err)
 	}
-	switch {
-	case args[0] == "install" && len(args) == 1:
-		return exitCode(setup.Install(l))
-	case args[0] == "uninstall" && len(args) == 1:
-		return exitCode(setup.Uninstall(l, false))
-	case args[0] == "uninstall" && len(args) == 2 && args[1] == "--purge":
-		return exitCode(setup.Uninstall(l, true))
+	switch inv.Cmd {
+	case setup.CmdInstall:
+		return setupExit(inv.Cmd, setup.Install(l))
+	case setup.CmdRepair:
+		return setupExit(inv.Cmd, setup.Repair(l))
+	case setup.CmdApplyUpdate:
+		return setupExit(inv.Cmd, setup.ApplyUpdate(l))
+	case setup.CmdUninstall:
+		return setupExit(inv.Cmd, setup.Uninstall(l, inv.Purge))
 	}
-	return usage()
+	return int(setup.CodeUsage)
+}
+
+// setupExit reports a setup result as its closed-set exit code, which the
+// control panel turns into a sentence, and writes its detail to the event
+// log and to standard error (ADR-0010).
+func setupExit(cmd setup.Command, err error) int {
+	setup.Report(cmd, err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "soireehost:", err)
+	}
+	return int(setup.ExitCode(err))
 }
 
 func main() {

@@ -120,6 +120,9 @@ type Options struct {
 	// PortFree reports whether a loopback port is free for a new quick
 	// share (LoopbackPortFree when nil).
 	PortFree func(port int) bool
+	// Updates turns the update check on (ADR-0004). Nil leaves it out, as
+	// most tests do; status then reports it off.
+	Updates *UpdateOptions
 }
 
 // Supervisor is one running supervisor.
@@ -142,6 +145,7 @@ type Supervisor struct {
 	tstate tunnelState
 
 	conf *confirmations // open confirmation tokens (S-32, SE-27)
+	upd  *updater       // nil when Options.Updates is nil
 }
 
 // New checks the folders (S-22), opens the stores and verifies the audit log.
@@ -183,6 +187,10 @@ func New(opts Options) (*Supervisor, error) {
 	s := &Supervisor{opts: opts, store: store, secrets: sec, audit: al, auditRep: rep, users: users, started: time.Now(), conf: newConfirmations(nil)}
 	s.web = newWorkerMgr(s, ipc.RoleWeb, winsec.WebService, opts.Identity.Web)
 	s.tunnel = newWorkerMgr(s, ipc.RoleTunnel, winsec.TunnelService, opts.Identity.Tunnel)
+	if opts.Updates != nil {
+		s.upd = newUpdater(opts.Paths.Updates(), opts.Version, *opts.Updates, s.updatesEnabled,
+			func(action string, detail map[string]string) { s.record(winsec.SIDSystem, action, detail) })
+	}
 	return s, nil
 }
 
@@ -255,6 +263,9 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	wg.Add(2)
 	go func() { defer wg.Done(); s.web.run(runCtx, webLn) }()
 	go func() { defer wg.Done(); s.tunnel.run(runCtx, tunLn) }()
+	if s.upd != nil {
+		wg.Go(func() { s.upd.run(runCtx) })
+	}
 	err = ipc.ServeControl(runCtx, ctlLn, s.authorize, s.handle)
 	cancel()
 	wg.Wait()
@@ -299,6 +310,13 @@ func (s *Supervisor) auditOK() bool {
 	s.auditMu.Lock()
 	defer s.auditMu.Unlock()
 	return s.auditRep.OK()
+}
+
+// updatesEnabled reports whether the update check is on in the settings in
+// force.
+func (s *Supervisor) updatesEnabled() bool {
+	rec, err := s.current()
+	return err == nil && !rec.Config.Updates.Off
 }
 
 // current returns the revision in force, or a default config as revision 0.
