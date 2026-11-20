@@ -13,8 +13,8 @@ import (
 // The cloudflared release compiled into this build (S-23, S-71). The values
 // must equal build/cloudflared.lock; TestPinMatchesLock checks that.
 const (
-	CloudflaredVersion = "2026.11.0"
-	CloudflaredSHA256  = "d5c1d82031da6253dcdcff64c944cd0fe063016edeb2e4fd088075fc9bd52d0a"
+	CloudflaredVersion = "2026.11.1"
+	CloudflaredSHA256  = "341deda3db5ec498a0482254d6c38c0b7cf01a30c37bb5dd95d2216d08955e35"
 )
 
 // ExeName is cloudflared's file name in the install folder.
