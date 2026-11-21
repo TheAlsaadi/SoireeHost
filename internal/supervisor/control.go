@@ -84,8 +84,24 @@ func (s *Supervisor) change(c winsec.Caller, action string, detail map[string]st
 		return nil, ipc.Errorf(ipc.CodeInvalid, "%v", err)
 	}
 	detail["revision"] = strconv.FormatUint(rec.Revision, 10)
-	s.record(c.SID, action, detail)
+	if e := s.recordOrUndo(c.SID, action, detail, cur.Config); e != nil {
+		return nil, e
+	}
 	return s.applyOrRestore(rec, cur.Config)
+}
+
+// recordOrUndo audits a saved change. A weakening change stands only with its
+// audit entry (S-32): when the entry cannot be written, prev is saved again
+// before any worker has loaded the change, and the call fails. Other changes
+// keep going; the failure shows on the Security page (audit_ok false).
+func (s *Supervisor) recordOrUndo(sid, action string, detail map[string]string, prev config.Config) *ipc.Error {
+	if s.record(sid, action, detail) == nil || detail["weakening"] == "" {
+		return nil
+	}
+	if _, err := s.store.Save(prev, winsec.SIDSystem, "Undid a weakening change that could not be audited"); err != nil {
+		return ipc.Errorf(ipc.CodeInternal, "The audit log could not be written, and undoing the change failed: %v", err)
+	}
+	return errNotAudited
 }
 
 // applyOrRestore loads rec into the web worker. If the worker refuses it, the
@@ -119,7 +135,7 @@ func (s *Supervisor) applyOrRestore(rec config.Record, prev config.Config) (any,
 		if rerr != nil {
 			return nil, le.withDetail(ipc.Errorf(ipc.CodeInternal, "The web server could not use these settings (%s), and restoring revision %d failed: %v", le.reason, good, rerr))
 		}
-		s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+		_ = s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 			"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10)})
 		_ = s.applyWeb(back)
 		return nil, le.withDetail(ipc.Errorf(ipc.CodeInvalid, "The web server could not use these settings, so the previous settings were restored. Reason: %s.", le.reason))
@@ -174,11 +190,11 @@ func (s *Supervisor) workerConnected(_ context.Context, role string) {
 				// reported, not hidden (R-22): the saved settings stay as
 				// they are until someone fixes or replaces them
 				s.web.setStateDetail(StateRunning, fmt.Sprintf("The web server could not use the saved settings (%s), and restoring revision %d failed: %v", le.reason, good, err), le.detail)
-				s.record(winsec.SIDSystem, "config.restore_failed", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+				_ = s.record(winsec.SIDSystem, "config.restore_failed", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 					"restored_revision": strconv.FormatUint(good, 10)})
 				return
 			}
-			s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+			_ = s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 				"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10)})
 			_ = s.applyWeb(back)
 		}
@@ -214,6 +230,24 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 	w.firewall(cur.Config, target.Config)
 	w.updates(cur.Config, target.Config)
 	w.headers(cur.Config, target.Config)
+	// ADR-0008 decision 3: a static folder that goes live through a rollback
+	// is checked as when it is switched on; a folder that cannot be checked
+	// does not go live
+	exposed := 0
+	for _, site := range target.Config.Sites {
+		if site.Type != config.TypeStatic || !site.Enabled || s.alreadyLive(site) {
+			continue
+		}
+		d := map[string]string{}
+		if _, _, perr := s.exposureCheck(site, &w, d); perr != nil {
+			return nil, perr
+		}
+		n, _ := strconv.Atoi(d["exposed"])
+		exposed += n
+	}
+	if exposed > 0 {
+		detail["exposed"] = strconv.Itoa(exposed)
+	}
 	q := *p
 	q.Confirmation = ""
 	if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodConfigRollback, params: q, token: p.Confirmation}, detail); e != nil {
@@ -224,10 +258,12 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 		return nil, ipc.Errorf(ipc.CodeNotFound, "%v", err)
 	}
 	detail["revision"] = strconv.FormatUint(rec.Revision, 10)
-	s.record(c.SID, "config.rollback", detail)
 	prev := cur.Config
 	if cerr != nil {
 		prev = config.Default()
+	}
+	if e := s.recordOrUndo(c.SID, "config.rollback", detail, prev); e != nil {
+		return nil, e
 	}
 	return s.withTunnel(s.applyOrRestore(rec, prev))
 }
@@ -410,23 +446,35 @@ func (s *Supervisor) secretSet(c winsec.Caller, p *ipc.SecretSetParams) (any, *i
 	if err != nil {
 		return nil, ipc.Errorf(ipc.CodeInternal, "The secrets could not be read.")
 	}
+	detail := map[string]string{"name": p.Name}
 	if st.Set {
 		var w weakenings
 		w.add("tunnel", "A tunnel token is already set. Replacing it changes which tunnel your sites use.")
 		q := *p
 		q.Confirmation = ""
-		if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodSecretSet, params: q, token: p.Confirmation}, map[string]string{}); e != nil {
+		if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodSecretSet, params: q, token: p.Confirmation}, detail); e != nil {
 			return nil, e
 		}
-	}
-	if err := s.secrets.Set(p.Name, []byte(p.Value)); err != nil {
-		return nil, ipc.Errorf(ipc.CodeInvalid, "The token could not be stored: %v", err)
 	}
 	action := "secret.set"
 	if st.Set {
 		action = "secret.replace"
+		// replacing the token is a weakening action (S-32): the old token
+		// cannot be put back, so the entry is written before the change and
+		// a failure refuses it
+		if s.record(c.SID, action, detail) != nil {
+			return nil, errNotAudited
+		}
 	}
-	s.record(c.SID, action, map[string]string{"name": p.Name})
+	if err := s.secrets.Set(p.Name, []byte(p.Value)); err != nil {
+		if st.Set {
+			_ = s.record(c.SID, action+".failed", map[string]string{"name": p.Name})
+		}
+		return nil, ipc.Errorf(ipc.CodeInvalid, "The token could not be stored: %v", err)
+	}
+	if !st.Set {
+		_ = s.record(c.SID, action, detail)
+	}
 	res := ipc.SecretStatusResult{}
 	switch err := s.pushTunnelLocked(); {
 	case err == nil:

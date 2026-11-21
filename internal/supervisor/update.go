@@ -434,7 +434,7 @@ func (s *Supervisor) updateCheck(c winsec.Caller) (any, *ipc.Error) {
 	case !started:
 		return nil, ipc.Errorf(ipc.CodeUnavailable, "SoiréeHost checked for updates less than a minute ago.")
 	}
-	s.record(c.SID, "update.check", nil)
+	_ = s.record(c.SID, "update.check", nil)
 	return s.upd.status(), nil
 }
 

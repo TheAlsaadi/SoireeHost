@@ -151,7 +151,7 @@ func (w *workerMgr) run(ctx context.Context, ln net.Listener) {
 		// an hour) is recorded, so a worker that can never start does not
 		// grow the audit log without bound; the count shows the gap.
 		if backoff < time.Minute || n%60 == 0 {
-			w.sup.record(winsec.SIDSystem, "worker.restart", map[string]string{
+			_ = w.sup.record(winsec.SIDSystem, "worker.restart", map[string]string{
 				"role": w.role, "restarts": strconv.Itoa(n), "delay": backoff.String()})
 		}
 		select {

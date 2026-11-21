@@ -189,7 +189,7 @@ func New(opts Options) (*Supervisor, error) {
 	s.tunnel = newWorkerMgr(s, ipc.RoleTunnel, winsec.TunnelService, opts.Identity.Tunnel)
 	if opts.Updates != nil {
 		s.upd = newUpdater(opts.Paths.Updates(), opts.Version, *opts.Updates, s.updatesEnabled,
-			func(action string, detail map[string]string) { s.record(winsec.SIDSystem, action, detail) })
+			func(action string, detail map[string]string) { _ = s.record(winsec.SIDSystem, action, detail) })
 	}
 	return s, nil
 }
@@ -233,7 +233,7 @@ func (s *Supervisor) controlSDDL() string {
 
 // Run serves until ctx ends, then stops both workers.
 func (s *Supervisor) Run(ctx context.Context) error {
-	s.record(winsec.SIDSystem, "supervisor.start", map[string]string{"version": s.opts.Version, "audit_ok": fmt.Sprint(s.auditOK())})
+	_ = s.record(winsec.SIDSystem, "supervisor.start", map[string]string{"version": s.opts.Version, "audit_ok": fmt.Sprint(s.auditOK())})
 	webLn, err := ipc.Listen(s.opts.Pipes.Web, winsec.WorkerPipeSDDL(s.opts.Identity.Supervisor, s.opts.Identity.Web))
 	if err != nil {
 		return err
@@ -269,7 +269,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	err = ipc.ServeControl(runCtx, ctlLn, s.authorize, s.handle)
 	cancel()
 	wg.Wait()
-	s.record(winsec.SIDSystem, "supervisor.stop", nil)
+	_ = s.record(winsec.SIDSystem, "supervisor.stop", nil)
 	return err
 }
 
@@ -294,15 +294,22 @@ func (s *Supervisor) publishPipes() error {
 	return nil
 }
 
-// record writes an audit entry. A failure to audit is reported by status, and
-// never stops the supervisor.
-func (s *Supervisor) record(actor, action string, detail map[string]string) {
+// record writes an audit entry. A failure to audit is reported by status and
+// returned; it never stops the supervisor. Callers that make a weakening
+// change undo it when the entry cannot be written (S-32).
+func (s *Supervisor) record(actor, action string, detail map[string]string) error {
 	if _, err := s.audit.Append(actor, action, detail); err != nil {
 		s.auditMu.Lock()
 		s.auditRep.Breaks = append(s.auditRep.Breaks, audit.Break{Reason: "could not write: " + err.Error()})
 		s.auditMu.Unlock()
+		return err
 	}
+	return nil
 }
+
+// errNotAudited is the answer to a weakening change that was undone because
+// its audit entry could not be written (S-32).
+var errNotAudited = ipc.Errorf(ipc.CodeUnavailable, "The change was not made, because the audit log could not be written. Check the Security page.")
 
 // auditOK reports whether the audit log verified at start and every write
 // since has succeeded.

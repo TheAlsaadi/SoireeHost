@@ -257,3 +257,97 @@ func TestLoadNotBlockedByScan(t *testing.T) {
 		t.Fatalf("the scanned site: %v", err)
 	}
 }
+
+// S-32, ADR-0008 decision 3: going back to a revision in which a static site
+// is live checks its folder like switching it on does.
+func TestRollbackChecksExposure(t *testing.T) {
+	root := filepath.Join(testutil.SiteDir(t), "site")
+	h := start(t)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"index.html": "HOME"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	site := config.Site{ID: "blog", Name: "Blog", Enabled: true, Hostnames: []string{"blog.example.com"},
+		Type: config.TypeStatic, Static: &config.Static{Root: root}}
+	var live ipc.ConfigResult
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site}, &live); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.call(ipc.MethodSiteSetEnabled, ipc.SiteEnabledParams{ID: "blog", Enabled: false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// a key saved into the folder while the site is off
+	key := "-----BEGIN RSA " + "PRIVATE KEY-----\nMIIE\n-----END RSA " + "PRIVATE KEY-----\n"
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte(key), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var e *ipc.Error
+	err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: live.Revision}, nil)
+	if !errors.As(err, &e) || e.Code != ipc.CodeConfirmationRequired || !strings.Contains(e.Message, "notes.txt") {
+		t.Fatalf("rollback put a key live without confirmation: %v", err)
+	}
+	if code, _ := get(t, h.listen, "blog.example.com", "/notes.txt"); code == 200 {
+		t.Fatal("served before the confirmation")
+	}
+	if err := h.confirmed(ipc.MethodConfigRollback, &ipc.RollbackParams{Revision: live.Revision}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !auditHas(t, h, "config.rollback", "weakening", "exposed_files") || !auditHas(t, h, "config.rollback", "exposed", "1") {
+		t.Fatal("confirmed exposure through a rollback not audited")
+	}
+}
+
+// S-32: a weakening change stands only with its audit entry. When the entry
+// cannot be written the change is undone and the call fails; other changes
+// still go through.
+func TestWeakeningNotAuditedIsUndone(t *testing.T) {
+	h := start(t)
+	tok := canaryToken(t, 1)
+	if err := h.call(ipc.MethodSecretSet, ipc.SecretSetParams{Name: "tunnel_token", Value: tok}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// both weakening paths audited with their tag while the log works
+	if err := h.confirmed(ipc.MethodUpdateSetCheck, &ipc.UpdateSetCheckParams{Check: false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.call(ipc.MethodUpdateSetCheck, ipc.UpdateSetCheckParams{Check: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.confirmed(ipc.MethodSecretSet, &ipc.SecretSetParams{Name: "tunnel_token", Value: canaryToken(t, 2)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !auditHas(t, h, "update.set_check", "weakening", "updates_off") || !auditHas(t, h, "secret.replace", "weakening", "tunnel") {
+		t.Fatal("weakening changes not audited with their tag")
+	}
+
+	// the audit log can no longer be opened for writing
+	logPath := filepath.Join(h.paths.Audit(), "audit.log")
+	if err := os.Rename(logPath, logPath+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(logPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var e *ipc.Error
+	if err := h.confirmed(ipc.MethodUpdateSetCheck, &ipc.UpdateSetCheckParams{Check: false}, nil); !errors.As(err, &e) || e.Code != ipc.CodeUnavailable {
+		t.Fatalf("unaudited weakening change: %v", err)
+	}
+	var cur ipc.ConfigResult
+	if err := h.call(ipc.MethodConfigGet, ipc.None{}, &cur); err != nil || cur.Config.Updates.Off {
+		t.Fatalf("update check stayed off without an audit entry: %v %+v", err, cur.Config.Updates)
+	}
+	if err := h.confirmed(ipc.MethodSecretSet, &ipc.SecretSetParams{Name: "tunnel_token", Value: canaryToken(t, 3)}, nil); !errors.As(err, &e) || e.Code != ipc.CodeUnavailable {
+		t.Fatalf("unaudited token replacement: %v", err)
+	}
+	if got, err := h.sup.secrets.Get("tunnel_token"); err != nil || string(got) != canaryToken(t, 2) {
+		t.Fatal("the token was replaced without an audit entry")
+	}
+	// a change that weakens nothing is still made
+	if err := h.call(ipc.MethodTunnelOffline, ipc.OfflineParams{Offline: true}, nil); err != nil {
+		t.Fatalf("ordinary change refused: %v", err)
+	}
+}
