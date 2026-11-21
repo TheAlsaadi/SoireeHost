@@ -276,7 +276,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" --repo "${{ github.repository }}" --draft --verify-tag \
+          # a candidate (v1.0.0-rc.1) is a pre-release, which releases/latest
+          # skips: installs are offered only full releases (owner decision,
+          # 21 Nov 2026; docs/RELEASE_CHECKLIST.md)
+          pre=()
+          case "$TAG" in *-*) pre=(--prerelease) ;; esac
+          gh release create "$TAG" --repo "${{ github.repository }}" --draft --verify-tag "${pre[@]}" \
             --title "SoiréeHost ${{ needs.build.outputs.version }}" \
-            --notes "For Windows 11 x64 only. This release is not Authenticode-signed yet. Check soireehost.exe against SHA256SUMS and its build provenance (gh attestation verify soireehost.exe --repo ${{ github.repository }}). Tunnel-token mode with a real hostname is not yet verified." \
+            --notes "For Windows 11 x64 only. This release is not Authenticode-signed yet. Check soireehost.exe against SHA256SUMS and its build provenance (gh attestation verify soireehost.exe --repo ${{ github.repository }}). No independent security review has been done yet; please report problems privately as SECURITY.md describes. Tunnel-token mode with a real hostname is not yet verified. How to use it: docs/USER_GUIDE.md." \
             dist/soireehost.exe dist/manifest.json dist/SHA256SUMS dist/soireehost.cdx.json dist/frontend.cdx.json

@@ -94,6 +94,7 @@ Control panel: "Install update" ─► Windows prompt ────────�
 - `product` and `channel` must be exactly the expected values.
 - `version` and `min_from` must pass `version.Valid`.
 - `version` must be newer than the running version (S-62), compared by semantic-version precedence, pre-releases included.
+- Which builds check at all (note added 21 Nov 2026, Phase 7): releases and release candidates (`X.Y.Z-rc.N`, `version.Updatable`). Development and dry-run builds (`0.0.0-dev`, `0.0.0-dryrun.N`) never contact GitHub. Candidates are published as pre-releases, which `releases/latest` skips, so a candidate install is offered the next full release (owner decision of 21 Nov 2026); before this note a candidate would have been treated like a development build and never offered one.
 - The running version must not be older than `min_from`.
 - `artifact.name` must be exactly `soireehost.exe`.
 - The URL must start with `https://github.com/TheAlsaadi/SoireeHost/releases/download/v<version>/`.

@@ -235,6 +235,20 @@ func TestUpdateStagesVerifiedFile(t *testing.T) {
 	}
 }
 
+// TestUpdateFromReleaseCandidate: a candidate install (1.3.0-rc.1) checks
+// for updates and is offered the full release it leads to (owner decision,
+// 21 Nov 2026); without this, candidates would be stuck like dev builds.
+func TestUpdateFromReleaseCandidate(t *testing.T) {
+	f := newFakeGitHub(t)
+	r := newTestUpdater(t, f, "1.3.0-rc.1")
+	if err := r.u.check(t.Context()); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if st := r.u.status(); st.State != ipc.UpdateReady || st.Version != "1.3.0" {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
 // TestUpdateRefusesForgedManifest covers S-60 in the supervisor: a manifest
 // that does not verify is refused before anything is downloaded.
 func TestUpdateRefusesForgedManifest(t *testing.T) {
@@ -417,6 +431,10 @@ func TestUpdateOffAndDevelopmentBuild(t *testing.T) {
 	}
 	if st := r.u.status(); st.State != ipc.UpdateOff {
 		t.Fatalf("status while off = %+v", st)
+	}
+	dry := newTestUpdater(t, f, "0.0.0-dryrun.16")
+	if err := dry.u.check(t.Context()); !errors.Is(err, errDevBuild) {
+		t.Fatalf("check on a dry-run build = %v", err)
 	}
 	dev := newTestUpdater(t, f, "0.0.0-dev")
 	if err := dev.u.check(t.Context()); !errors.Is(err, errDevBuild) {

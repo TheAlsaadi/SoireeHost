@@ -57,6 +57,23 @@ func Release(v string) bool {
 	return Valid(v) && !strings.Contains(v, "-")
 }
 
+// Updatable reports whether a build of version v checks for updates: a
+// release, or a release candidate "X.Y.Z-rc.N" with X.Y.Z above 0.0.0.
+// Candidates are published as pre-releases, which releases/latest skips, so
+// they are offered the next full release (owner decision, 21 Nov 2026).
+// Development and dry-run builds ("0.0.0-dev", "0.0.0-dryrun.N") are not.
+func Updatable(v string) bool {
+	if Release(v) {
+		return true
+	}
+	core, pre, ok := strings.Cut(v, "-")
+	if !ok || core == "0.0.0" || !Valid(v) {
+		return false
+	}
+	n, rc := strings.CutPrefix(pre, "rc.")
+	return rc && numeric(n)
+}
+
 // ErrInvalid is returned by Compare for a version that Valid refuses.
 var ErrInvalid = errors.New("invalid version")
 

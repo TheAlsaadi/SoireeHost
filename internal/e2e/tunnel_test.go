@@ -138,7 +138,12 @@ $out -join "`+"`n"+`"`, l.Exe(), l.Cloudflared())
 // and returns its id.
 func publishTestSite(t *testing.T, c *ipc.Client, body string) string {
 	t.Helper()
+	// a folder outside the user profile: S-11 refuses to publish AppData,
+	// where os.TempDir is on a desktop (the soak runs in the owner's VM)
 	base := os.Getenv("RUNNER_TEMP")
+	if base == "" {
+		base = os.Getenv("SOIREEHOST_SOAK_DIR")
+	}
 	if base == "" {
 		base = os.TempDir()
 	}

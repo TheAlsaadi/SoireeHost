@@ -93,6 +93,31 @@ func TestValidPreRelease(t *testing.T) {
 	}
 }
 
+// TestUpdatable: releases and release candidates check for updates;
+// development, dry-run and other pre-release builds do not.
+func TestUpdatable(t *testing.T) {
+	for in, want := range map[string]bool{
+		"1.2.3":             true,
+		"1.0.0-rc.1":        true,
+		"1.0.0-rc.12":       true,
+		"0.0.0-rc.1":        false,
+		"0.0.0-dev":         false,
+		"0.0.0-dryrun.16":   false,
+		"1.0.0-beta.1":      false,
+		"1.0.0-rc":          false,
+		"1.0.0-rc.1.2":      false,
+		"1.0.0-rc.x":        false,
+		"1.0.0-rc.01":       false,
+		"1.0.0-rc.1-dryrun": false,
+		"":                  false,
+		"0.0.0-invalid":     false,
+	} {
+		if got := Updatable(in); got != want {
+			t.Errorf("Updatable(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
 func TestRelease(t *testing.T) {
 	for in, want := range map[string]bool{
 		"1.2.3": true, "0.0.0-dev": false, "1.0.0-rc.1": false, "": false, "0.0.0-invalid": false,

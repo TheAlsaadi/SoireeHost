@@ -57,7 +57,7 @@ One Go codebase compiles to one binary, `soireehost.exe`, and that binary is the
 | [Caddy](https://github.com/caddyserver/caddy/releases) | Web server and reverse proxy | v2.11.9 | Apache-2.0 | Compiled in as a library |
 | [Coraza](https://github.com/corazawaf/coraza) with the [OWASP Core Rule Set](https://github.com/coreruleset/coreruleset) | Web application firewall | `coraza/v3` v3.8.1 in a SoiréeHost Caddy module, with the request rules of CRS v4.30.0 vendored from its signed release (owner decision, 15 Nov 2026; ADR-0008). `coraza-caddy` and its lagging `coraza-coreruleset` wrapper are not used | Apache-2.0 | Compiled in as a Caddy module; rules embedded |
 | [cloudflared](https://github.com/cloudflare/cloudflared/releases) | Cloudflare Tunnel connector | 2026.11.0 (moved from 2026.10.7 on 14 Nov 2026 for VULN-170057, ADR-0007) | Apache-2.0 | Official binary embedded in `soireehost.exe`, unpacked by the setup role, run as a child process |
-| Svelte 5, TypeScript, Vite | Control-panel UI | Svelte 5.57.3, Vite 8.3.8, TypeScript as supported by `svelte-check`; exact versions in `frontend/package-lock.json`. Node.js 26 LTS for builds | MIT, Apache-2.0 | Bundled into the binary |
+| Svelte 5, TypeScript, Vite | Control-panel UI | Svelte 5.59.1, Vite 8.3.8, TypeScript as supported by `svelte-check`; exact versions in `frontend/package-lock.json`. Node.js 26 LTS for builds | MIT, Apache-2.0 | Bundled into the binary |
 | WebView2 | Renders the UI | Evergreen runtime in Windows | Microsoft | System component |
 | `Microsoft/go-winio`, `golang.org/x/sys/windows` | Named pipes with ACLs, service API, DPAPI, job objects, tokens | go-winio v0.6.4; x/sys newest, pinned in `go.sum` | MIT, BSD-3 | Compiled in |
 
@@ -428,6 +428,16 @@ Done when:
 ### Phase 7: Hardening and release candidate
 
 Run the full security pass with the skills in section 8, long fuzz runs, the dependency audit and SBOM, the user guide and `SECURITY.md`, and a 72-hour soak test.
+
+Owner decisions of 21 Nov 2026:
+
+- The 72-hour soak runs in the owner's VirtualBox VM (Windows 11 evaluation, restored to its "clean" snapshot), not on the owner's Windows and not in CI, whose jobs stop after 6 hours;
+- The 8 hours of fuzzing per target (22 targets) run in GitHub CI, one job per target in two 4-hour halves with the corpus carried between them;
+- `SECURITY.md` points to GitHub's private vulnerability reporting (already on), not an email address;
+- The first public release is `1.0.0-rc.1`, published as a GitHub pre-release; `1.0.0` follows once the candidate has run without problems;
+- No paid audit: the releases say plainly that no independent review has happened yet and invite private reports, and a volunteer review is sought in parallel;
+- S-17 (private sites through Cloudflare Access) is out of scope for 1.0: it needs a domain the owner does not have, and the app offers no Access option, so nothing relies on it;
+- The user guide is `docs/USER_GUIDE.md` in the repository, linked from the README and the release notes.
 
 Done when:
 
