@@ -1,0 +1,175 @@
+# Long fuzzing before a release (plan section 10: 8 hours per target).
+# GitHub-hosted jobs stop after 6 hours, so each target runs in two halves
+# (owner decision, 21 Nov 2026): the first half uploads the corpus it grew,
+# the second half starts from it. Run by hand from main before each release.
+# Every action is pinned to a full commit SHA (S-72); the tag is in the comment.
+name: Fuzz (long, before release)
+
+on:
+  workflow_dispatch:
+    inputs:
+      half_minutes:
+        description: "Minutes per half; each target gets twice this (240 = 8 hours, at most 300)"
+        required: false
+        default: "240"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-long
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: local
+  # internal/waf does not compile without no_fs_access (ADR-0008)
+  GOFLAGS: -mod=readonly -tags=no_fs_access
+
+jobs:
+  targets:
+    name: List the fuzz targets
+    runs-on: windows-2025
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+      minutes: ${{ steps.list.outputs.minutes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Every Fuzz function in the module
+        id: list
+        shell: pwsh
+        env:
+          HALF: ${{ inputs.half_minutes }}
+        run: |
+          $minutes = 0
+          if (-not [int]::TryParse($env:HALF, [ref]$minutes) -or $minutes -lt 1 -or $minutes -gt 300) {
+            Write-Output "::error title=half_minutes::must be a whole number from 1 to 300"; exit 1
+          }
+          $list = @()
+          foreach ($pkg in (go list ./...)) {
+            foreach ($t in (go test -list '^Fuzz' $pkg | Where-Object { $_ -match '^Fuzz\w+$' })) {
+              $short = ($pkg -split '/')[-1]
+              $list += [ordered]@{ pkg = $pkg; target = $t; id = "$short-$t" }
+            }
+          }
+          if ($list.Count -eq 0) { Write-Output "::error::no fuzz targets found"; exit 1 }
+          Write-Output "$($list.Count) targets"
+          "matrix=$(ConvertTo-Json -Compress -InputObject @{ include = $list })" >> $env:GITHUB_OUTPUT
+          "minutes=$minutes" >> $env:GITHUB_OUTPUT
+
+  first-half:
+    name: First half (${{ matrix.id }})
+    needs: targets
+    runs-on: windows-2025
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    env:
+      GOCACHE: ${{ github.workspace }}\..\gocache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Fuzz
+        shell: pwsh
+        env:
+          PKG: ${{ matrix.pkg }}
+          TARGET: ${{ matrix.target }}
+          MINUTES: ${{ needs.targets.outputs.minutes }}
+        run: |
+          go test -run '^$' -fuzz "^$env:TARGET`$" -fuzztime "$($env:MINUTES)m" -timeout 0 $env:PKG
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Keep the corpus for the second half
+        if: success()
+        shell: pwsh
+        env:
+          PKG: ${{ matrix.pkg }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          $src = Join-Path $env:GOCACHE "fuzz\$($env:PKG -replace '/', '\')\$env:TARGET"
+          $dst = Join-Path $env:RUNNER_TEMP 'corpus'
+          New-Item -ItemType Directory $dst -Force | Out-Null
+          if (Test-Path $src) { Copy-Item "$src\*" $dst }
+          Write-Output "$((Get-ChildItem $dst).Count) corpus entries"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: success()
+        with:
+          name: corpus-${{ matrix.id }}
+          path: ${{ runner.temp }}/corpus
+          retention-days: 3
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: crasher-first-${{ matrix.id }}
+          path: '**/testdata/fuzz/${{ matrix.target }}/*'
+          retention-days: 30
+          if-no-files-found: ignore
+
+  second-half:
+    name: Second half (${{ matrix.id }})
+    needs: [targets, first-half]
+    if: ${{ !cancelled() }}
+    runs-on: windows-2025
+    timeout-minutes: 330
+    permissions:
+      contents: read
+      actions: read # gh run download of the first half's corpus
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    env:
+      GOCACHE: ${{ github.workspace }}\..\gocache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore the first half's corpus
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          ID: ${{ matrix.id }}
+          PKG: ${{ matrix.pkg }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          # a target whose first half failed has no corpus: it starts again
+          # from its seeds, and its failure stays on the first half's job
+          $tmp = Join-Path $env:RUNNER_TEMP 'corpus'
+          gh run download $env:RUN --repo $env:REPO --name "corpus-$env:ID" --dir $tmp
+          if ($LASTEXITCODE -ne 0) { Write-Output "::warning title=$env:ID::no corpus from the first half"; exit 0 }
+          $dst = Join-Path $env:GOCACHE "fuzz\$($env:PKG -replace '/', '\')\$env:TARGET"
+          New-Item -ItemType Directory $dst -Force | Out-Null
+          Copy-Item "$tmp\*" $dst
+          Write-Output "$((Get-ChildItem $dst).Count) corpus entries restored"
+      - name: Fuzz
+        shell: pwsh
+        env:
+          PKG: ${{ matrix.pkg }}
+          TARGET: ${{ matrix.target }}
+          MINUTES: ${{ needs.targets.outputs.minutes }}
+        run: |
+          go test -run '^$' -fuzz "^$env:TARGET`$" -fuzztime "$($env:MINUTES)m" -timeout 0 $env:PKG
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: crasher-second-${{ matrix.id }}
+          path: '**/testdata/fuzz/${{ matrix.target }}/*'
+          retention-days: 30
+          if-no-files-found: ignore

@@ -170,3 +170,10 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
   - **security pass** with the skills in plan section 8: spec-to-code compliance against every S-requirement, insecure defaults, sharp edges, variant analysis, the security review, code review, the accessibility review, and a full supply-chain audit; findings checked with fp-check and fixed with tests;
   - **long runs:** 8 hours of fuzzing per target in CI, then the 72-hour soak in the VM on the candidate build;
   - **release candidate:** `v1.0.0-rc.1` through `docs/RELEASE_CHECKLIST.md`, then the owner's sign-off.
+- Stage 2 (build), in pull request 28 with the readiness records:
+  - `.github/workflows/fuzz-long.yml`: every fuzz target (23) in two halves of up to 5 hours, the corpus carried from the first half to the second with `gh run download`, since `download-artifact` is not on the Actions allow list; run by hand from `main` before a release;
+  - `e2e` `TestSoak`: the 72-hour soak for the VM, sharing one site through quick share, probing it over the internet every 30 seconds, sampling each process's private memory and handles every 5 minutes, dropping the tunnel every 4 hours and restarting the supervisor every 24; it fails on downtime outside a 10-minute recovery window or on growth within one process's life, and writes CSV files; a run shorter than a day injects both faults earlier, for a trial;
+  - found while preparing the candidate: a `-rc.N` build never checked for updates, because only versions without a pre-release part counted as releases. Candidates now check (`version.Updatable`, `TestUpdatable`, `TestUpdateFromReleaseCandidate`); development and dry-run builds still never contact GitHub (ADR-0004 note);
+  - the release workflow publishes a `-rc` tag as a pre-release, and its notes say that no independent review has been done;
+  - `SECURITY.md`, `docs/USER_GUIDE.md`, the README for the candidate;
+  - Svelte 5.59.1, `typescript-eslint` 8.73.0, Vitest 5.1.1; TypeScript stays at 6 because `svelte-check` 4.7.8 and `typescript-eslint` 8.73.0 accept only up to 6.0.

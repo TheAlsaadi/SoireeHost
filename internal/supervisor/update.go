@@ -171,7 +171,7 @@ func (u *updater) get(ctx context.Context, raw string) (*http.Response, error) {
 
 // status is the update state for status.get.
 func (u *updater) status() ipc.UpdateStatus {
-	if !version.Release(u.running) {
+	if !version.Updatable(u.running) {
 		return ipc.UpdateStatus{State: ipc.UpdateOff, Problem: problemDevBuild}
 	}
 	u.mu.Lock()
@@ -193,7 +193,7 @@ func (u *updater) set(f func(*ipc.UpdateStatus)) {
 // checkNow asks the run loop for a check at once ("Check now"). It returns
 // false if one was asked for less than a minute ago.
 func (u *updater) checkNow() (bool, error) {
-	if !version.Release(u.running) {
+	if !version.Updatable(u.running) {
 		return false, errDevBuild
 	}
 	if !u.enabled() {
@@ -236,7 +236,7 @@ func (u *updater) run(ctx context.Context) {
 
 // check runs one update check: manifest, verification, download, staging.
 func (u *updater) check(ctx context.Context) error {
-	if !version.Release(u.running) {
+	if !version.Updatable(u.running) {
 		return errDevBuild
 	}
 	u.checkMu.Lock()
@@ -400,7 +400,7 @@ func (u *updater) removeStaged(keep string) {
 // else in the folder (older versions, partial downloads, the manifest of
 // the version now running) is removed.
 func (u *updater) restore() {
-	if !version.Release(u.running) {
+	if !version.Updatable(u.running) {
 		return
 	}
 	mp := filepath.Join(u.dir, stagedManifest)

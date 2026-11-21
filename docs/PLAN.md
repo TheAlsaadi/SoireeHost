@@ -57,7 +57,7 @@ One Go codebase compiles to one binary, `soireehost.exe`, and that binary is the
 | [Caddy](https://github.com/caddyserver/caddy/releases) | Web server and reverse proxy | v2.11.9 | Apache-2.0 | Compiled in as a library |
 | [Coraza](https://github.com/corazawaf/coraza) with the [OWASP Core Rule Set](https://github.com/coreruleset/coreruleset) | Web application firewall | `coraza/v3` v3.8.1 in a SoiréeHost Caddy module, with the request rules of CRS v4.30.0 vendored from its signed release (owner decision, 15 Nov 2026; ADR-0008). `coraza-caddy` and its lagging `coraza-coreruleset` wrapper are not used | Apache-2.0 | Compiled in as a Caddy module; rules embedded |
 | [cloudflared](https://github.com/cloudflare/cloudflared/releases) | Cloudflare Tunnel connector | 2026.11.0 (moved from 2026.10.7 on 14 Nov 2026 for VULN-170057, ADR-0007) | Apache-2.0 | Official binary embedded in `soireehost.exe`, unpacked by the setup role, run as a child process |
-| Svelte 5, TypeScript, Vite | Control-panel UI | Svelte 5.57.3, Vite 8.3.8, TypeScript as supported by `svelte-check`; exact versions in `frontend/package-lock.json`. Node.js 26 LTS for builds | MIT, Apache-2.0 | Bundled into the binary |
+| Svelte 5, TypeScript, Vite | Control-panel UI | Svelte 5.59.1, Vite 8.3.8, TypeScript as supported by `svelte-check`; exact versions in `frontend/package-lock.json`. Node.js 26 LTS for builds | MIT, Apache-2.0 | Bundled into the binary |
 | WebView2 | Renders the UI | Evergreen runtime in Windows | Microsoft | System component |
 | `Microsoft/go-winio`, `golang.org/x/sys/windows` | Named pipes with ACLs, service API, DPAPI, job objects, tokens | go-winio v0.6.4; x/sys newest, pinned in `go.sum` | MIT, BSD-3 | Compiled in |
 
