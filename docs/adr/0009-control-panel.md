@@ -39,13 +39,15 @@ Owner decisions taken on 15 Nov 2026:
   - the few outside pages the app needs (the Cloudflare dashboard, the tunnel-token help page, the project page) open in the user's default browser through `OpenKnownLink(name)`, whose `name` comes from a closed set, so the UI never passes an address; a site's own address opens through `OpenSiteAddress`, which accepts only `https://` and a valid hostname.
 
   Known limit: a script running in the page could still navigate it. That needs a script to run, which the CSP and S-34 prevent. Revisit when Wails exposes the navigation events.
+  Dropping a link or text on the window would also navigate WebView2, so a capturing `dragover`/`drop` handler cancels every drop that carries no files (`lib/navlock.ts`, Phase 7 Stage 3); file drops still reach Wails for the folder pickers.
+  The asset server's header CSP also sets `frame-src 'none'` and `frame-ancestors 'none'`, which the meta copy covers through `default-src 'none'`; it adds `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
 - **Developer tools and dev server.** Release builds (`-tags production`, ADR-0003) turn off developer tools, the inspector, the default context menu and the `FRONTEND_DEVSERVER_URL` redirect. Wails turns developer tools off in `production` builds whatever the window options say (checked in its v3.1.0 source). The CI isolation job starts the installed control panel and checks that it holds no listening socket (`TestControlPanelOpensNoPort`).
 - **One-binary rule.** Assets are embedded and served from memory by Wails' asset server, never from a port (ADR-0003).
 
 ### Untrusted text (S-34)
 
 - Everything from outside (hostnames, paths, user agents, URIs, firewall rule messages, worker failure details, site names) is rendered through Svelte text interpolation only. The existing ESLint rules fail the build on `{@html}`, `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `DOMParser` and `createContextualFragment`.
-- **Invisible and misleading characters.** A `visibleText` function, used by the log row and every field that shows outside data, does two things. It replaces C0 and C1 controls, bidirectional overrides and isolates (U+202A to U+202E, U+2066 to U+2069), zero-width characters and other format characters with a visible `⟨U+XXXX⟩` marker. It also cuts long values with an ellipsis, while the full value stays one click away in the detail pane, still as text. This stops a request from using right-to-left overrides to make a log line read differently from what it is.
+- **Invisible and misleading characters.** A `visibleText` function, used by the log row and every field that shows outside data, does two things. (Exceptions, Phase 7 Stage 3: the site name inside the Activity filter's `<option>`, which cannot hold the marker element, and text the app builds itself from closed sets, such as process names, versions, rule locations and dialog titles; these are still rendered as text, never HTML.) It replaces C0 and C1 controls, bidirectional overrides and isolates (U+202A to U+202E, U+2066 to U+2069), zero-width characters and other format characters with a visible `⟨U+XXXX⟩` marker. It also cuts long values with an ellipsis, while the full value stays one click away in the detail pane, still as text. This stops a request from using right-to-left overrides to make a log line read differently from what it is.
 - **Phase 5 acceptance check.** A request whose path and user agent hold `<script>` and `<img onerror>` payloads is sent through the real worker, read back through `access.list` and `firewall.events`, and rendered in Activity by a Vitest component test. The test checks that the payloads appear as literal text and that no element, attribute or script was created from them. The same payloads in a site name, hostname and folder path are checked on the Sites and Security screens.
 
 ### Secrets in the control panel (S-35)
@@ -91,7 +93,7 @@ Owner decisions taken on 15 Nov 2026:
 - **Tests:**
   - every method in `ipc.Methods()` has exactly one policy entry, and every policy entry is a method;
   - an unlisted method is refused;
-  - every `Weakening` method refuses a call without a valid confirmation.
+  - every `Weakening` method takes a confirmation (`TestWeakeningMethodsTakeConfirmation` checks the field exists); the refusal without a valid token is tested per method in the supervisor (`TestConfirmationTokenSingleUseAndBound`, `TestFirewallWeakeningNeedsConfirmation`, `TestExposureCheckBeforeLive`, `TestRollbackChecksExposure`, `TestUpdateSetCheckNeedsConfirmation`, `TestTunnelTokenWriteOnly`).
 
 ### Pipe client (SE-30)
 

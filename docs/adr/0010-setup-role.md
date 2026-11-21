@@ -137,9 +137,12 @@ ADR-0004 decides when an update is ready. `setup apply-update`, run by the insta
 **Interrupted update.** If setup is killed or the PC loses power, the journal remains. The next setup command, or `setup repair`, reads it:
 
 - before the swap: it removes the leftovers;
-- after the swap: it checks the installed binary's SHA-256 against the journal and either finishes (repair, then the check) or rolls back.
+- at the swap step (`swapped`): it rolls back, because the new version's repair may not have run;
+- at `finished`: if the installed binary's SHA-256 is the journal's new hash, it starts the services and runs the version check without repeating repair; otherwise it rolls back.
 
-If the power fails in the instant between the two renames of step 6, `soireehost.exe` is missing and the services cannot start. The user then runs any downloaded `soireehost.exe`: the install window finds the journal and offers Repair, which completes the swap. This window is two renames long, and the journal makes it recoverable.
+Recovery runs only when a setup command runs (install, repair, apply-update). S-63's "restored automatically" holds while setup is alive; after setup itself is killed or the power fails, the services start on whatever files are in place until the user runs Repair (Phase 7 Stage 3, 21 Nov 2026; the owner is asked whether the supervisor should report `repair_needed` when it finds a journal). A rollback restores the kept binary only when its SHA-256 is the journal's `OldHash`, and an update stops before writing its journal if a `.previous` file from an earlier update can be neither deleted nor moved, so every `.previous` file present while a journal exists belongs to this update.
+
+If the power fails in the instant between the two renames of step 6, `soireehost.exe` is missing and the services cannot start. The user then runs any downloaded `soireehost.exe`: running it as `setup install` (same version or newer than the Apps entry) finds the journal and rolls the update back before installing; the install window itself does not read the journal. This window is two renames long.
 
 ### Uninstall
 
