@@ -429,6 +429,16 @@ Done when:
 
 Run the full security pass with the skills in section 8, long fuzz runs, the dependency audit and SBOM, the user guide and `SECURITY.md`, and a 72-hour soak test.
 
+Owner decisions of 21 Nov 2026:
+
+- The 72-hour soak runs in the owner's VirtualBox VM (Windows 11 evaluation, restored to its "clean" snapshot), not on the owner's Windows and not in CI, whose jobs stop after 6 hours;
+- The 8 hours of fuzzing per target (22 targets) run in GitHub CI, one job per target in two 4-hour halves with the corpus carried between them;
+- `SECURITY.md` points to GitHub's private vulnerability reporting (already on), not an email address;
+- The first public release is `1.0.0-rc.1`, published as a GitHub pre-release; `1.0.0` follows once the candidate has run without problems;
+- No paid audit: the releases say plainly that no independent review has happened yet and invite private reports, and a volunteer review is sought in parallel;
+- S-17 (private sites through Cloudflare Access) is out of scope for 1.0: it needs a domain the owner does not have, and the app offers no Access option, so nothing relies on it;
+- The user guide is `docs/USER_GUIDE.md` in the repository, linked from the README and the release notes.
+
 Done when:
 
 - [ ] Every S-requirement in `docs/SECURITY_CHECKLIST.md` links to a passing test or a recorded manual check.

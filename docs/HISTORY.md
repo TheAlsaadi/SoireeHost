@@ -152,3 +152,21 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
 - The `release` environment was created through the API: the owner as required reviewer, only `v*` tags.
 - The three Dependabot alerts for `go-jose/v3` (GHSA-mgcc-cww5-fp2q, GHSA-4w3g-jfj2-cw2q, GHSA-vvm8-gf78-28g4) were dismissed as "vulnerable code not used", pointing to the acceptance in `docs/DEPENDENCIES.md`; `govulncheck` on `main` found nothing reachable. No Dependabot, code-scanning or secret-scanning alert is open.
 - Every item in `docs/RELEASE_CHECKLIST.md` under "Once, before the first release" is done.
+
+## Phase 7: hardening and release candidate (from 21 Nov 2026)
+
+- Started on the owner's word, 21 Nov 2026.
+- Readiness: Go 1.27.4 is the newest stable release; every direct Go module is at its newest version (`go list -m -u`); cloudflared 2026.11.1 and the Core Rule Set 4.30.0 are current (upstream watcher); `npm audit` finds nothing; Svelte, typescript-eslint and Vitest have minor updates, and TypeScript 7 is out but stays at 6 for 1.0 (a major change to the compiler, too late to take on before the release).
+- Owner decisions of 21 Nov 2026 (recorded in `docs/PLAN.md`, Phase 7):
+  - the 72-hour soak runs in the owner's VirtualBox VM (Windows 11 evaluation, restored to its "clean" snapshot), not on the owner's Windows and not in CI, whose jobs stop after 6 hours;
+  - the 8 hours of fuzzing per target (22 targets) run in GitHub CI, one job per target in two 4-hour halves with the corpus carried between them;
+  - `SECURITY.md` points to GitHub's private vulnerability reporting (already on), not an email address;
+  - the first public release is `1.0.0-rc.1`, published as a GitHub pre-release; `1.0.0` follows once the candidate has run without problems;
+  - no paid audit: the releases say plainly that no independent review has happened yet and invite private reports, and a volunteer review is sought in parallel;
+  - S-17 (private sites through Cloudflare Access) is out of scope for 1.0: it needs a domain the owner does not have, and the app offers no Access option, so nothing relies on it;
+  - the user guide is `docs/USER_GUIDE.md` in the repository, linked from the README and the release notes.
+- Plan for the phase:
+  - **build:** the long-fuzz workflow, the soak harness for the VM, `SECURITY.md`, `docs/USER_GUIDE.md`, the README, pre-releases for candidate tags in the release workflow, the dependency updates;
+  - **security pass** with the skills in plan section 8: spec-to-code compliance against every S-requirement, insecure defaults, sharp edges, variant analysis, the security review, code review, the accessibility review, and a full supply-chain audit; findings checked with fp-check and fixed with tests;
+  - **long runs:** 8 hours of fuzzing per target in CI, then the 72-hour soak in the VM on the candidate build;
+  - **release candidate:** `v1.0.0-rc.1` through `docs/RELEASE_CHECKLIST.md`, then the owner's sign-off.

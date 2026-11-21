@@ -43,6 +43,8 @@ VirtualBox on this PC runs on top of Hyper-V. Take snapshots with the VM powered
 
 ## Publish
 
+A release candidate (`vX.Y.Z-rc.N`) is published as a GitHub pre-release (owner decision, 21 Nov 2026). `releases/latest` skips pre-releases, so installs on a candidate are not offered a later candidate; they are offered the next full release. A later candidate is installed by hand over the earlier one.
+
 - [ ] Publish the draft. From now on, every install's daily check finds it.
 
 ## After publishing
