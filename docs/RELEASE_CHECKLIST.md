@@ -6,11 +6,11 @@ Written at the end of Phase 6 from the deploy-checklist review (20 Nov 2026). It
 
 ## Once, before the first release
 
-- [ ] The update-signing key exists, its offline backup is stored, and `internal/update/keys.json` holding its public half is merged (`docs/UPDATE_KEY.md`). **(enforced:** the manifest job refuses to sign when the binary's embedded key file differs from `keys.json`, and `update.Open` refuses an empty key list**)**
-- [ ] The `release` environment exists, limited to `v*` tags, with the owner as required reviewer, holding the secret `UPDATE_SIGNING_KEY`.
-- [ ] The tag ruleset lets only the owner create `v*` tags.
-- [ ] The `main` ruleset requires a pull request and the green checks ADR-0004 lists.
-- [ ] `SIGNING_ENABLED` is unset (or `false`) until the SignPath steps exist. **(enforced:** the Authenticode job fails when it is `true`, and the manifest and the draft release then do not run**)**
+- [x] (21 Nov 2026: key `229bc25eefe83c4a`, two offline backups kept by the owner.) The update-signing key exists, its offline backup is stored, and `internal/update/keys.json` holding its public half is merged (`docs/UPDATE_KEY.md`). **(enforced:** the manifest job refuses to sign when the binary's embedded key file differs from `keys.json`, and `update.Open` refuses an empty key list**)**
+- [x] (21 Nov 2026.) The `release` environment exists, limited to `v*` tags, with the owner as required reviewer, holding the secret `UPDATE_SIGNING_KEY`.
+- [x] (Ruleset `release-tags`, read back 21 Nov 2026.) The tag ruleset lets only the owner create `v*` tags.
+- [x] (20 Nov 2026.) The `main` ruleset requires a pull request and the green checks ADR-0004 lists.
+- [x] (Unset, 21 Nov 2026.) `SIGNING_ENABLED` is unset (or `false`) until the SignPath steps exist. **(enforced:** the Authenticode job fails when it is `true`, and the manifest and the draft release then do not run**)**
 
 ## Before tagging
 

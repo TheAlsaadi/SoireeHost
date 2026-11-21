@@ -42,7 +42,7 @@ The watcher (`.github/workflows/upstream-watch.yml`) runs on a schedule and by h
 
 ## Release environment (before the first release, Phase 7)
 
-- [ ] Environment `release` (Settings > Environments): deployment branches and tags limited to `v*` tags; the owner as required reviewer; secret `UPDATE_SIGNING_KEY` as described in `docs/UPDATE_KEY.md`.
+- [x] Environment `release` (Settings > Environments): deployment branches and tags limited to `v*` tags; the owner as required reviewer; secret `UPDATE_SIGNING_KEY` as described in `docs/UPDATE_KEY.md`. Created through the API and read back on 21 Nov 2026 (reviewer TheAlsaadi, tag rule `v*`); the owner set the secret from the key file the same day.
 - [ ] Repository variable `SIGNING_ENABLED` left unset until the SignPath steps exist (`docs/RELEASE_CHECKLIST.md`).
 
 ## Repository details
