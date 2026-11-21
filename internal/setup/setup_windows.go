@@ -177,9 +177,6 @@ func installSteps(l Layout, sid string) error {
 	return writeAppsEntry(l, version.Current())
 }
 
-// sidTrustedInstaller owns Windows' own files.
-const sidTrustedInstaller = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
-
 // openSelf refuses to install from a folder that another account could
 // change, then opens the program so that no one can replace or rename it
 // until setup ends (no write or delete sharing). Setup runs as an
@@ -189,7 +186,7 @@ const sidTrustedInstaller = "S-1-5-80-956008885-3418522649-1831038044-1853292631
 // Administrators, SYSTEM, TrustedInstaller, and the owner placeholders
 // CREATOR OWNER and OWNER RIGHTS.
 func openSelf(self, user string) (*os.File, error) {
-	allowed := []string{winsec.SIDSystem, winsec.SIDAdministrators, user, sidTrustedInstaller, "S-1-3-0", "S-1-3-4"}
+	allowed := []string{winsec.SIDSystem, winsec.SIDAdministrators, user, winsec.SIDTrustedInstaller, winsec.SIDCreatorOwner, winsec.SIDOwnerRights}
 	for _, p := range []string{filepath.Dir(self), self} {
 		if err := winsec.CheckWriters(p, allowed...); err != nil {
 			return nil, fail(CodeUnsafeSource, fmt.Errorf("refusing to install from %s, because another account could replace the program there (%w); "+

@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"golang.org/x/sys/windows"
 
@@ -45,6 +46,40 @@ func (p Paths) Folders(id Identity, controlUsers []string) []Folder {
 		{p.TunnelLogs(), ba, winsec.WorkerLogFolderSDDL(sup, tun), []string{sy, ba, tun}},
 		{p.Updates(), ba, winsec.UpdatesFolderSDDL(sup), withSup},
 	}
+}
+
+// programOwners and programWriters are who may own and change the program
+// folder and soireehost.exe in it. The folder is in Program Files, whose
+// permissions it inherits: SYSTEM, Administrators, TrustedInstaller, and the
+// inherit-only CREATOR OWNER placeholder.
+var (
+	programOwners  = []string{winsec.SIDSystem, winsec.SIDAdministrators, winsec.SIDTrustedInstaller}
+	programWriters = []string{winsec.SIDSystem, winsec.SIDAdministrators, winsec.SIDTrustedInstaller, winsec.SIDCreatorOwner}
+)
+
+// checkProgram refuses to run unless the program folder and the program are
+// plain (no link or junction) and only administrators and the system can
+// change them (S-22; Phase 7 compliance review, 21 Nov 2026). The three
+// services run this file; an account that could replace it would run as all
+// three at their next start.
+func checkProgram(exe string) error {
+	for _, p := range []string{filepath.Dir(exe), exe} {
+		name, err := windows.UTF16PtrFromString(p)
+		if err != nil {
+			return err
+		}
+		attrs, err := windows.GetFileAttributes(name)
+		if err != nil {
+			return fmt.Errorf("refusing to run: %s: %w (run Repair or install again)", p, err)
+		}
+		if attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || (p != exe) != (attrs&windows.FILE_ATTRIBUTE_DIRECTORY != 0) {
+			return fmt.Errorf("refusing to run: %s is not a plain folder or file (a link or junction)", p)
+		}
+		if err := winsec.CheckOwnerAndWriters(p, programOwners, programWriters); err != nil {
+			return fmt.Errorf("refusing to run: %w (run Repair or install again)", err)
+		}
+	}
+	return nil
 }
 
 // checkFolders refuses to run unless every folder in the table exists, is

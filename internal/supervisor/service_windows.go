@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
@@ -33,6 +34,14 @@ var Limits = winsec.Limits{MemoryBytes: 1 << 30, ActiveProcesses: 1, NoChildProc
 func RunService(version string) error {
 	return svcrun.Run(winsec.SupervisorService, true, func(ctx context.Context) error {
 		if err := winsec.Confine(Limits); err != nil {
+			return err
+		}
+		// the program folder and soireehost.exe (S-22), before anything else
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if err := checkProgram(exe); err != nil {
 			return err
 		}
 		if failStartForTest {

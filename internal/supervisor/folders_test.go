@@ -123,3 +123,21 @@ func TestNewRefusesWritableFolders(t *testing.T) {
 		t.Fatalf("writable secrets folder: %v", err)
 	}
 }
+
+// TestCheckProgramRefusesUserFolder: a program folder or program that an
+// ordinary account owns or can change is refused (S-22). A test cannot make
+// a folder owned by Administrators without elevation; the CI isolation job
+// starts the installed services, which pass this check on the real folder.
+func TestCheckProgramRefusesUserFolder(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "soireehost.exe")
+	if err := os.WriteFile(exe, []byte("MZ"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkProgram(exe); err == nil {
+		t.Fatal("a program in a folder the test account owns was accepted")
+	}
+	if err := checkProgram(filepath.Join(dir, "missing.exe")); err == nil {
+		t.Fatal("a missing program was accepted")
+	}
+}

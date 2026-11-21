@@ -69,22 +69,23 @@ func (rfs *RootFS) Provision(caddy.Context) error {
 		_ = r.Close()
 		return fmt.Errorf("site folder %s: %w", rfs.Root, err)
 	}
-	real, err := finalPath(d)
+	realRoot, err := finalPath(d)
 	_ = d.Close()
 	if err != nil {
 		_ = r.Close()
 		return fmt.Errorf("site folder %s: %w", rfs.Root, err)
 	}
-	rfs.root, rfs.real = r, real
+	rfs.root, rfs.real = r, realRoot
 	return nil
 }
 
 // finalPath is the path Windows reports for an open file: links resolved,
 // in the form and case the file system stores.
 func finalPath(f *os.File) (string, error) {
-	buf := make([]uint16, windows.MAX_LONG_PATH)
+	const size = windows.MAX_LONG_PATH
+	buf := make([]uint16, size)
 	// flags 0: FILE_NAME_NORMALIZED, VOLUME_NAME_DOS
-	n, err := windows.GetFinalPathNameByHandle(windows.Handle(f.Fd()), &buf[0], uint32(len(buf)), 0)
+	n, err := windows.GetFinalPathNameByHandle(windows.Handle(f.Fd()), &buf[0], size, 0)
 	if err != nil {
 		return "", err
 	}

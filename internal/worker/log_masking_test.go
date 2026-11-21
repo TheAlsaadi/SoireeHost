@@ -62,9 +62,12 @@ func TestLogMasksAfterRawHash(t *testing.T) {
 	marker := fpLoggedMarker + "-R19"
 	r := h.raw(t, "GET /p?a=1#&token="+marker+" HTTP/1.1\r\nHost: app.example.com\r\nConnection: close\r\nCF-Connecting-IP: 203.0.113.7\r\n\r\n")
 	t.Logf("worker -> %d, app saw %s", r.status, strings.TrimSpace(r.body))
-	if r.status == 400 {
-		return // refused: nothing reaches the app or the log
+	if strings.Contains(r.body, marker) {
+		t.Errorf("R-19: the token after a raw '#' reached the app: %s", r.body)
 	}
+	// the guard refuses this target with 400, but Caddy still writes an
+	// access-log entry for it, which must be masked too (Phase 7 compliance
+	// review, 21 Nov 2026: the test used to stop at the 400)
 	if lines := accessLogLines(t, h, marker); len(lines) > 0 {
 		t.Errorf("R-19: secret logged unmasked:\n%s", strings.Join(lines, "\n"))
 	}
