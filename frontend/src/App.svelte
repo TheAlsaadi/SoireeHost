@@ -14,6 +14,7 @@
   import { api, type gui } from "./lib/api";
   import { app, startPolling } from "./lib/state.svelte";
   import type { Screen } from "./lib/nav";
+  import { blockNonFileDrop } from "./lib/navlock";
 
   let screen = $state<Screen>("sites");
   let firstRunDone = $state(false);
@@ -55,11 +56,15 @@
     };
     document.addEventListener("click", guard, true);
     document.addEventListener("auxclick", guard, true);
+    document.addEventListener("dragover", blockNonFileDrop, true);
+    document.addEventListener("drop", blockNonFileDrop, true);
     return () => {
       stop();
       off();
       document.removeEventListener("click", guard, true);
       document.removeEventListener("auxclick", guard, true);
+      document.removeEventListener("dragover", blockNonFileDrop, true);
+      document.removeEventListener("drop", blockNonFileDrop, true);
     };
   });
 

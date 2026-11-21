@@ -46,6 +46,7 @@ export const en = {
   "sites.empty": "No sites yet. Add a folder or a local app to put it online.",
   "sites.col.name": "Name",
   "sites.col.address": "Address",
+  "sites.temporary": "Temporary, for testing",
   "sites.col.type": "Type",
   "sites.col.status": "Status",
   "sites.col.serving": "Serving",

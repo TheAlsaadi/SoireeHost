@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { segments, visibleText } from "./visible";
 import { errorText, needsConfirmation, toApiError } from "./errors";
-import { idFromName, proxyPort, siteAddress, siteOnline, siteStatus, statusLine } from "./status";
+import { addressIsTemporary, idFromName, proxyPort, siteAddress, siteOnline, siteStatus, statusLine } from "./status";
 import { t } from "./i18n";
 import { en } from "./i18n/en";
 import type { config, ipc } from "./api";
@@ -86,6 +86,9 @@ describe("status in plain words", () => {
     const st = status([quick]);
     expect(siteOnline(site({}), st)).toBe(true);
     expect(siteAddress(site({}), st)).toBe("https://a-b-c.trycloudflare.com");
+    // S-51: a quick share address is labelled wherever it is shown
+    expect(addressIsTemporary(site({}), st)).toBe(true);
+    expect(addressIsTemporary(site({}), status([]))).toBe(false);
     const line = statusLine(st, { sites: [site({})] } as config.Config, false);
     expect(t(line.key, line.params)).toBe("1 of 1 sites served through Cloudflare Tunnel");
   });

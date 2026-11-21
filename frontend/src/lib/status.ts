@@ -42,6 +42,12 @@ function tokenTunnel(st: ipc.StatusResult | undefined): ipc.TunnelView | undefin
   return st?.tunnel.tunnels.find((t) => t.kind === "token");
 }
 
+/** Whether the site's address is a temporary quick share link (S-51). */
+export function addressIsTemporary(site: config.Site, st: ipc.StatusResult | undefined): boolean {
+  const q = quickTunnel(site, st);
+  return !!q?.url && q.temporary;
+}
+
 /** The address a site is reached at, or "" if it has none yet. */
 export function siteAddress(site: config.Site, st: ipc.StatusResult | undefined): string {
   const q = quickTunnel(site, st);
