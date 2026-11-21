@@ -15,9 +15,14 @@
   let done = $state("");
   let purge = $state(false);
   let heading: HTMLHeadingElement | undefined = $state();
+  let doneClose: HTMLButtonElement | undefined = $state();
 
   $effect(() => {
     heading?.focus();
+  });
+
+  $effect(() => {
+    doneClose?.focus();
   });
 
   const changes = [
@@ -62,12 +67,13 @@
       {#if done}
         <p role="status">{done}</p>
         <div class="actions">
-          <button class="button button-primary" type="button" onclick={() => api().closeSetup()}>{t("setup.close")}</button>
+          <!-- focus moves here when the result replaces the button that had it (accessibility review, 21 Nov 2026) -->
+          <button class="button button-primary" type="button" bind:this={doneClose} onclick={() => api().closeSetup()}>{t("setup.close")}</button>
         </div>
       {:else}
         <p>{t("setup.uninstall.lead")}</p>
-        <label class="choice"><input type="checkbox" bind:checked={purge} disabled={busy} />{t("setup.uninstall.purge")}</label>
-        <p class="check-what">{t("setup.uninstall.purgeHelp")}</p>
+        <label class="choice"><input type="checkbox" bind:checked={purge} disabled={busy} aria-describedby="purge-help" />{t("setup.uninstall.purge")}</label>
+        <p class="check-what" id="purge-help">{t("setup.uninstall.purgeHelp")}</p>
         <p class="check-what">{t("setup.install.prompt")}</p>
         {#if problem}
           <p class="form-problem" role="alert"><Icon name="status-danger" /><span>{problem}</span></p>

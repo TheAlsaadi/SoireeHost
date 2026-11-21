@@ -54,8 +54,10 @@ const (
 	soakGrowthFactor  = 1.5
 	soakGrowthBytes   = 64 << 20
 	soakGrowthHandles = 500
-	soakMinLife       = 8 * time.Hour
-	soakPage          = "SOIREEHOST-SOAK"
+	// cloudflared lives 4 hours between drops; 3 hours leaves a warm-up hour,
+	// a first hour and a last hour to compare
+	soakMinLife = 3 * time.Hour
+	soakPage    = "SOIREEHOST-SOAK"
 )
 
 var procGetProcessHandleCount = kernel32.NewProc("GetProcessHandleCount")
