@@ -100,6 +100,8 @@ These are the Phase 2 and 3 steps (ADR-0006, ADR-0007), with these additions:
 - rewrite the Apps entry;
 - start the supervisor.
 
+Re-adding the firewall rules deletes the old rules first, then adds them. If `netsh` fails between the two, the block rules are missing until the next repair. This is recorded, not changed (Phase 7 Stage 3, 21 Nov 2026): every listener is on loopback (S-01), so a missing block rule opens nothing by itself; repair reports the failure and exits with an error; and the Security page shows the rules' state, so the user sees the gap and can run Repair again.
+
 The control panel's Repair button, today a sentence ("Run SoiréeHost setup again"), becomes a button that raises the Windows prompt for it. It shows wherever `repair_needed` is reported (Settings, Security, the status line).
 
 ### Applying an update

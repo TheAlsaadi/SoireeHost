@@ -96,7 +96,7 @@ Each worker, before it touches the network or its pipe:
 
 1. Removes every privilege except `SeChangeNotifyPrivilege` from its token.
 2. Joins a new job object with kill-on-close, one active process, all UI restrictions, and a memory cap (1 GiB for the web worker, 256 MB for the tunnel launcher; cloudflared gets its own job in Phase 3).
-3. Turns on the child-process mitigation policy (`ProcessChildProcessPolicy`, no child processes). The tunnel launcher skips this one step, because it must start cloudflared; its job allows exactly two processes instead.
+3. Turns on the child-process mitigation policy (`ProcessChildProcessPolicy`, no child processes). The tunnel launcher skips this one step, because it must start cloudflared; its job allows six processes instead (itself, the token tunnel's cloudflared and one cloudflared for each of up to four quick shares, ADR-0007). The supervisor confines itself the same way (one process, no child processes, 1 GiB), which S-21 does not ask of it.
 
 A worker that cannot apply a limit exits instead of running unconfined.
 

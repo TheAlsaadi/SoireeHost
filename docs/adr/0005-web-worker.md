@@ -45,9 +45,17 @@ Headers spelled with underscores (`X_Forwarded_For`) are dropped as well, becaus
 
 Header size and the read, header and idle timeouts are set on the listener, because they apply before the Host header (and so the site) is known. Body size and rate limit are per site.
 
+The rate limit is a generic cell rate algorithm: with a limit of n a minute a client may send n requests at once and then one every 60/n seconds, so from idle it can send up to 2n-1 in the first 60 seconds; the long-run rate is n a minute. Each site has one limiter, shared by its tunnel and quick share routes and kept across config reloads, so neither a second route nor a reload gives a client a fresh allowance (Phase 7 Stage 3, 21 Nov 2026).
+
+### Forwarded headers
+
+The guard drops every forwarded-for header except the exact `Cf-Connecting-Ip`, which cloudflared sets and Caddy reads for the client address (S-05). It also keeps `X-Forwarded-Proto` when it is exactly `http` or `https`, so a proxied app can build correct links; any other value, or more than one, is dropped. It is not a client address, so S-05 does not cover it.
+
+The listeners are on 127.0.0.1, so any local program can connect and send its own `CF-Connecting-IP`. That changes only the address in the logs and the rate-limit key for its own requests; a local program can already reach the site and the app directly. Accepted: binding a check to cloudflared's process would add Windows calls on every connection for no gain against a local attacker (Phase 7 Stage 3, 21 Nov 2026).
+
 ### Security headers do not overwrite the app's own
 
-Each default header is set only when the response does not already carry it, so a proxied app with a stricter `Content-Security-Policy` keeps it. The `Server` header is always removed. Per-site overrides can change or remove the four managed headers. Responses that Go's `net/http` writes itself before any handler runs (400 for a malformed request or a missing Host, 431 for oversized headers, 501 for an unknown Transfer-Encoding) carry none of the four headers and no `Server` header; they are short fixed `text/plain` messages, and no Caddy setting reaches them (review finding R-16, accepted by the owner on 13 Nov 2026).
+Each default header is set only when the response does not already carry it, so a proxied app with a stricter `Content-Security-Policy` keeps it. The `Server` header is always removed. Per-site overrides can change or remove the four managed headers. Responses that Go's `net/http` writes itself before any handler runs (400 for a malformed request or a missing Host, 417 for an `Expect` other than `100-continue`, 431 for oversized headers, 501 for an unknown Transfer-Encoding, 505 for an unsupported protocol version) carry none of the four headers and no `Server` header; they are short fixed `text/plain` messages, and no Caddy setting reaches them (review finding R-16, accepted by the owner on 13 Nov 2026).
 
 ### Logs keep an allow-list of headers
 
@@ -75,4 +83,4 @@ The two extensions above the plan's lists came from the pre-commit code review o
 1. [x] Owner: accept or amend this record. Accepted 12 Nov 2026.
 2. [x] Owner: decide whether `/.well-known/` stays blocked. Decided 12 Nov 2026: per-site opt-in, off by default.
 3. [x] Phase 2: the supervisor runs `sitecheck.CheckRoot` before saving a site and stores the canonical path; the worker receives the Caddy JSON over its pipe. Done in Phase 2 (ADR-0006, pull request 2).
-4. [ ] Phase 4: Coraza joins the handler chain after the guard.
+4. [x] Phase 4: Coraza joins the handler chain after the guard (ADR-0008, pull request 11).
