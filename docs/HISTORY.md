@@ -145,3 +145,10 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
   - no AI assistant; Doctor uses fixed checks;
   - game server hosting set aside: the free relay was too slow for players in the same town, and port forwarding conflicts with S-02 and S-03.
 - Owner decision of 21 Nov 2026: an MCP server for the user's own AI app becomes the second item, right after Doctor. Design proposed in ADR-0011: stdio only, its own pipe with an allow-list the supervisor enforces, off by default, and an AI that can only ask for exposing or weakening changes, which the user approves in the control panel. Security requirements S-37 to S-39 proposed.
+
+## Before Phase 7 (21 Nov 2026)
+
+- The update-signing key: the owner generated it on their PC (`updatekey gen`, id `229bc25eefe83c4a`), checked the pair, set it as the `release` environment's secret `UPDATE_SIGNING_KEY` straight from the file, and made two offline backups. Its public half is in `internal/update/keys.json` (pull request 27); the working copy on the PC is deleted after the merge.
+- The `release` environment was created through the API: the owner as required reviewer, only `v*` tags.
+- The three Dependabot alerts for `go-jose/v3` (GHSA-mgcc-cww5-fp2q, GHSA-4w3g-jfj2-cw2q, GHSA-vvm8-gf78-28g4) were dismissed as "vulnerable code not used", pointing to the acceptance in `docs/DEPENDENCIES.md`; `govulncheck` on `main` found nothing reachable. No Dependabot, code-scanning or secret-scanning alert is open.
+- Every item in `docs/RELEASE_CHECKLIST.md` under "Once, before the first release" is done.
