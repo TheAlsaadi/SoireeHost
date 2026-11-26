@@ -112,13 +112,20 @@ jobs:
               if ($LASTEXITCODE -ne 0) { exit 1 }
               # the archive must be signed by the key pinned in crs.lock
               $fpr = (Select-String -Path build/crs.lock -Pattern '^signer=([0-9A-F]{40})$').Matches[0].Groups[1].Value
+              # Git's gpg is an MSYS program: it reads D:\... and D:/... as relative paths,
+              # so every path it gets goes through cygpath (/d/a/_temp/...).
               $gpg = 'C:\Program Files\Git\usr\bin\gpg.exe'
-              $env:GNUPGHOME = Join-Path $env:RUNNER_TEMP 'gnupg'
-              New-Item -ItemType Directory -Force $env:GNUPGHOME | Out-Null
-              & $gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys $fpr
+              $cygpath = 'C:\Program Files\Git\usr\bin\cygpath.exe'
+              $home_ = Join-Path $env:RUNNER_TEMP 'gnupg'
+              New-Item -ItemType Directory -Force $home_ | Out-Null
+              $env:GNUPGHOME = & $cygpath -u $home_
+              # the key comes over HTTPS by its pinned fingerprint; no keyserver or dirmngr
+              $key = Join-Path $env:RUNNER_TEMP 'crs-signer.asc'
+              Invoke-WebRequest -UseBasicParsing -Uri "https://keys.openpgp.org/vks/v1/by-fingerprint/$fpr" -OutFile $key
+              & $gpg --batch --import (& $cygpath -u $key)
               if ($LASTEXITCODE -ne 0) { exit 1 }
               $name = "coreruleset-$env:VERSION-minimal.tar.gz"
-              $status = & $gpg --batch --status-fd 1 --verify (Join-Path $dir "$name.asc") (Join-Path $dir $name) 2>$null
+              $status = & $gpg --batch --status-fd 1 --verify (& $cygpath -u (Join-Path $dir "$name.asc")) (& $cygpath -u (Join-Path $dir $name)) 2>$null
               if (-not ($status -match "VALIDSIG $fpr")) { Write-Output "::error::the CRS $env:VERSION archive is not signed by $fpr"; exit 1 }
               ./build/check-crs.ps1 -Update
               if ($LASTEXITCODE -ne 0) { exit 1 }
