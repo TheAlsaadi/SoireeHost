@@ -47,6 +47,6 @@ Release builds use `-tags production` (developer tools off, dev-server redirect 
 ## Status
 
 - **Done:** Phases 0 to 6 and the quality review after Phase 5. Phase 6 (setup, signing, updates) merged through pull request 22 (20 Nov 2026); the owner's Windows 11 VM check passed the same day (pull request 25). The history, with pull requests, CI runs and the owner's decisions, is in [docs/HISTORY.md](docs/HISTORY.md); add to it when a phase completes.
-- **Now:** Phase 7 (hardening and release candidate), started 21 Nov 2026; the owner's decisions and the stage plan are in docs/PLAN.md (Phase 7) and docs/HISTORY.md. Before its first release, follow [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
+- **Now:** Phase 7 (hardening and release candidate), started 21 Nov 2026; Stage 3 (security pass) in pull request 32, 27 Nov 2026, next the long runs (fuzz in CI, 72-hour soak in the VM); the owner's decisions and the stage plan are in docs/PLAN.md (Phase 7) and docs/HISTORY.md. Before its first release, follow [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
 - **Open:** tunnel-token mode with a real hostname is not verified (no domain).
 - Vetted plugins are declared in `.claude/settings.json` and load in a new session. See the checklist at the end of each phase in docs/PLAN.md section 9.
