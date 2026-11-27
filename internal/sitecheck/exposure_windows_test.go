@@ -1,6 +1,7 @@
 package sitecheck
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -107,6 +108,34 @@ func TestScanExposureWellKnown(t *testing.T) {
 	on := ScanExposure(r, Rules{AllowWellKnown: true}, time.Minute)
 	if len(on.Findings) != 1 || on.Findings[0].Path != ".well-known/acme.txt" || !on.Findings[0].Served {
 		t.Fatalf("with the opt-in: %+v", on.Findings)
+	}
+}
+
+// Sharp-edges finding SE7-2: many names that are never served do not use
+// up the report before a served secret is found.
+func TestScanExposureBlockedNamesDoNotHideSecrets(t *testing.T) {
+	root := filepath.Join(testutil.SiteDir(t), "site")
+	for i := range MaxFindings {
+		plant(t, root, fmt.Sprintf("d%03d/.env", i), "X=1")
+	}
+	plant(t, root, "zz/notes.txt", "my notes\n"+pemKey)
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close() //nolint:errcheck // read-only
+	rep := ScanExposure(r, Rules{}, time.Minute)
+	if err := ValidateExposureReport(rep); err != nil {
+		t.Fatalf("report does not validate: %v", err)
+	}
+	if rep.Incomplete {
+		t.Error("never-served names past their cap marked the report incomplete")
+	}
+	if served := rep.Served(); len(served) != 1 || served[0].Path != "zz/notes.txt" {
+		t.Fatalf("the served secret behind %d never-served names was not found: %v", MaxFindings, served)
+	}
+	if n := len(rep.Findings) - 1; n != maxBlockedFindings {
+		t.Errorf("%d never-served names listed, want the cap %d", n, maxBlockedFindings)
 	}
 }
 

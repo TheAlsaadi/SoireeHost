@@ -148,7 +148,10 @@ func (s *Supervisor) exposureCheck(site config.Site, w *weakenings, detail map[s
 		warn = append(warn, fmt.Sprintf("The folder holds %d file(s) or folder(s) that are never served, such as .env or private keys (listed in the exposure report). Consider moving them out of the site folder.", blocked))
 	}
 	if rep.Incomplete {
-		warn = append(warn, "The folder is too large to check completely; the exposure report lists only what was checked.")
+		// a folder that could not be checked completely may serve secrets
+		// nobody was told about, so going live with it needs confirmation
+		// (sharp-edges finding SE7-2)
+		w.add("scan_incomplete", "The folder is too large to check completely, so files that look like secrets could be served without being listed here.")
 	}
 	if served := rep.Served(); len(served) > 0 {
 		names := make([]string, 0, maxNamedPaths)

@@ -351,3 +351,25 @@ func TestWeakeningNotAuditedIsUndone(t *testing.T) {
 		t.Fatalf("ordinary change refused: %v", err)
 	}
 }
+
+// Sharp-edges finding SE7-2: a folder the exposure check could not finish
+// goes live only with confirmation, audited as scan_incomplete.
+func TestIncompleteExposureCheckNeedsConfirmation(t *testing.T) {
+	root := filepath.Join(testutil.SiteDir(t), "site")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	svc := &fakeServices{webScan: func(ipc.ScanRequest) (sitecheck.ExposureReport, error) {
+		return sitecheck.ExposureReport{Incomplete: true, Findings: []sitecheck.Finding{}}, nil
+	}}
+	h := startWith(t, svc, nil, 20*time.Second)
+	site := config.Site{ID: "blog", Name: "Blog", Enabled: true, Hostnames: []string{"blog.example.com"},
+		Type: config.TypeStatic, Static: &config.Static{Root: root}}
+	wantConfirm(t, h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site}, nil), "a folder the check could not finish")
+	if err := h.confirmed(ipc.MethodSitePut, &ipc.SitePutParams{Site: site}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !auditHas(t, h, "site.put", "weakening", "scan_incomplete") {
+		t.Error("going live after an incomplete check was not audited")
+	}
+}

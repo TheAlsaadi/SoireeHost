@@ -81,15 +81,25 @@ func ScanExposure(root *os.Root, rules Rules, timeout time.Duration) ExposureRep
 	return s.rep
 }
 
+// Findings are capped per kind, so names that are never served cannot use up
+// the report and stop the walk before a served secret is found
+// (sharp-edges finding SE7-2). Never-served names past their cap are left
+// out of the list; the walk goes on.
+const (
+	maxBlockedFindings = MaxFindings / 2
+	maxServedFindings  = MaxFindings - maxBlockedFindings
+)
+
 type scanner struct {
-	root     *os.Root
-	rules    Rules
-	deadline time.Time
-	rep      ExposureReport
+	root            *os.Root
+	rules           Rules
+	deadline        time.Time
+	rep             ExposureReport
+	served, blocked int
 }
 
 func (s *scanner) stop() bool {
-	if s.rep.Entries >= MaxScanEntries || len(s.rep.Findings) >= MaxFindings || time.Now().After(s.deadline) {
+	if s.rep.Entries >= MaxScanEntries || s.served >= maxServedFindings || time.Now().After(s.deadline) {
 		s.rep.Incomplete = true
 		return true
 	}
@@ -102,6 +112,14 @@ func (s *scanner) add(rel, kind string, served bool) {
 	if validFindingPath(rel) != nil {
 		s.rep.Incomplete = true
 		return
+	}
+	if served {
+		s.served++
+	} else {
+		if s.blocked >= maxBlockedFindings {
+			return
+		}
+		s.blocked++
 	}
 	s.rep.Findings = append(s.rep.Findings, Finding{Path: rel, Kind: kind, Served: served})
 }
