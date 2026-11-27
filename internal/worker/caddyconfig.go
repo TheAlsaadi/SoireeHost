@@ -154,7 +154,7 @@ func siteRoutes(site config.Site, hostnames []string, fsName string) (route, err
 
 	chain := append([]any{}, headers...)
 	chain = append(chain,
-		obj{"handler": "soireehost_ratelimit", "per_minute": site.RateLimitPerMinute},
+		obj{"handler": "soireehost_ratelimit", "site": site.ID, "per_minute": site.RateLimitPerMinute},
 		obj{"handler": "soireehost_guard", "mode": site.Type, "allow_well_known": site.AllowWellKnown},
 		obj{"handler": "request_body", "max_size": site.MaxBodyBytes},
 	)

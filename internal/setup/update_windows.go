@@ -84,7 +84,9 @@ func ApplyUpdate(l Layout) error {
 	// Stale .previous files from an earlier update go before the journal
 	// exists, so while there is a journal every .previous file belongs to
 	// this update and a rollback can only restore the version running now.
-	removePrevious(l)
+	if err := removePrevious(l); err != nil {
+		return err
+	}
 	if err := step(StepVerified); err != nil {
 		return err
 	}
@@ -281,16 +283,23 @@ func programFiles(l Layout) []string { return []string{l.Cloudflared(), l.Exe()}
 // removePrevious deletes the .previous pair of an earlier update. A file
 // still in use (an old control panel) is renamed out of the way and
 // deleted at the next restart.
-func removePrevious(l Layout) {
+// A .previous file that can be neither deleted nor moved stops the update
+// before its journal exists (S-63): a rollback would otherwise find it and
+// restore the wrong version.
+func removePrevious(l Layout) error {
 	for _, f := range programFiles(l) {
 		prev := f + prevSuffix
 		if !exists(prev) {
 			continue
 		}
-		if os.Remove(prev) != nil {
-			_, _ = moveAside(prev)
+		if os.Remove(prev) == nil {
+			continue
+		}
+		if _, err := moveAside(prev); err != nil {
+			return fmt.Errorf("the copy kept from an earlier update, %s, cannot be removed: %w", filepath.Base(prev), err)
 		}
 	}
+	return nil
 }
 
 // moveAside renames a file that cannot be deleted because it is in use (a
@@ -333,7 +342,20 @@ func swapIn(l Layout) error {
 
 // restoreFiles puts every .previous file back. It is safe to repeat: a file
 // with no .previous beside it is left as it is.
-func restoreFiles(l Layout) error {
+//
+// oldHash is the SHA-256 of the binary that was running when the update
+// began (the journal's OldHash). A kept binary with another hash is not this
+// update's, so nothing is moved: the files stay as they are (S-63).
+func restoreFiles(l Layout, oldHash string) error {
+	if prev := l.Exe() + prevSuffix; oldHash != "" && exists(prev) {
+		h, err := fileHash(prev)
+		if err != nil {
+			return fmt.Errorf("checking the kept copy: %w", err)
+		}
+		if !strings.EqualFold(h, oldHash) {
+			return errors.New("the kept copy is not the version that was running, so nothing was restored")
+		}
+	}
 	var errs []error
 	for _, f := range programFiles(l) {
 		prev := f + prevSuffix
@@ -573,7 +595,7 @@ func rollback(l Layout, sid string, j Journal, inProcess bool, cause error) erro
 	_ = writeJournal(l, j)
 	stopServices()
 	var errs []error
-	if err := restoreFiles(l); err != nil {
+	if err := restoreFiles(l, j.OldHash); err != nil {
 		errs = append(errs, err)
 	}
 	if err := restoreConfig(l); err != nil {

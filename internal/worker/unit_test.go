@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -278,5 +279,71 @@ func TestBuildCaddyJSON(t *testing.T) {
 	}
 	if _, err := BuildCaddyJSON(c, Options{LogDir: `logs`}); err == nil {
 		t.Fatal("accepted relative log folder")
+	}
+}
+
+// TestRateLimitSharedPerSite: every route of a site (its hostnames and its
+// quick share) counts against one limiter, and a config reload keeps the
+// counts (S-15; Phase 7 compliance review, 21 Nov 2026).
+func TestRateLimitSharedPerSite(t *testing.T) {
+	provision := func(site string, perMinute int) *RateLimit {
+		t.Helper()
+		rl := &RateLimit{Site: site, PerMinute: perMinute}
+		if err := rl.Provision(caddyContext()); err != nil {
+			t.Fatal(err)
+		}
+		return rl
+	}
+	tunnelRoute, quickRoute := provision("blog", 300), provision("blog", 300)
+	if tunnelRoute.limiter != quickRoute.limiter {
+		t.Fatal("the two routes of one site have separate limiters")
+	}
+	if other := provision("shop", 300); other.limiter == tunnelRoute.limiter {
+		t.Fatal("two sites share a limiter")
+	} else {
+		_ = other.Cleanup()
+	}
+	// a reload: the new config provisions before the old one cleans up
+	ok, _ := tunnelRoute.limiter.allow("203.0.113.7")
+	if !ok {
+		t.Fatal("first request refused")
+	}
+	reloaded := provision("blog", 300)
+	_ = tunnelRoute.Cleanup()
+	_ = quickRoute.Cleanup()
+	if reloaded.limiter != tunnelRoute.limiter || reloaded.limiter.size() != 1 {
+		t.Fatal("a reload cleared the counts")
+	}
+	// a new limit starts a new limiter
+	changed := provision("blog", 60)
+	if changed.limiter == reloaded.limiter {
+		t.Fatal("a changed limit kept the old limiter")
+	}
+	_ = reloaded.Cleanup()
+	_ = changed.Cleanup()
+	if err := (&RateLimit{Site: "../x", PerMinute: 10}).Provision(caddyContext()); err == nil {
+		t.Fatal("a bad site id was accepted")
+	}
+}
+
+// Review finding GO-14: a failed known-folder lookup is tried again; a
+// successful one is kept.
+func TestCacheSuccess(t *testing.T) {
+	calls := 0
+	get := cacheSuccess(func() (int, error) {
+		calls++
+		if calls == 1 {
+			return 0, errors.New("first lookup fails")
+		}
+		return calls, nil
+	})
+	if _, err := get(); err == nil {
+		t.Fatal("the failure was not returned")
+	}
+	if v, err := get(); err != nil || v != 2 {
+		t.Fatalf("second call: %d, %v", v, err)
+	}
+	if v, err := get(); err != nil || v != 2 || calls != 2 {
+		t.Fatalf("the success was not kept: %d, %v, %d calls", v, err, calls)
 	}
 }

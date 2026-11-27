@@ -94,11 +94,16 @@ describe("setup windows (ADR-0010)", () => {
     show({ mode: "uninstall", installed_version: "1.3.0", this_version: "1.3.0", newer: false });
     const box = target.querySelector<HTMLInputElement>('input[type="checkbox"]');
     expect(box?.checked).toBe(false);
+    // the help sentence is read with the box (accessibility review, 21 Nov 2026)
+    const help = document.getElementById(box?.getAttribute("aria-describedby") ?? "");
+    expect(help?.textContent).toBe(t("setup.uninstall.purgeHelp"));
     button(target, t("setup.uninstall.go")).click();
     await settle();
     expect(ran).toEqual(["uninstall"]);
     // after an uninstall the window stays, to say a file goes at restart
     expect(closed).toBe(0);
+    // and keyboard focus lands on Close instead of falling to the page
+    expect(document.activeElement?.textContent).toBe(t("setup.close"));
   });
 
   it("removes settings too when the box is ticked", async () => {

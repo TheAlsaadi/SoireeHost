@@ -134,8 +134,8 @@ func TestImportConfirmsWhatWasRead(t *testing.T) {
 	}
 }
 
-// S-33: every response of the asset server carries the CSP, and it is the
-// same policy as the page's meta tag.
+// S-33: every response of the asset server carries the CSP: the page's meta
+// tag plus frame-src and frame-ancestors.
 func TestSecurityHeaders(t *testing.T) {
 	h := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("x")) }))
 	rec := httptest.NewRecorder()

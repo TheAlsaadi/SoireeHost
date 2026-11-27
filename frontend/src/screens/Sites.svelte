@@ -9,7 +9,7 @@
   import { api, type config } from "../lib/api";
   import { t } from "../lib/i18n";
   import { app, applyConfig, refreshStatus, toastError, withConfirmation } from "../lib/state.svelte";
-  import { siteAddress, siteStatus } from "../lib/status";
+  import { addressIsTemporary, siteAddress, siteStatus } from "../lib/status";
 
   let { droppedFolder = $bindable("") }: { droppedFolder?: string } = $props();
 
@@ -116,6 +116,7 @@
           <tbody>
             {#each sites as site, i (site.id)}
               {@const address = siteAddress(site, app.status)}
+              {@const temporary = addressIsTemporary(site, app.status)}
               {@const said = siteStatus(site, app.status, app.ports)}
               <tr
                 aria-selected={selected?.id === site.id}
@@ -125,7 +126,10 @@
               >
                 <td class="site-name"><VisibleText text={site.name} max={60} /></td>
                 {#if address}
-                  <td class="cell-truncate cell-address mono small" title={address}><VisibleText text={hostOf(address)} /></td>
+                  <td class="cell-truncate cell-address mono small" title={temporary ? `${address} (${t("sites.temporary")})` : address}>
+                    <VisibleText text={hostOf(address)} />
+                    {#if temporary}<span class="secondary temporary">{t("sites.temporary")}</span>{/if}
+                  </td>
                 {:else}
                   <td class="secondary cell-address">{t("sites.noAddress")}</td>
                 {/if}

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 	"github.com/TheAlsaadi/SoireeHost/internal/worker"
@@ -261,4 +262,231 @@ func TestWorkerRestartIsRecorded(t *testing.T) {
 		}
 	}
 	t.Fatal("the web worker restarted but no worker.restart entry was recorded")
+}
+
+// saveBehindWorker stores a revision with one more proxy site without the
+// web worker loading it, as a change saved while the worker was down.
+func saveBehindWorker(h *harness, id, target string) uint64 {
+	h.t.Helper()
+	h.sup.changeMu.Lock()
+	defer h.sup.changeMu.Unlock()
+	cur, err := h.sup.store.Current()
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	cfg := cur.Config
+	cfg.Sites = append(slices.Clone(cfg.Sites), h.proxySite(id, target))
+	rec, err := h.sup.store.Save(cfg, winsec.SIDSystem, "saved while the worker was down")
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return rec.Revision
+}
+
+// waitRestored waits for the current revision to lose site id, then checks
+// the audit entry names the cause.
+func waitRestored(t *testing.T, h *harness, id, cause string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for slices.Contains(siteIDs(h), id) {
+		if time.Now().After(deadline) {
+			t.Fatalf("settings the web worker cannot load were not restored at connect: %v", siteIDs(h))
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !auditHas(t, h, "config.restored", "cause", cause) {
+		t.Fatalf("no config.restored entry with cause %s", cause)
+	}
+}
+
+// S-41 (owner's decision of 27 Nov 2026): saved settings that kill the web
+// worker at two connects in a row are replaced by the last good revision,
+// and the restarted worker serves it.
+func TestCrashAtConnectRestoresLastGood(t *testing.T) {
+	var crashes atomic.Int32
+	svc := &fakeServices{webLoad: loadsWith("boom.example.com", func(die func()) error {
+		crashes.Add(1)
+		die()
+		return errors.New("process died")
+	})}
+	h := startWith(t, svc, nil, 20*time.Second)
+	app := okApp(t)
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("app", app.Listener.Addr().String())}, nil); err != nil {
+		t.Fatal(err)
+	}
+	saveBehindWorker(h, "boom", app.Listener.Addr().String())
+	svc.kill(winsec.WebService)
+	waitRestored(t, h, "boom", "stopped")
+	if n := crashes.Load(); n != 2 {
+		t.Errorf("the worker loaded the bad settings %d times; one death gets one more start", n)
+	}
+	h.waitWorkers(StateRunning)
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if code, _ := get(t, h.listen, "app.example.com", "/"); code == http.StatusOK {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the restarted worker does not serve the restored settings")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// S-41: saved settings the web worker hangs on past the load timeout at
+// connect are replaced by the last good revision at once.
+func TestHangAtConnectRestoresLastGood(t *testing.T) {
+	svc := &fakeServices{webLoad: loadsWith("hang.example.com", func(func()) error {
+		time.Sleep(5 * time.Second)
+		return nil
+	})}
+	h := startWith(t, svc, nil, 2*time.Second)
+	app := okApp(t)
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("app", app.Listener.Addr().String())}, nil); err != nil {
+		t.Fatal(err)
+	}
+	saveBehindWorker(h, "hang", app.Listener.Addr().String())
+	svc.kill(winsec.WebService)
+	waitRestored(t, h, "hang", "timed_out")
+}
+
+// S-41: one death at connect is not blamed on the settings: a worker that
+// dies once and then loads them keeps them.
+func TestOneCrashAtConnectKeepsSettings(t *testing.T) {
+	var crashes atomic.Int32
+	svc := &fakeServices{webLoad: loadsWith("flaky.example.com", func(die func()) error {
+		if crashes.Add(1) == 1 {
+			die()
+			return errors.New("process died")
+		}
+		return nil
+	})}
+	h := startWith(t, svc, nil, 20*time.Second)
+	app := okApp(t)
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("app", app.Listener.Addr().String())}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rev := saveBehindWorker(h, "flaky", app.Listener.Addr().String())
+	svc.kill(winsec.WebService)
+	deadline := time.Now().Add(20 * time.Second)
+	for h.sup.store.LastGood() != rev {
+		if time.Now().After(deadline) {
+			t.Fatalf("the settings were not loaded on the second start (%d loads)", crashes.Load())
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !slices.Contains(siteIDs(h), "flaky") {
+		t.Fatal("settings that loaded on the second start were replaced")
+	}
+}
+
+// Security review SR-1: an automatic restore never undoes a tightening saved
+// since the last good revision. Here the saved settings switch a site off;
+// the last good revision has it on, so the saved settings stay as they are
+// and the failed restore is reported.
+func TestRestoreNeverSwitchesASiteBackOn(t *testing.T) {
+	svc := &fakeServices{webLoad: loadsWith("boom.example.com", func(die func()) error {
+		die()
+		return errors.New("process died")
+	})}
+	h := startWith(t, svc, nil, 20*time.Second)
+	app := okApp(t)
+	for _, id := range []string{"app", "leak"} {
+		if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite(id, app.Listener.Addr().String())}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.sup.changeMu.Lock()
+	cur, err := h.sup.store.Current()
+	if err == nil {
+		cfg := cur.Config
+		cfg.Sites = slices.Clone(cfg.Sites)
+		for i := range cfg.Sites {
+			if cfg.Sites[i].ID == "leak" {
+				cfg.Sites[i].Enabled = false
+			}
+		}
+		cfg.Sites = append(cfg.Sites, h.proxySite("boom", app.Listener.Addr().String()))
+		_, err = h.sup.store.Save(cfg, winsec.SIDSystem, "saved while the worker was down")
+	}
+	h.sup.changeMu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.kill(winsec.WebService)
+	deadline := time.Now().Add(30 * time.Second)
+	for !auditHas(t, h, "config.restore_failed", "failed_revision", "") {
+		if time.Now().After(deadline) {
+			t.Fatal("the refused restore was not reported")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	var now ipc.ConfigResult
+	if err := h.call(ipc.MethodConfigGet, ipc.None{}, &now); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range now.Config.Sites {
+		if s.ID == "leak" && s.Enabled {
+			t.Fatal("the automatic restore switched a site back on")
+		}
+	}
+	if !slices.Contains(siteIDs(h), "boom") {
+		t.Fatal("the saved settings were replaced")
+	}
+}
+
+// SR-1: the weakening test behind it, case by case.
+func TestRestoreWeakens(t *testing.T) {
+	base := config.Default()
+	base.Sites = []config.Site{{ID: "a", Name: "A", Enabled: true, Hostnames: []string{"a.example.com"}, Type: config.TypeProxy, Proxy: &config.Proxy{Target: "127.0.0.1:3000"}}}
+	with := func(f func(*config.Site)) config.Config {
+		c := base
+		c.Sites = slices.Clone(base.Sites)
+		f(&c.Sites[0])
+		return c
+	}
+	off := with(func(s *config.Site) { s.Enabled = false })
+	moreHost := with(func(s *config.Site) { s.Hostnames = append(slices.Clone(s.Hostnames), "b.example.com") })
+	wellKnown := with(func(s *config.Site) { s.AllowWellKnown = true })
+	for name, tc := range map[string]struct {
+		cur, next config.Config
+		want      bool
+	}{
+		"same":                     {base, base, false},
+		"site back on":             {off, base, true},
+		"site off is fine":         {base, off, false},
+		"new hostname":             {base, moreHost, true},
+		"hostname removed is fine": {moreHost, base, false},
+		"well-known on":            {base, wellKnown, true},
+	} {
+		if got := restoreWeakens(tc.cur, tc.next); got != tc.want {
+			t.Errorf("%s: restoreWeakens = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// Code review CR-1: going offline when the web worker then refuses the load
+// still leaves the switch on: the restore keeps the stricter tunnel side.
+func TestRefusedOfflineChangeStaysOffline(t *testing.T) {
+	var refuse atomic.Bool
+	svc := &fakeServices{webLoad: func(_ func(), m ipc.WorkerMsg) error {
+		if refuse.Load() {
+			return errors.New("refused by the test worker")
+		}
+		return worker.LoadJSON(m.Caddy)
+	}}
+	h := startWith(t, svc, nil, 20*time.Second)
+	app := okApp(t)
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("app", app.Listener.Addr().String())}, nil); err != nil {
+		t.Fatal(err)
+	}
+	refuse.Store(true)
+	_ = h.call(ipc.MethodTunnelOffline, ipc.OfflineParams{Offline: true}, nil)
+	var now ipc.ConfigResult
+	if err := h.call(ipc.MethodConfigGet, ipc.None{}, &now); err != nil {
+		t.Fatal(err)
+	}
+	if !now.Config.Tunnel.Offline {
+		t.Fatal("a refused load undid the offline switch")
+	}
 }

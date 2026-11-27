@@ -33,6 +33,38 @@ func (w *weakenings) add(tag, sentence string) {
 	w.sentences = append(w.sentences, sentence)
 }
 
+// quickShares adds a sentence for each quick share that next runs and cur
+// does not: going back to a revision must not quietly put a temporary
+// public link back up after the owner stopped it (S-32, owner's decision of
+// 27 Nov 2026).
+func (w *weakenings) quickShares(cur, next config.Config, rev uint64) {
+	shared := func(s config.Site) bool { return s.Enabled && s.QuickShare != nil }
+	var ids []string
+	for _, s := range next.Sites {
+		if !shared(s) {
+			continue
+		}
+		i := slices.IndexFunc(cur.Sites, func(x config.Site) bool { return x.ID == s.ID })
+		if i < 0 || !shared(cur.Sites[i]) {
+			ids = append(ids, s.ID)
+		}
+	}
+	if len(ids) > 0 {
+		w.add("quick_share", fmt.Sprintf("Revision %d shares %s through a temporary public link again, which you had stopped.",
+			rev, strings.Join(ids, ", ")))
+	}
+}
+
+// online adds a sentence when next takes the tunnel back online from the
+// offline switch. Switching it off by hand is the owner's own act
+// (ADR-0007), but a rollback that does it on the side would put every site
+// back on the internet unasked (sharp-edges finding SE7-1).
+func (w *weakenings) online(cur, next config.Config, rev uint64) {
+	if cur.Tunnel.Offline && !next.Tunnel.Offline {
+		w.add("online", fmt.Sprintf("Revision %d turns the offline switch off, so your sites are on the internet again.", rev))
+	}
+}
+
 // updates adds a sentence when next turns the update check off (ADR-0004;
 // S-32): no security fix arrives while it is off.
 func (w *weakenings) updates(cur, next config.Config) {
@@ -116,7 +148,10 @@ func (s *Supervisor) exposureCheck(site config.Site, w *weakenings, detail map[s
 		warn = append(warn, fmt.Sprintf("The folder holds %d file(s) or folder(s) that are never served, such as .env or private keys (listed in the exposure report). Consider moving them out of the site folder.", blocked))
 	}
 	if rep.Incomplete {
-		warn = append(warn, "The folder is too large to check completely; the exposure report lists only what was checked.")
+		// a folder that could not be checked completely may serve secrets
+		// nobody was told about, so going live with it needs confirmation
+		// (sharp-edges finding SE7-2)
+		w.add("scan_incomplete", "The folder is too large to check completely, so files that look like secrets could be served without being listed here.")
 	}
 	if served := rep.Served(); len(served) > 0 {
 		names := make([]string, 0, maxNamedPaths)

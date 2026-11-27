@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -269,14 +270,22 @@ func (s *Store) newestRevision() uint64 {
 // prune keeps the newest HistoryKept history files, and never the one the
 // worker last loaded if that is older (it is the rollback target).
 func (s *Store) prune() {
-	// An unreadable or damaged last-good marker reads as 0, which keeps no
-	// extra revision; a failed removal leaves one more history file than
-	// needed, which the next prune tries again. Neither stops a save.
+	// A marker that is there but cannot be read or parsed skips pruning, so
+	// the real last good revision is never removed by mistake (review
+	// finding SE-34); a missing one keeps no extra revision. A failed
+	// removal leaves one more history file than needed, which the next
+	// prune tries again. Neither stops a save.
 	good := uint64(0)
-	if b, err := os.ReadFile(s.goodPath()); err == nil {
-		if rev, perr := strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64); perr == nil {
-			good = rev
+	b, err := os.ReadFile(s.goodPath())
+	switch {
+	case err == nil:
+		rev, perr := strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64)
+		if perr != nil {
+			return
 		}
+		good = rev
+	case !errors.Is(err, fs.ErrNotExist):
+		return
 	}
 	for i, rev := range s.historyRevisions() {
 		if i >= HistoryKept && rev != good {

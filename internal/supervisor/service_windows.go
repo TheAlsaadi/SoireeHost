@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
@@ -35,6 +36,14 @@ func RunService(version string) error {
 		if err := winsec.Confine(Limits); err != nil {
 			return err
 		}
+		// the program folder and soireehost.exe (S-22), before anything else
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if err := checkProgram(exe); err != nil {
+			return err
+		}
 		if failStartForTest {
 			return errors.New("this test build's supervisor refuses to start (updatetestfail)")
 		}
@@ -56,14 +65,14 @@ func RunService(version string) error {
 			Pipes:     pipes,
 			Services:  svcrun.SCM{},
 			Version:   version,
-			CheckACLs: true,
 			CheckRoot: func(r string) (string, error) { return sitecheck.CheckRoot(r, loc) },
 			WorkerCanRead: func(r string) (bool, error) {
 				return winsec.GrantsRead(r, winsec.WorkerGroups(winsec.ServiceSID(winsec.WebService))...)
 			},
 			// a key file that does not parse trusts nothing, so every
 			// update is refused (S-60)
-			Updates: &UpdateOptions{Keys: trustedKeys()},
+			Updates:       &UpdateOptions{Keys: trustedKeys()},
+			UpdateJournal: filepath.Join(filepath.Dir(exe), UpdateJournalName),
 		})
 		if err != nil {
 			return err

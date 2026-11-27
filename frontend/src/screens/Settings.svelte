@@ -182,6 +182,9 @@
           {#if update?.state === "ready"}
             <button class="button button-primary" type="button" disabled={busy} onclick={() => runSetup("apply-update", t("settings.updateInstalled"))}>{t("settings.installUpdate")}</button>
           {/if}
+          {#if update?.state === "interrupted"}
+            <button class="button button-primary" type="button" disabled={busy} onclick={() => runSetup("repair", t("settings.repaired"))}><Icon name="refresh" />{t("settings.repairGo")}</button>
+          {/if}
           <button
             class="button"
             type="button"

@@ -37,7 +37,7 @@ Facts checked on 14 Nov 2026 against the cloudflared source at tag 2026.11.0 and
 
 ### 1. Packaging and the launch check (S-23, S-71)
 
-- `build/cloudflared.lock` moves to 2026.11.0. `internal/tunnel` holds the same version and SHA-256 as constants, and a test fails if they ever differ from the lock file, so the file stays the one source.
+- `build/cloudflared.lock` moves to 2026.11.0 (2026.11.1 since 20 Nov 2026, through the upstream watcher, pull request 24). `internal/tunnel` holds the same version and SHA-256 as constants, and a test fails if they ever differ from the lock file, so the file stays the one source.
 - `build/fetch-cloudflared.ps1` downloads the asset from the official GitHub release URL into `internal/tunnel/embed/cloudflared.exe` (ignored by git), checks its SHA-256 against the lock and deletes it on a mismatch.
 - Builds with the `cloudflared` build tag embed it with `go:embed`. Builds without the tag carry no copy, so ordinary tests, linters and the owner's local builds need neither the 55 MB file nor a download.
 - `build.ps1 -Cloudflared` fetches and tags. The CI build and isolation jobs always do.
@@ -76,6 +76,7 @@ The tunnel launcher starts every cloudflared itself, with `CreateProcess`:
   | `run` (token mode) or `--url http://127.0.0.1:<share port>` (quick share) | |
 
 - **Listener check.** After start, and every 30 seconds, the launcher reads the TCP listener and UDP tables for each cloudflared process ID. Any TCP listener that is not on `127.0.0.1` or `::1`, and any UDP socket, kills that process and reports `unexpected_listener` (S-01). The table code moves from `internal/worker` into `internal/winsec` so the worker and the launcher share it.
+- **Who can read the metrics server.** Its port is on 127.0.0.1 and cloudflared checks no Host header, so any local program, or a page in a local browser through DNS rebinding, can read `/ready`, `/metrics` and `/quicktunnel`. That gives connection counters and the quick share's public address, which its visitors already have; no token or key is served. SoiréeHost cannot add a Host check to cloudflared's own server, so this is accepted (S-04, Phase 7 Stage 3, 21 Nov 2026).
 - **What is never trusted.** The launcher never reads the metrics server: any local process could take that port first and answer with false data. Everything it learns comes from the stderr of the process it started.
 - **Restarts.** A cloudflared process that exits is restarted with backoff (1, 2, 4 … 60 s; the delay resets after it has been connected for a minute). The tunnel launcher's own job allows 1 + 1 + 4 processes: itself, the token tunnel and at most four quick shares.
 
@@ -106,7 +107,7 @@ Each line of stderr is read with a 64 KB cap and decoded as JSON. Lines that do 
 
 ### 6. The offline switch
 
-`"tunnel": {"offline": true}` in config, set with the new control method `tunnel.set_offline {offline}`, stops every cloudflared process. Nothing is reachable from the internet while it is on. The web worker keeps serving loopback, so going back online is instant. The switch survives restarts. Both directions write an audit entry. Going offline needs no confirmation. Going back online re-exposes only what was exposed before, which is not one of the S-32 weakening actions, but it is audited.
+`"tunnel": {"offline": true}` in config, set with the new control method `tunnel.set_offline {offline}`, stops every cloudflared process. Nothing is reachable from the internet while it is on. The web worker keeps serving loopback, so going back online is instant. The switch survives restarts. Both directions write an audit entry. Going offline needs no confirmation. Going back online re-exposes only what was exposed before, which is not one of the S-32 weakening actions, but it is audited. A rollback is different, because it changes the switch on the side: going back to a revision that turns the switch off, or that runs a quick share the owner has since stopped, needs confirmation and is audited with the `online` or `quick_share` weakening (owner's decision of 27 Nov 2026; sharp-edges finding SE7-1). An automatic restore of the last good revision (S-41) never does either: it keeps the switch and the running quick shares as they are (`TestRollbackGoingOnlineNeedsConfirmation`, `TestRollbackRestartingQuickShareNeedsConfirmation`, `TestRestoreKeepsOfflineAndStoppedShares`).
 
 ### 7. Ports SoiréeHost owns (R-06, S-10)
 
@@ -146,7 +147,7 @@ All tunnel state changes go through one lock (`tunnelMu`) and one function, `pus
 
 ### 10. Firewall block rules (S-02)
 
-- **Install and repair.** Setup runs `%SystemRoot%\System32\netsh.exe advfirewall firewall` with fixed arguments: it deletes and re-adds two rules, `SoireeHost: block inbound soireehost.exe` and `SoireeHost: block inbound cloudflared.exe`, each `dir=in action=block enable=yes profile=any` with `program=` set to the installed path.
+- **Install and repair.** Setup runs `%SystemRoot%\System32\netsh.exe advfirewall firewall` with fixed arguments: it deletes and re-adds two rules, `SoireeHost block inbound soireehost.exe` and `SoireeHost block inbound cloudflared.exe`, each `dir=in action=block enable=yes profile=any` with `program=` set to the installed path.
 - **Precedence.** In Windows Firewall a block rule overrides any allow rule, so a later "allow" prompt answered by mistake changes nothing.
 - **No allow rule.** Setup creates no inbound allow rule.
 - **Uninstall** deletes both rules.

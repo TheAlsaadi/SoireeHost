@@ -48,10 +48,7 @@ func (s *Supervisor) status() ipc.StatusResult {
 		AuditOK:   s.auditOK(),
 		StartedAt: s.started,
 		Tunnel:    s.tunnelStatus(rec.Config),
-		Update:    ipc.UpdateStatus{State: ipc.UpdateOff},
-	}
-	if s.upd != nil {
-		st.Update = s.upd.status()
+		Update:    s.statusUpdate(),
 	}
 	if good := s.store.LastGood(); rec.Revision != 0 && good != rec.Revision {
 		st.ConfigNote = fmt.Sprintf("Revision %d is saved but the web server last loaded revision %d.", rec.Revision, good)
@@ -84,8 +81,28 @@ func (s *Supervisor) change(c winsec.Caller, action string, detail map[string]st
 		return nil, ipc.Errorf(ipc.CodeInvalid, "%v", err)
 	}
 	detail["revision"] = strconv.FormatUint(rec.Revision, 10)
-	s.record(c.SID, action, detail)
+	if e := s.recordOrUndo(c.SID, action, detail, cur.Config); e != nil {
+		return nil, e
+	}
 	return s.applyOrRestore(rec, cur.Config)
+}
+
+// recordOrUndo audits a saved change. A weakening change stands only with its
+// audit entry (S-32): when the entry cannot be written, prev is saved again
+// before any worker has loaded the change, and the call fails. Other changes
+// keep going; the failure shows on the Security page (audit_ok false).
+func (s *Supervisor) recordOrUndo(sid, action string, detail map[string]string, prev config.Config) *ipc.Error {
+	if s.record(sid, action, detail) == nil || detail["weakening"] == "" {
+		return nil
+	}
+	back, err := s.store.Save(prev, winsec.SIDSystem, "Undid a weakening change that could not be audited")
+	if err != nil {
+		return ipc.Errorf(ipc.CodeInternal, "The audit log could not be written, and undoing the change failed: %v", err)
+	}
+	// best effort: the failed write may still have left the weakening's
+	// entry in the log, so the undo is recorded too (security review SR-4)
+	_ = s.record(winsec.SIDSystem, "config.undone", map[string]string{"action": action, "new_revision": strconv.FormatUint(back.Revision, 10)})
+	return errNotAudited
 }
 
 // applyOrRestore loads rec into the web worker. If the worker refuses it, the
@@ -108,20 +125,27 @@ func (s *Supervisor) applyOrRestore(rec config.Record, prev config.Config) (any,
 		}
 		var back config.Record
 		rerr := errors.New("no revision the web server loaded is known")
+		// the change may have been going offline or stopping a share: the
+		// restore keeps whichever of the two is stricter (code review CR-1)
+		safe := stricterTunnel(prev, rec.Config)
 		if good != 0 {
-			back, rerr = s.store.Rollback(good, winsec.SIDSystem)
+			back, rerr = s.restoreGood(good, safe)
 		}
 		if rerr != nil {
-			// the last good revision is unknown or cannot be read: restore
-			// the settings in force before this change (R-22)
-			back, rerr = s.store.Save(prev, winsec.SIDSystem, "Restored the settings before a change the web server refused")
+			// the last good revision is unknown, cannot be read, or would
+			// weaken the settings: restore the settings in force before this
+			// change (R-22, SR-1)
+			back, rerr = s.store.Save(safe, winsec.SIDSystem, "Restored the settings before a change the web server refused")
 		}
 		if rerr != nil {
 			return nil, le.withDetail(ipc.Errorf(ipc.CodeInternal, "The web server could not use these settings (%s), and restoring revision %d failed: %v", le.reason, good, rerr))
 		}
-		s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+		_ = s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 			"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10)})
-		_ = s.applyWeb(back)
+		if aerr := s.applyWeb(back); aerr != nil && !errors.Is(aerr, errWorkerDown) {
+			// review finding GO-4: saved is not loaded; say so
+			return nil, le.withDetail(ipc.Errorf(ipc.CodeInvalid, "The web server could not use these settings, so the previous settings were saved again, but the web server has not loaded them yet (%v). Reason: %s.", aerr, le.reason))
+		}
 		return nil, le.withDetail(ipc.Errorf(ipc.CodeInvalid, "The web server could not use these settings, so the previous settings were restored. Reason: %s.", le.reason))
 	default:
 		return nil, ipc.Errorf(ipc.CodeUnavailable, "The change was saved but could not be applied: %v", err)
@@ -141,6 +165,101 @@ func (s *Supervisor) applyWeb(rec config.Record) error {
 	return s.store.MarkGood(rec.Revision)
 }
 
+// restoreGood saves revision good again as the current settings after the
+// web worker could not use newer ones. The tunnel side stays as it was in
+// cur, the settings in force: the offline switch keeps its value, and no
+// quick share comes back that is not running there (sharp-edges finding
+// SE7-1). Neither decides whether the web worker can load the settings,
+// and an automatic restore must never put anything back on the internet.
+func (s *Supervisor) restoreGood(good uint64, cur config.Config) (config.Record, error) {
+	old, err := s.store.Get(good)
+	if err != nil {
+		return config.Record{}, err
+	}
+	cfg, err := cloneConfig(old.Config)
+	if err != nil {
+		return config.Record{}, err
+	}
+	cfg.Tunnel.Offline = cur.Tunnel.Offline
+	for i, site := range cfg.Sites {
+		if site.QuickShare == nil {
+			continue
+		}
+		j := slices.IndexFunc(cur.Sites, func(x config.Site) bool { return x.ID == site.ID })
+		if j < 0 || !cur.Sites[j].Enabled || cur.Sites[j].QuickShare == nil {
+			cfg.Sites[i].QuickShare = nil
+		}
+	}
+	if restoreWeakens(cur, cfg) {
+		return config.Record{}, errRestoreWeakens
+	}
+	return s.store.Save(cfg, winsec.SIDSystem, fmt.Sprintf("Rolled back to revision %d", good))
+}
+
+// stricterTunnel is prev with the tunnel side of both prev and next: offline
+// if either is, and a quick share only where both run it.
+func stricterTunnel(prev, next config.Config) config.Config {
+	out, err := cloneConfig(prev)
+	if err != nil {
+		out = prev
+		out.Sites = slices.Clone(prev.Sites)
+	}
+	out.Tunnel.Offline = prev.Tunnel.Offline || next.Tunnel.Offline
+	for i, site := range out.Sites {
+		if site.QuickShare == nil {
+			continue
+		}
+		j := slices.IndexFunc(next.Sites, func(x config.Site) bool { return x.ID == site.ID })
+		if j < 0 || !next.Sites[j].Enabled || next.Sites[j].QuickShare == nil {
+			out.Sites[i].QuickShare = nil
+		}
+	}
+	return out
+}
+
+// errRestoreWeakens refuses an automatic restore that would undo a
+// tightening saved since the last good revision (security review SR-1).
+var errRestoreWeakens = errors.New("it would put back settings weaker than the ones saved since (a site or hostname switched off, a folder, a device on your local network, a firewall, header or update setting)")
+
+// restoreWeakens reports whether putting next in place of cur would expose
+// more: a site, hostname or folder cur does not serve, .well-known turned
+// on, or any change the S-32 weakening checks name. Nobody confirms an
+// automatic restore, so it may only ever take things away.
+func restoreWeakens(cur, next config.Config) bool {
+	if len(newLANTargets(cur, next)) > 0 {
+		return true
+	}
+	var w weakenings
+	w.firewall(cur, next)
+	w.updates(cur, next)
+	w.headers(cur, next)
+	if len(w.tags) > 0 {
+		return true
+	}
+	for _, n := range next.Sites {
+		if !n.Enabled {
+			continue
+		}
+		i := slices.IndexFunc(cur.Sites, func(x config.Site) bool { return x.ID == n.ID })
+		if i < 0 || !cur.Sites[i].Enabled {
+			return true
+		}
+		c := cur.Sites[i]
+		if n.Type != c.Type || n.AllowWellKnown && !c.AllowWellKnown {
+			return true
+		}
+		if n.Static != nil && (c.Static == nil || !strings.EqualFold(n.Static.Root, c.Static.Root)) {
+			return true
+		}
+		for _, h := range n.Hostnames {
+			if !slices.Contains(c.Hostnames, h) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // workerConnected brings a newly connected worker up to date.
 func (s *Supervisor) workerConnected(_ context.Context, role string) {
 	switch role {
@@ -149,44 +268,67 @@ func (s *Supervisor) workerConnected(_ context.Context, role string) {
 		defer s.changeMu.Unlock()
 		rec, err := s.current()
 		if err != nil {
-			s.web.setState(StateRunning, "The saved settings could not be read: "+err.Error())
+			s.web.setProblem("The saved settings could not be read: " + err.Error())
 			return
 		}
 		err = s.applyWeb(rec)
 		var le *loadError
 		if !errors.As(err, &le) {
+			if err == nil {
+				s.connectLost.revision, s.connectLost.times = 0, 0
+			}
 			return
 		}
+		cause := "refused"
 		if !le.refused {
-			// a slow or dying worker says nothing about the settings: report
-			// it and keep them, so a change saved while the worker was down
-			// is not undone by a slow first load
-			s.web.setStateDetail(StateRunning, "The web server did not finish loading the saved settings: "+le.reason, le.detail)
-			return
+			// S-41 (owner's decision of 27 Nov 2026): settings the worker
+			// hangs on past the load timeout, or dies on at two connects in
+			// a row, count as refused. One death may have another cause, so
+			// the settings get one more start before they are blamed; a
+			// hung worker never connects again, so a hang counts at once.
+			if s.connectLost.revision != rec.Revision {
+				s.connectLost.revision, s.connectLost.times = rec.Revision, 0
+			}
+			s.connectLost.times++
+			cause = "stopped"
+			if le.timedOut {
+				cause = "timed_out"
+			} else if s.connectLost.times < 2 {
+				s.web.setProblem("The web server did not finish loading the saved settings: "+le.reason, le.detail)
+				return
+			}
 		}
 		// At connect time only a known-good revision is restored; with none,
 		// the saved settings stay as they are and the reason is reported, so
 		// a folder that is missing at boot never wipes the user's sites.
-		s.web.setStateDetail(StateRunning, "The web server could not use the saved settings: "+le.reason, le.detail)
+		s.web.setProblem("The web server could not use the saved settings: "+le.reason, le.detail)
 		if good := s.store.LastGood(); good != 0 && good != rec.Revision {
-			back, err := s.store.Rollback(good, winsec.SIDSystem)
+			back, err := s.restoreGood(good, rec.Config)
 			if err != nil {
 				// reported, not hidden (R-22): the saved settings stay as
 				// they are until someone fixes or replaces them
-				s.web.setStateDetail(StateRunning, fmt.Sprintf("The web server could not use the saved settings (%s), and restoring revision %d failed: %v", le.reason, good, err), le.detail)
-				s.record(winsec.SIDSystem, "config.restore_failed", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+				s.web.setProblem(fmt.Sprintf("The web server could not use the saved settings (%s), and restoring revision %d failed: %v", le.reason, good, err), le.detail)
+				_ = s.record(winsec.SIDSystem, "config.restore_failed", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 					"restored_revision": strconv.FormatUint(good, 10)})
 				return
 			}
-			s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
-				"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10)})
-			_ = s.applyWeb(back)
+			_ = s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+				"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10), "cause": cause})
+			// a worker still stuck in the old load takes this one after it,
+			// if ever; a restarted one loads the restored settings at connect
+			if aerr := s.applyWeb(back); aerr != nil && !errors.Is(aerr, errWorkerDown) {
+				// review finding GO-4: saved is not loaded; say so
+				s.web.setProblem(fmt.Sprintf("The web server could not use the saved settings (%s). Revision %d was saved again, but the web server has not loaded it yet: %v", le.reason, good, aerr), le.detail)
+			}
+			// the launcher may still run a share or port of the failed
+			// revision; it takes the restored plan (security review SR-3)
+			_ = s.pushTunnel()
 		}
 	case ipc.RoleTunnel:
 		// the whole tunnel plan, token included; the token travels only on
 		// the tunnel pipe, which only the launcher's account can open (S-23)
 		if err := s.pushTunnel(); err != nil && !errors.Is(err, errWorkerDown) {
-			s.tunnel.setState(StateRunning, "The tunnel launcher did not take the tunnel settings: "+tunnelErrText(err))
+			s.tunnel.setProblem("The tunnel launcher did not take the tunnel settings: " + tunnelErrText(err))
 		}
 	}
 }
@@ -214,6 +356,26 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 	w.firewall(cur.Config, target.Config)
 	w.updates(cur.Config, target.Config)
 	w.headers(cur.Config, target.Config)
+	w.quickShares(cur.Config, target.Config, p.Revision)
+	w.online(cur.Config, target.Config, p.Revision)
+	// ADR-0008 decision 3: a static folder that goes live through a rollback
+	// is checked as when it is switched on; a folder that cannot be checked
+	// does not go live
+	exposed := 0
+	for _, site := range target.Config.Sites {
+		if site.Type != config.TypeStatic || !site.Enabled || s.alreadyLive(site) {
+			continue
+		}
+		d := map[string]string{}
+		if _, _, perr := s.exposureCheck(site, &w, d); perr != nil {
+			return nil, perr
+		}
+		n, _ := strconv.Atoi(d["exposed"])
+		exposed += n
+	}
+	if exposed > 0 {
+		detail["exposed"] = strconv.Itoa(exposed)
+	}
 	q := *p
 	q.Confirmation = ""
 	if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodConfigRollback, params: q, token: p.Confirmation}, detail); e != nil {
@@ -224,10 +386,14 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 		return nil, ipc.Errorf(ipc.CodeNotFound, "%v", err)
 	}
 	detail["revision"] = strconv.FormatUint(rec.Revision, 10)
-	s.record(c.SID, "config.rollback", detail)
 	prev := cur.Config
 	if cerr != nil {
 		prev = config.Default()
+	}
+	if e := s.recordOrUndo(c.SID, "config.rollback", detail, prev); e != nil {
+		// the tunnel may have taken the rolled-back plan meanwhile; push
+		// the undone one (security review SR-2)
+		return s.withTunnel(nil, e)
 	}
 	return s.withTunnel(s.applyOrRestore(rec, prev))
 }
@@ -410,23 +576,35 @@ func (s *Supervisor) secretSet(c winsec.Caller, p *ipc.SecretSetParams) (any, *i
 	if err != nil {
 		return nil, ipc.Errorf(ipc.CodeInternal, "The secrets could not be read.")
 	}
+	detail := map[string]string{"name": p.Name}
 	if st.Set {
 		var w weakenings
 		w.add("tunnel", "A tunnel token is already set. Replacing it changes which tunnel your sites use.")
 		q := *p
 		q.Confirmation = ""
-		if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodSecretSet, params: q, token: p.Confirmation}, map[string]string{}); e != nil {
+		if e := w.check(s.conf, confirmRequest{sid: c.SID, method: ipc.MethodSecretSet, params: q, token: p.Confirmation}, detail); e != nil {
 			return nil, e
 		}
-	}
-	if err := s.secrets.Set(p.Name, []byte(p.Value)); err != nil {
-		return nil, ipc.Errorf(ipc.CodeInvalid, "The token could not be stored: %v", err)
 	}
 	action := "secret.set"
 	if st.Set {
 		action = "secret.replace"
+		// replacing the token is a weakening action (S-32): the old token
+		// cannot be put back, so the entry is written before the change and
+		// a failure refuses it
+		if s.record(c.SID, action, detail) != nil {
+			return nil, errNotAudited
+		}
 	}
-	s.record(c.SID, action, map[string]string{"name": p.Name})
+	if err := s.secrets.Set(p.Name, []byte(p.Value)); err != nil {
+		if st.Set {
+			_ = s.record(c.SID, action+".failed", map[string]string{"name": p.Name})
+		}
+		return nil, ipc.Errorf(ipc.CodeInvalid, "The token could not be stored: %v", err)
+	}
+	if !st.Set {
+		_ = s.record(c.SID, action, detail)
+	}
 	res := ipc.SecretStatusResult{}
 	switch err := s.pushTunnelLocked(); {
 	case err == nil:

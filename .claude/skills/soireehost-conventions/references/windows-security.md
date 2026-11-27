@@ -57,7 +57,7 @@ Before installing over an existing `%ProgramData%\SoireeHost`, setup refuses one
 
 ## Confinement
 
-`winsec.Confine(winsec.Limits{…})` drops every privilege but SeChangeNotifyPrivilege, joins a kill-on-close job with process, memory and UI limits, and (for the web worker) turns on the no-child-process mitigation. The tunnel launcher allows two processes and no mitigation, because it starts cloudflared. A worker that cannot confine itself exits.
+`winsec.Confine(winsec.Limits{…})` drops every privilege but SeChangeNotifyPrivilege, joins a kill-on-close job with process, memory and UI limits, and (for the web worker and the supervisor) turns on the no-child-process mitigation. The tunnel launcher allows six processes (itself and up to five cloudflared) and no mitigation, because it starts cloudflared. A worker that cannot confine itself exits.
 
 ## Caddy specifics
 

@@ -14,6 +14,8 @@ const noRawHtml = {
     { property: "insertAdjacentHTML", message: "S-34: render text, never HTML." },
     { object: "document", property: "write", message: "S-34: render text, never HTML." },
     { object: "document", property: "writeln", message: "S-34: render text, never HTML." },
+    { property: "setHTMLUnsafe", message: "S-34: render text, never HTML." },
+    { property: "parseHTMLUnsafe", message: "S-34: do not parse HTML from data." },
   ],
   "no-restricted-syntax": [
     "error",
@@ -24,6 +26,16 @@ const noRawHtml = {
     {
       selector: "CallExpression[callee.property.name='createContextualFragment']",
       message: "S-34: do not parse HTML from data.",
+    },
+    {
+      // window.document.write and the like, which the object form above misses
+      selector: "MemberExpression[property.name=/^(write|writeln)$/][object.property.name='document']",
+      message: "S-34: render text, never HTML.",
+    },
+    {
+      // Svelte's bind:innerHTML writes the bound value as HTML
+      selector: "SvelteDirective[kind='Binding'][key.name.name=/^(innerHTML|outerHTML)$/]",
+      message: "S-34: render text with Svelte text bindings.",
     },
   ],
   "no-eval": "error",

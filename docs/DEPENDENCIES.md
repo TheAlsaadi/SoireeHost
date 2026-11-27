@@ -75,7 +75,7 @@ Also vendored as data: 26 icons of Fluent System Icons (Microsoft, MIT), path da
 
 | Program | Version | Licence | Why |
 | --- | --- | --- | --- |
-| `cloudflared-windows-amd64.exe` (Cloudflare) | 2026.11.0, SHA-256 `d5c1d82031da6253dcdcff64c944cd0fe063016edeb2e4fd088075fc9bd52d0a` | Apache-2.0 | The Cloudflare Tunnel connector (plan section 3, ADR-0002, ADR-0007). It has no library API, so the official release binary is embedded with `go:embed` and run as a child process. Pinned in `build/cloudflared.lock`; `build/fetch-cloudflared.ps1` downloads it from the official release and refuses it unless the hash matches (S-71). Moved from 2026.10.7 to 2026.11.0 on 14 Nov 2026: the new release fixes VULN-170057 (Access bypass with matrix parameters) and builds with Go 1.27.4; no other change |
+| `cloudflared-windows-amd64.exe` (Cloudflare) | 2026.11.1, SHA-256 `341deda3db5ec498a0482254d6c38c0b7cf01a30c37bb5dd95d2216d08955e35` | Apache-2.0 | The Cloudflare Tunnel connector (plan section 3, ADR-0002, ADR-0007). It has no library API, so the official release binary is embedded with `go:embed` and run as a child process. Pinned in `build/cloudflared.lock`; `build/fetch-cloudflared.ps1` downloads it from the official release and refuses it unless the hash matches (S-71). Moved from 2026.10.7 to 2026.11.0 on 14 Nov 2026: the new release fixes VULN-170057 (Access bypass with matrix parameters) and builds with Go 1.27.4; no other change. Moved to 2026.11.1 on 20 Nov 2026 by the upstream watcher (pull request 24), after its release notes, GitHub's digest and the download agreed |
 
 ## Bundled into the UI (npm, ends up in the binary)
 
@@ -144,6 +144,17 @@ None of them ships in `soireehost.exe`.
 | GHSA-4w3g-jfj2-cw2q, GHSA-mgcc-cww5-fp2q, GHSA-vvm8-gf78-28g4, `github.com/go-jose/go-jose/v3` v3.0.5 panics and denial of service on hostile JOSE input | Medium | Caddy `caddytls` → smallstep `certificates` → `go.step.sm/crypto/jose` | No v3 release fixes them (3.0.5 is the last); the fixes are in v4. `govulncheck` reports none reachable: the parsing runs only in Caddy's internal CA and ACME server, which the generated config never enables. `go-jose/v4`, which SoiréeHost does reach, is at v4.1.9 (newest) | When Caddy or smallstep drops go-jose v3, and at every Caddy upgrade |
 
 CI runs `npm audit --audit-level=moderate`, so this low finding does not fail the build; a new moderate or higher one does.
+
+## Phase 7 supply-chain audit (21 Nov 2026)
+
+`supply-chain-risk-auditor` 2.0.4 on `main` at `a6ea514`, over `go.mod` and `frontend/package-lock.json`:
+
+- Go: 8 direct modules, none with a known advisory, all at their newest releases (`go list -m -u`). Of 165 transitive modules, only `github.com/go-jose/go-jose/v3` 3.0.5 has advisories, already accepted below; `govulncheck` reports nothing reachable.
+- `rsc.io/qr` 0.2.0 has had no push since October 2022. It is a finished library (pure Go, about 1,500 lines) whose input is our own short https address; no action.
+- `github.com/wailsapp/wails/v3` 3.1.0 and `@wailsio/runtime` 3.1.0: OpenSSF Scorecard gives the upstream repository 0/10 for Dangerous-Workflow and 5/10 for Binary-Artifacts (its CI hygiene, not the code we link). Mitigation: the exact versions are pinned by `go.sum` and the npm lockfile, the checksum database is on, nothing upgrades automatically, and every Wails upgrade is a reviewed pull request.
+- npm: 13 direct and 196 transitive packages, no known advisory at the locked versions; the only production package is `@wailsio/runtime`. `vite` 8.3.8 scores 1/10 for Binary-Artifacts; it runs only on build hosts, and every install uses `npm ci --ignore-scripts`.
+
+No finding blocks the release.
 
 ## Watch list
 

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/supervisor"
 	"github.com/TheAlsaadi/SoireeHost/internal/version"
 )
 
@@ -284,7 +285,7 @@ func Decide(j Journal, installedHash string) Recovery {
 
 // Program folder files that apply-update uses (ADR-0010).
 const (
-	journalName = "update.json"
+	journalName = supervisor.UpdateJournalName
 	rollbackDir = "rollback"
 )
 

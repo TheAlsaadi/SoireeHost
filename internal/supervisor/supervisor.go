@@ -104,9 +104,10 @@ type Options struct {
 	Pipes    Pipes
 	Services ServiceControl
 	Version  string
-	// CheckACLs runs the S-22 folder check at start. Always true in the
-	// service; tests that do not set the folders up turn it off.
-	CheckACLs bool
+	// SkipACLCheck leaves out the S-22 folder check at start, for tests
+	// that do not set the folders up. The zero value checks (review
+	// finding SE-22: a forgotten field must not turn S-22 off).
+	SkipACLCheck bool
 	// CheckRoot resolves and checks a static site folder (sitecheck.CheckRoot
 	// in production).
 	CheckRoot func(root string) (string, error)
@@ -123,6 +124,11 @@ type Options struct {
 	// Updates turns the update check on (ADR-0004). Nil leaves it out, as
 	// most tests do; status then reports it off.
 	Updates *UpdateOptions
+	// UpdateJournal is apply-update's journal in the program folder
+	// (UpdateJournalName beside soireehost.exe). Status reports an update
+	// as interrupted while one is there and has not changed for
+	// updateStalled (S-63). Empty skips the check, as most tests do.
+	UpdateJournal string
 }
 
 // Supervisor is one running supervisor.
@@ -137,6 +143,12 @@ type Supervisor struct {
 	started  time.Time
 
 	changeMu sync.Mutex // serialises config changes and their application
+	// connectLost counts the web worker's connects in a row whose load of
+	// one revision it never finished (S-41); guarded by changeMu
+	connectLost struct {
+		revision uint64
+		times    int
+	}
 	tunnelMu sync.Mutex // serialises tunnel plans and secret.set (GO-6); taken after changeMu
 	web      *workerMgr
 	tunnel   *workerMgr
@@ -159,7 +171,10 @@ func New(opts Options) (*Supervisor, error) {
 	if opts.PortFree == nil {
 		opts.PortFree = LoopbackPortFree
 	}
-	if opts.CheckACLs {
+	if !filepath.IsAbs(opts.Paths.Root) {
+		return nil, fmt.Errorf("refusing to run: the data folder %q is not an absolute path", opts.Paths.Root)
+	}
+	if !opts.SkipACLCheck {
 		// the check reads writers only, so the control users do not matter
 		if err := checkFolders(opts.Paths, opts.Identity); err != nil {
 			return nil, err
@@ -189,7 +204,7 @@ func New(opts Options) (*Supervisor, error) {
 	s.tunnel = newWorkerMgr(s, ipc.RoleTunnel, winsec.TunnelService, opts.Identity.Tunnel)
 	if opts.Updates != nil {
 		s.upd = newUpdater(opts.Paths.Updates(), opts.Version, *opts.Updates, s.updatesEnabled,
-			func(action string, detail map[string]string) { s.record(winsec.SIDSystem, action, detail) })
+			func(action string, detail map[string]string) { _ = s.record(winsec.SIDSystem, action, detail) })
 	}
 	return s, nil
 }
@@ -233,7 +248,7 @@ func (s *Supervisor) controlSDDL() string {
 
 // Run serves until ctx ends, then stops both workers.
 func (s *Supervisor) Run(ctx context.Context) error {
-	s.record(winsec.SIDSystem, "supervisor.start", map[string]string{"version": s.opts.Version, "audit_ok": fmt.Sprint(s.auditOK())})
+	_ = s.record(winsec.SIDSystem, "supervisor.start", map[string]string{"version": s.opts.Version, "audit_ok": fmt.Sprint(s.auditOK())})
 	webLn, err := ipc.Listen(s.opts.Pipes.Web, winsec.WorkerPipeSDDL(s.opts.Identity.Supervisor, s.opts.Identity.Web))
 	if err != nil {
 		return err
@@ -269,7 +284,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	err = ipc.ServeControl(runCtx, ctlLn, s.authorize, s.handle)
 	cancel()
 	wg.Wait()
-	s.record(winsec.SIDSystem, "supervisor.stop", nil)
+	_ = s.record(winsec.SIDSystem, "supervisor.stop", nil)
 	return err
 }
 
@@ -294,15 +309,22 @@ func (s *Supervisor) publishPipes() error {
 	return nil
 }
 
-// record writes an audit entry. A failure to audit is reported by status, and
-// never stops the supervisor.
-func (s *Supervisor) record(actor, action string, detail map[string]string) {
+// record writes an audit entry. A failure to audit is reported by status and
+// returned; it never stops the supervisor. Callers that make a weakening
+// change undo it when the entry cannot be written (S-32).
+func (s *Supervisor) record(actor, action string, detail map[string]string) error {
 	if _, err := s.audit.Append(actor, action, detail); err != nil {
 		s.auditMu.Lock()
 		s.auditRep.Breaks = append(s.auditRep.Breaks, audit.Break{Reason: "could not write: " + err.Error()})
 		s.auditMu.Unlock()
+		return err
 	}
+	return nil
 }
+
+// errNotAudited is the answer to a weakening change that was undone because
+// its audit entry could not be written (S-32).
+var errNotAudited = ipc.Errorf(ipc.CodeUnavailable, "The change was not made, because the audit log could not be written. Check the Security page.")
 
 // auditOK reports whether the audit log verified at start and every write
 // since has succeeded.

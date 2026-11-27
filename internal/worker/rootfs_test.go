@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -101,6 +102,61 @@ func TestRootFSListingFiltered(t *testing.T) {
 	}
 	if !slices.Equal(names, []string{"a.txt"}) {
 		t.Fatalf("listing = %v, want only a.txt (no dotfile, key or junction)", names)
+	}
+}
+
+// TestRootFSChecksRealName: the name rules also apply to what was actually
+// opened, so a link or another name inside the folder cannot serve a file
+// the rules refuse (S-12; Phase 7 compliance review, 21 Nov 2026).
+func TestRootFSChecksRealName(t *testing.T) {
+	base := testutil.SiteDir(t)
+	root := filepath.Join(base, "site")
+	writeFile(t, filepath.Join(root, ".git", "config"), secretMarker)
+	writeFile(t, filepath.Join(root, ".env"), secretMarker)
+	writeFile(t, filepath.Join(root, "web.config"), secretMarker)
+	writeFile(t, filepath.Join(root, "public", "ok.txt"), "OK")
+	// a junction to a refused folder inside the site (os.Root refuses every
+	// junction, since its target is an absolute path)
+	testutil.Junction(t, filepath.Join(root, "cfg"), filepath.Join(root, ".git"))
+	// a second hard link to .env under a harmless name
+	if err := os.Link(filepath.Join(root, ".env"), filepath.Join(root, "config.json")); err != nil {
+		t.Fatal(err)
+	}
+	refused := []string{"cfg/config", "cfg", "config.json", "web.confıg", "WEB.CONFİG"}
+	// a file symbolic link needs a privilege ordinary accounts lack (Developer
+	// Mode or an elevated prompt); test it when it can be made
+	if err := os.Symlink(".env", filepath.Join(root, "settings.txt")); err == nil {
+		refused = append(refused, "settings.txt")
+	} else {
+		t.Logf("no symbolic link test: %v", err)
+	}
+	rfs := &RootFS{Root: root}
+	if err := rfs.Provision(caddyContext()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rfs.Cleanup() })
+	for _, name := range refused {
+		if f, err := rfs.Open(name); err == nil {
+			b, _ := io.ReadAll(f)
+			_ = f.Close()
+			t.Errorf("Open(%q) succeeded: %q", name, b)
+		}
+		if _, err := rfs.Stat(name); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("Stat(%q) = %v, want ErrNotExist", name, err)
+		}
+	}
+	// a plain file, and its folder, are still served
+	f, err := rfs.Open("public/ok.txt")
+	if err != nil {
+		t.Fatalf("Open(public/ok.txt): %v", err)
+	}
+	b, _ := io.ReadAll(f)
+	_ = f.Close()
+	if string(b) != "OK" {
+		t.Fatalf("public/ok.txt = %q", b)
+	}
+	if info, err := rfs.Stat("public"); err != nil || !info.IsDir() {
+		t.Fatalf("Stat(public) = %v, %v", info, err)
 	}
 }
 

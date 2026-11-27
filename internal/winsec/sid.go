@@ -30,6 +30,10 @@ const (
 	SIDUsers          = "S-1-5-32-545"
 	SIDAuthenticated  = "S-1-5-11"
 	SIDEveryone       = "S-1-1-0"
+	// SIDCreatorOwner is the inherit-only placeholder in Program Files' list.
+	SIDCreatorOwner = "S-1-3-0"
+	// SIDTrustedInstaller owns Windows' own files and Program Files.
+	SIDTrustedInstaller = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
 )
 
 // ServiceSID returns the SID of the virtual account NT SERVICE\<name>, as

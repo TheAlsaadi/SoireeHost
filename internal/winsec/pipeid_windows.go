@@ -11,6 +11,7 @@ import (
 var (
 	advapi32                       = windows.NewLazySystemDLL("advapi32.dll")
 	procImpersonateNamedPipeClient = advapi32.NewProc("ImpersonateNamedPipeClient")
+	procAdjustTokenPrivileges      = advapi32.NewProc("AdjustTokenPrivileges")
 )
 
 // Caller is who is on the other end of a pipe.
@@ -28,10 +29,13 @@ type Caller struct {
 // so the token can be read but not used to act as the client. If reverting
 // fails the process must not continue, so PipeCaller panics.
 func PipeCaller(h windows.Handle) (Caller, error) {
+	// The thread is unlocked only once it is known not to be impersonating:
+	// a deferred unlock would run during the panic below and let other
+	// goroutines onto a thread still acting as the client (review finding
+	// GO-13). A goroutine that ends locked takes its thread with it.
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	if r, _, err := procImpersonateNamedPipeClient.Call(uintptr(h)); r == 0 {
+		runtime.UnlockOSThread()
 		return Caller{}, fmt.Errorf("identifying pipe client: %w", err)
 	}
 	var tok windows.Token
@@ -39,6 +43,7 @@ func PipeCaller(h windows.Handle) (Caller, error) {
 	if err := windows.RevertToSelf(); err != nil {
 		panic("RevertToSelf failed after identifying a pipe client: " + err.Error())
 	}
+	runtime.UnlockOSThread()
 	if openErr != nil {
 		return Caller{}, fmt.Errorf("reading pipe client token: %w", openErr)
 	}

@@ -41,6 +41,8 @@ export function updateLine(u: ipc.UpdateStatus | undefined): string {
       return t("settings.update.downloading", { v: u.version ?? "" });
     case "ready":
       return t("settings.update.ready", { v: u.version ?? "" });
+    case "interrupted":
+      return t("settings.update.interrupted");
     case "off":
       return u.problem === "development_build" ? t("settings.update.dev") : t("settings.update.off");
     case "failed":

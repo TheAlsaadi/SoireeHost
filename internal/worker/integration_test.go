@@ -694,3 +694,39 @@ func TestWellKnownOptIn(t *testing.T) {
 		}
 	}
 }
+
+// closedWithin sends raw on a new connection and reports how long the server
+// took to close it.
+func closedWithin(t *testing.T, addr, raw string) time.Duration {
+	t.Helper()
+	c, err := dial(t, addr, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := io.WriteString(c, raw); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_, _ = io.ReadAll(c) // returns when the server closes the connection
+	return time.Since(start)
+}
+
+// S-15: a body sent too slowly is cut off by the read timeout, and an idle
+// kept-alive connection is closed by the idle timeout.
+func TestReadAndIdleTimeouts(t *testing.T) {
+	h := startHarness(t, func(c *config.Config) {
+		c.Server.ReadHeaderTimeoutSeconds = 1
+		c.Server.ReadTimeoutSeconds = 1
+		c.Server.IdleTimeoutSeconds = 1
+	})
+	slowBody := "POST /upload HTTP/1.1\r\nHost: app.example.com\r\nContent-Length: 1000\r\n\r\nonly-a-little"
+	if d := closedWithin(t, h.addr, slowBody); d > 5*time.Second {
+		t.Errorf("a body sent too slowly held the connection for %v", d)
+	}
+	idle := "GET / HTTP/1.1\r\nHost: blog.example.com\r\n\r\n"
+	if d := closedWithin(t, h.addr, idle); d > 5*time.Second {
+		t.Errorf("an idle kept-alive connection stayed open for %v", d)
+	}
+}

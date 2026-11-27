@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/caddyserver/caddy/v2"
+	"golang.org/x/sys/windows"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
 )
@@ -18,14 +19,45 @@ func init() {
 }
 
 // blockedLocations reads the Windows known folders once per process; they do
-// not move while the worker runs.
-var blockedLocations = sync.OnceValues(sitecheck.DefaultLocations)
+// not move while the worker runs. A failed lookup is not kept, so one
+// failure does not refuse every static site until the worker restarts
+// (review finding GO-14).
+var blockedLocations = cacheSuccess(sitecheck.DefaultLocations)
+
+// cacheSuccess calls lookup until it succeeds once, then returns that value.
+func cacheSuccess[T any](lookup func() (T, error)) func() (T, error) {
+	var (
+		mu  sync.Mutex
+		val T
+		ok  bool
+	)
+	return func() (T, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if ok {
+			return val, nil
+		}
+		v, err := lookup()
+		if err != nil {
+			return v, err
+		}
+		val, ok = v, true
+		return v, nil
+	}
+}
 
 // RootFS is the file system behind every static site (S-11, S-12, S-13). It
 // is an os.Root opened on the checked site folder, so no name and no symbolic
 // link or junction can reach outside the folder. Names that the path rules
 // refuse are reported as not existing, special files are hidden, and
 // directory listings leave refused names out.
+//
+// The name rules are applied twice: to the name asked for, and to the name
+// of what was actually opened (Phase 7 compliance review, 21 Nov 2026). A
+// link inside the folder (config.json -> .env), or a name the file system
+// matches to another under its own case rules, would otherwise open a file
+// the rules refuse by its real name. A file with a second hard link is
+// refused too, since its other names cannot be checked.
 type RootFS struct {
 	Root string `json:"root"`
 	// AllowWellKnown serves /.well-known/ (the site's opt-in). The folder
@@ -33,6 +65,9 @@ type RootFS struct {
 	AllowWellKnown bool `json:"allow_well_known,omitempty"`
 
 	root *os.Root
+	// real is the site folder's path as Windows reports it for an open
+	// handle, the prefix of every opened file's real path
+	real string
 }
 
 // CaddyModule returns the Caddy module information.
@@ -53,8 +88,65 @@ func (rfs *RootFS) Provision(caddy.Context) error {
 	if err != nil {
 		return fmt.Errorf("site folder %s: %w", rfs.Root, err)
 	}
-	rfs.root = r
+	d, err := r.Open(".")
+	if err != nil {
+		_ = r.Close()
+		return fmt.Errorf("site folder %s: %w", rfs.Root, err)
+	}
+	realRoot, err := finalPath(d)
+	_ = d.Close()
+	if err != nil {
+		_ = r.Close()
+		return fmt.Errorf("site folder %s: %w", rfs.Root, err)
+	}
+	rfs.root, rfs.real = r, realRoot
 	return nil
+}
+
+// finalPath is the path Windows reports for an open file: links resolved,
+// in the form and case the file system stores.
+func finalPath(f *os.File) (string, error) {
+	const size = windows.MAX_LONG_PATH
+	buf := make([]uint16, size)
+	// flags 0: FILE_NAME_NORMALIZED, VOLUME_NAME_DOS
+	n, err := windows.GetFinalPathNameByHandle(windows.Handle(f.Fd()), &buf[0], size, 0)
+	if err != nil {
+		return "", err
+	}
+	if int(n) >= len(buf) {
+		return "", fmt.Errorf("path longer than %d characters", len(buf))
+	}
+	return windows.UTF16ToString(buf[:n]), nil
+}
+
+// opened reports whether f, opened under name, may be served: its real path
+// is inside the site folder and every segment of it passes the name rules,
+// and a plain file has no other hard link.
+func (rfs *RootFS) opened(f *os.File, info fs.FileInfo) bool {
+	p, err := finalPath(f)
+	if err != nil {
+		return false
+	}
+	if len(p) < len(rfs.real) || !strings.EqualFold(p[:len(rfs.real)], rfs.real) {
+		return false
+	}
+	rest := p[len(rfs.real):]
+	if rest == "" {
+		return info.IsDir()
+	}
+	if rest[0] != '\\' {
+		return false
+	}
+	if _, ok := rfs.clean(rest[1:]); !ok {
+		return false
+	}
+	if info.Mode().IsRegular() {
+		var d windows.ByHandleFileInformation
+		if windows.GetFileInformationByHandle(windows.Handle(f.Fd()), &d) != nil || d.NumberOfLinks != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 // Cleanup closes the folder.
@@ -105,7 +197,7 @@ func (rfs *RootFS) Open(name string) (fs.File, error) {
 		return nil, notExist("open", name)
 	}
 	info, err := f.Stat()
-	if err != nil {
+	if err != nil || !rfs.opened(f, info) {
 		_ = f.Close()
 		return nil, notExist("open", name)
 	}
@@ -120,14 +212,16 @@ func (rfs *RootFS) Open(name string) (fs.File, error) {
 	}
 }
 
-// Stat implements fs.StatFS.
+// Stat implements fs.StatFS. It opens the file, so it applies exactly the
+// checks Open does.
 func (rfs *RootFS) Stat(name string) (fs.FileInfo, error) {
-	n, ok := rfs.clean(name)
-	if !ok {
+	f, err := rfs.Open(name)
+	if err != nil {
 		return nil, notExist("stat", name)
 	}
-	info, err := rfs.root.Stat(n)
-	if err != nil || (!info.Mode().IsRegular() && !info.IsDir()) {
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
 		return nil, notExist("stat", name)
 	}
 	return info, nil

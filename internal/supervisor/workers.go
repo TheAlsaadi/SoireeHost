@@ -42,6 +42,9 @@ type loadError struct {
 	reason  string // the supervisor's own sentence
 	detail  string // the worker's cleaned detail, if any (DR-6)
 	refused bool
+	// timedOut is set when the worker did not answer in time: it may still
+	// be stuck in the load, and nothing short of a restart frees it
+	timedOut bool
 }
 
 func (e *loadError) Error() string { return e.reason }
@@ -93,6 +96,18 @@ func (w *workerMgr) setStateDetail(state, lastErr, detail string) {
 	w.state, w.since = state, time.Now()
 	if lastErr != "" {
 		w.lastErr, w.lastDet = lastErr, detail
+	}
+}
+
+// setProblem records a problem without touching the state, which serve owns:
+// a report that arrives after the worker went down must not show it running
+// (code review CR-2, review finding GO-3).
+func (w *workerMgr) setProblem(lastErr string, detail ...string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lastErr, w.lastDet = lastErr, ""
+	if len(detail) > 0 {
+		w.lastDet = detail[0]
 	}
 }
 
@@ -151,7 +166,7 @@ func (w *workerMgr) run(ctx context.Context, ln net.Listener) {
 		// an hour) is recorded, so a worker that can never start does not
 		// grow the audit log without bound; the count shows the gap.
 		if backoff < time.Minute || n%60 == 0 {
-			w.sup.record(winsec.SIDSystem, "worker.restart", map[string]string{
+			_ = w.sup.record(winsec.SIDSystem, "worker.restart", map[string]string{
 				"role": w.role, "restarts": strconv.Itoa(n), "delay": backoff.String()})
 		}
 		select {
@@ -334,7 +349,7 @@ func (w *workerMgr) request(m ipc.WorkerMsg, timeout time.Duration) (ipc.WorkerM
 		w.mu.Unlock()
 		// counted as refused, so the change is undone (R-22); the worker
 		// handles messages in order, so a restore sent next lands after it
-		return ipc.WorkerMsg{}, &loadError{reason: fmt.Sprintf("the %s worker did not answer in time", w.role)}
+		return ipc.WorkerMsg{}, &loadError{reason: fmt.Sprintf("the %s worker did not answer in time", w.role), timedOut: true}
 	}
 }
 

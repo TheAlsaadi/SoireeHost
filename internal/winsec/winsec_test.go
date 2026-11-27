@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -134,6 +135,9 @@ func TestConfineStopsChildProcesses(t *testing.T) {
 	if !strings.Contains(out, "DLL-RESTRICTED") {
 		t.Fatalf("DLL search not restricted:\n%s", out)
 	}
+	if !strings.Contains(out, "JOB-LIMITS true") {
+		t.Fatalf("the job's limits do not read back as set:\n%s", out)
+	}
 }
 
 // The tunnel launcher keeps the ability to start exactly one child.
@@ -173,6 +177,13 @@ func TestConfineHelper(t *testing.T) {
 	}
 	privs, err := Privileges()
 	fmt.Println("PRIVILEGES", len(privs), err)
+	// S-21: the limits are read back from the job the process is now in
+	var ext windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	qerr := windows.QueryInformationJobObject(0, windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&ext)), uint32(unsafe.Sizeof(ext)), nil) // #nosec G103 -- the documented output buffer
+	want := uint32(windows.JOB_OBJECT_LIMIT_PROCESS_MEMORY | windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS | windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
+	fmt.Println("JOB-LIMITS", qerr == nil && ext.BasicLimitInformation.LimitFlags&want == want &&
+		uint64(ext.ProcessMemoryLimit) == l.MemoryBytes && int64(ext.BasicLimitInformation.ActiveProcessLimit) == int64(l.ActiveProcesses))
 	cmd := exec.CommandContext(t.Context(), "cmd.exe", "/c", "exit", "0")
 	if err := cmd.Run(); err != nil {
 		fmt.Println("CHILD-REFUSED", err)
@@ -298,5 +309,23 @@ func TestForceSDDLDoesNotPropagate(t *testing.T) {
 	}
 	if s := sd.String(); !strings.HasPrefix(s, "D:P") || !strings.Contains(s, ";;;SY)") {
 		t.Fatalf("descriptor not applied: %s", s)
+	}
+}
+
+// Review finding SE-01: enabling a privilege the token does not hold is an
+// error, not a silent success; one it holds is enabled.
+func TestEnableTokenPrivilegesRefusesUnheld(t *testing.T) {
+	var tok windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &tok); err != nil {
+		t.Fatal(err)
+	}
+	defer tok.Close() //nolint:errcheck // test token
+	if err := EnableTokenPrivileges(tok, "SeChangeNotifyPrivilege"); err != nil {
+		t.Fatalf("a held privilege: %v", err)
+	}
+	// SeTcbPrivilege (act as part of the operating system) is held by
+	// SYSTEM only, never by a test account or an administrator's token
+	if err := EnableTokenPrivileges(tok, "SeTcbPrivilege"); err == nil {
+		t.Fatal("enabling a privilege the token does not hold reported success")
 	}
 }

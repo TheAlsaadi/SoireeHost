@@ -34,6 +34,12 @@ body {
   font-family: var(--font-mono);
 }
 
+/* S-51: the label beside a quick share address in the Sites list */
+.temporary {
+  margin-inline-start: var(--space-2);
+  font-family: var(--font-ui);
+}
+
 .small {
   font-size: var(--text-small);
   line-height: var(--leading-small);

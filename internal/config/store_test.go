@@ -130,3 +130,21 @@ func TestStoreDamagedCurrent(t *testing.T) {
 		t.Fatal("unknown field accepted")
 	}
 }
+
+// Review finding SE-34: a last-good marker that is there but cannot be read
+// stops pruning, so the real last good revision is never removed.
+func TestStoreKeepsHistoryWhenGoodUnreadable(t *testing.T) {
+	s := newStore(t)
+	_, _ = s.Save(withSite("first"), "x", "first")
+	if err := os.WriteFile(s.goodPath(), []byte("damaged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 15 {
+		if _, err := s.Save(withSite("s"+string(rune('a'+i))), "x", "more"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if revs := s.historyRevisions(); len(revs) != 15 {
+		t.Fatalf("history pruned with an unreadable last-good marker: %v", revs)
+	}
+}

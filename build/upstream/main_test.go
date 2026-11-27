@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -128,6 +129,43 @@ func TestRunRefusesBadArguments(t *testing.T) {
 	for _, args := range [][]string{nil, {"apply"}, {"apply", "cloudflared", "latest"}, {"apply", "crs", "4.31.0"}, {"apply", "go", "1.27.5-rc.1"}, {"apply", "caddy", "2.12.0"}} {
 		if err := run(args, os.Stdout); err == nil {
 			t.Errorf("run(%v) accepted", args)
+		}
+	}
+}
+
+// TestDependabotSkipsCooldownForInternetFacing keeps S-65's 7 days for the
+// modules on the internet-facing path: Dependabot's 7-day cooldown would
+// otherwise hold a Caddy or Coraza fix that has no published advisory for a
+// week before it is even proposed (owner's decision of 27 Nov 2026).
+func TestDependabotSkipsCooldownForInternetFacing(t *testing.T) {
+	raw, err := os.ReadFile("../../.github/dependabot.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	_, gomod, ok := strings.Cut(text, "package-ecosystem: gomod\n")
+	if !ok {
+		t.Fatal("dependabot.yml has no gomod entry")
+	}
+	gomod, _, _ = strings.Cut(gomod, "- package-ecosystem:")
+	_, excl, ok := strings.Cut(gomod, "      exclude:\n")
+	if !ok {
+		t.Fatal("the gomod cooldown has no exclude list")
+	}
+	var patterns []string
+	for line := range strings.SplitSeq(excl, "\n") {
+		item, found := strings.CutPrefix(line, "        - ")
+		if !found {
+			break
+		}
+		patterns = append(patterns, strings.Trim(item, `"`))
+	}
+	for _, module := range []string{"github.com/caddyserver/caddy/v2", "github.com/corazawaf/coraza/v3"} {
+		if !slices.ContainsFunc(patterns, func(p string) bool {
+			prefix, wild := strings.CutSuffix(p, "*")
+			return p == module || wild && strings.HasPrefix(module, prefix)
+		}) {
+			t.Errorf("%s waits out the cooldown (exclude list %q)", module, patterns)
 		}
 	}
 }

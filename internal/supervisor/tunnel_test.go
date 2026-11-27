@@ -14,6 +14,7 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
 // report sends a status report from the stand-in tunnel launcher.
@@ -274,5 +275,136 @@ func TestRepairNeededInStatus(t *testing.T) {
 			t.Fatalf("repair never reported: %+v", st.Tunnel)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// S-32 (owner's decision of 27 Nov 2026): rolling back to a revision that
+// shares a site through a quick share the owner has since stopped needs
+// confirmation and is audited; unconfirmed, nothing changes.
+func TestRollbackRestartingQuickShareNeedsConfirmation(t *testing.T) {
+	h := start(t)
+	site := config.Site{ID: "blog", Name: "Blog", Enabled: true, Type: config.TypeStatic, Static: &config.Static{Root: testutil.SiteDir(t)}}
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var shared ipc.ConfigResult
+	if err := h.call(ipc.MethodQuickShareStart, ipc.QuickShareParams{SiteID: "blog"}, &shared); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.call(ipc.MethodQuickShareStop, ipc.QuickShareParams{SiteID: "blog"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	isShared := func() bool {
+		var cur ipc.ConfigResult
+		if err := h.call(ipc.MethodConfigGet, ipc.None{}, &cur); err != nil {
+			t.Fatal(err)
+		}
+		return cur.Config.Sites[0].QuickShare != nil
+	}
+	var e *ipc.Error
+	if err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: shared.Revision}, nil); !errors.As(err, &e) || e.Code != ipc.CodeConfirmationRequired {
+		t.Fatalf("unconfirmed rollback restarting a stopped quick share: %v", err)
+	}
+	if isShared() {
+		t.Fatal("the unconfirmed rollback restarted the share")
+	}
+	if err := h.confirmed(ipc.MethodConfigRollback, &ipc.RollbackParams{Revision: shared.Revision}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !isShared() {
+		t.Fatal("the confirmed rollback did not restart the share")
+	}
+	if !auditHas(t, h, "config.rollback", "weakening", "quick_share") {
+		t.Error("the rollback that restarted a quick share was not audited as weakening")
+	}
+	// the share is running now, so going back to the same revision asks nothing
+	if err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: shared.Revision}, nil); err != nil {
+		t.Fatalf("rollback with the share already running: %v", err)
+	}
+}
+
+// Sharp-edges finding SE7-1: rolling back to a revision saved while online,
+// with the offline switch on now, needs confirmation and is audited.
+func TestRollbackGoingOnlineNeedsConfirmation(t *testing.T) {
+	h := start(t)
+	app := okApp(t)
+	var online ipc.ConfigResult
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("app", app.Listener.Addr().String())}, &online); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.call(ipc.MethodTunnelOffline, ipc.OfflineParams{Offline: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	offline := func() bool {
+		var cur ipc.ConfigResult
+		if err := h.call(ipc.MethodConfigGet, ipc.None{}, &cur); err != nil {
+			t.Fatal(err)
+		}
+		return cur.Config.Tunnel.Offline
+	}
+	var e *ipc.Error
+	if err := h.call(ipc.MethodConfigRollback, ipc.RollbackParams{Revision: online.Revision}, nil); !errors.As(err, &e) || e.Code != ipc.CodeConfirmationRequired {
+		t.Fatalf("unconfirmed rollback that goes back online: %v", err)
+	}
+	if !offline() {
+		t.Fatal("the unconfirmed rollback took the tunnel back online")
+	}
+	if err := h.confirmed(ipc.MethodConfigRollback, &ipc.RollbackParams{Revision: online.Revision}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if offline() {
+		t.Fatal("the confirmed rollback left the switch on")
+	}
+	if !auditHas(t, h, "config.rollback", "weakening", "online") {
+		t.Error("the rollback that went back online was not audited as weakening")
+	}
+}
+
+// SE7-1: an automatic restore of the last good revision keeps the offline
+// switch and the stopped quick shares as the owner left them.
+func TestRestoreKeepsOfflineAndStoppedShares(t *testing.T) {
+	svc := &fakeServices{webLoad: loadsWith("boom.example.com", func(die func()) error {
+		die()
+		return errors.New("process died")
+	})}
+	h := startWith(t, svc, nil, 20*time.Second)
+	site := config.Site{ID: "blog", Name: "Blog", Enabled: true, Type: config.TypeStatic, Static: &config.Static{Root: testutil.SiteDir(t)}}
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: site}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var shared ipc.ConfigResult
+	if err := h.call(ipc.MethodQuickShareStart, ipc.QuickShareParams{SiteID: "blog"}, &shared); err != nil {
+		t.Fatal(err)
+	}
+	if good := h.sup.store.LastGood(); good != shared.Revision {
+		t.Fatalf("last good is %d, want the shared revision %d", good, shared.Revision)
+	}
+	// saved behind the worker: share stopped, switch on, and a site the
+	// worker dies on
+	h.sup.changeMu.Lock()
+	cur, err := h.sup.store.Current()
+	if err == nil {
+		cfg := cur.Config
+		cfg.Sites = slices.Clone(cfg.Sites)
+		cfg.Sites[0].QuickShare = nil
+		cfg.Tunnel.Offline = true
+		cfg.Sites = append(cfg.Sites, h.proxySite("boom", okApp(t).Listener.Addr().String()))
+		_, err = h.sup.store.Save(cfg, winsec.SIDSystem, "saved while the worker was down")
+	}
+	h.sup.changeMu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.kill(winsec.WebService)
+	waitRestored(t, h, "boom", "stopped")
+	var now ipc.ConfigResult
+	if err := h.call(ipc.MethodConfigGet, ipc.None{}, &now); err != nil {
+		t.Fatal(err)
+	}
+	if !now.Config.Tunnel.Offline {
+		t.Error("the restore turned the offline switch off")
+	}
+	if now.Config.Sites[0].QuickShare != nil {
+		t.Error("the restore restarted a stopped quick share")
 	}
 }

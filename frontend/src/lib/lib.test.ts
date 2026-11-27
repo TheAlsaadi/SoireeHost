@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { segments, visibleText } from "./visible";
 import { errorText, needsConfirmation, toApiError } from "./errors";
-import { idFromName, proxyPort, siteAddress, siteOnline, siteStatus, statusLine } from "./status";
+import { addressIsTemporary, idFromName, proxyPort, siteAddress, siteOnline, siteStatus, statusLine } from "./status";
+import { updateLine } from "./setup";
 import { t } from "./i18n";
 import { en } from "./i18n/en";
 import type { config, ipc } from "./api";
@@ -86,6 +87,9 @@ describe("status in plain words", () => {
     const st = status([quick]);
     expect(siteOnline(site({}), st)).toBe(true);
     expect(siteAddress(site({}), st)).toBe("https://a-b-c.trycloudflare.com");
+    // S-51: a quick share address is labelled wherever it is shown
+    expect(addressIsTemporary(site({}), st)).toBe(true);
+    expect(addressIsTemporary(site({}), status([]))).toBe(false);
     const line = statusLine(st, { sites: [site({})] } as config.Config, false);
     expect(t(line.key, line.params)).toBe("1 of 1 sites served through Cloudflare Tunnel");
   });
@@ -95,6 +99,14 @@ describe("status in plain words", () => {
     expect(proxyPort(s)).toBe(3000);
     const said = siteStatus(s, status([quick]), [{ port: 8000, process: "python.exe", loopback: true, ipv4: true, ipv6: false }]);
     expect(t(said.key, said.params)).toBe("Port 3000 is not answering");
+  });
+
+  it("says an update stopped part way (S-63)", () => {
+    const st = { ...status([quick]), update: { state: "interrupted" } };
+    const line = statusLine(st, { sites: [site({})] } as config.Config, false);
+    expect(line.tone).toBe("danger");
+    expect(line.key).toBe("statusline.updateInterrupted");
+    expect(updateLine(st.update)).toBe(t("settings.update.interrupted"));
   });
 
   it("says offline, service down and stopped", () => {

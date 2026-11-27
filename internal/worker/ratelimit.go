@@ -11,6 +11,8 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+
+	"github.com/TheAlsaadi/SoireeHost/internal/config"
 )
 
 func init() {
@@ -22,19 +24,38 @@ func init() {
 // all still inside their window, new clients are refused (fail closed).
 const DefaultMaxClients = 100_000
 
-// RateLimit allows each client address at most PerMinute requests a minute
-// (S-15), using the generic cell rate algorithm: a burst of up to PerMinute
-// requests, then one request every 60s/PerMinute. IPv6 clients are grouped by
-// /64, because one host can use a whole /64.
+// RateLimit allows each client address PerMinute requests a minute on
+// average (S-15), using the generic cell rate algorithm: a burst of up to
+// PerMinute requests, then one request every 60s/PerMinute. So a client that
+// starts idle can make up to 2*PerMinute-1 requests in its first minute, and
+// PerMinute a minute after that. IPv6 clients are grouped by /64, because one
+// host can use a whole /64.
+//
+// One limiter serves a site for as long as it keeps its limit: every route of
+// the site (its own hostnames and its quick share) uses the same counts, and
+// a config reload keeps them (Phase 7 compliance review, 21 Nov 2026; before,
+// a quick-shared site allowed the limit on each route, and every reload
+// cleared the counts).
 //
 // The design choice (in-house rather than mholt/caddy-ratelimit) is recorded
 // in docs/adr/0005-web-worker.md.
 type RateLimit struct {
-	PerMinute  int `json:"per_minute"`
-	MaxClients int `json:"max_clients,omitempty"`
+	// Site is the site's id: the routes of one site share a limiter.
+	Site       string `json:"site"`
+	PerMinute  int    `json:"per_minute"`
+	MaxClients int    `json:"max_clients,omitempty"`
 
 	limiter *limiter
+	poolKey string
 }
+
+// limiters keeps each site's limiter across config reloads: the new config
+// takes it before the old one lets it go.
+var limiters = caddy.NewUsagePool()
+
+type pooledLimiter struct{ l *limiter }
+
+func (*pooledLimiter) Destruct() error { return nil }
 
 // CaddyModule returns the Caddy module information.
 func (RateLimit) CaddyModule() caddy.ModuleInfo {
@@ -44,16 +65,39 @@ func (RateLimit) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Provision builds the limiter.
+// Provision takes the site's limiter, building it on first use.
 func (rl *RateLimit) Provision(caddy.Context) error {
 	if rl.PerMinute < 1 {
 		return errors.New("soireehost_ratelimit: per_minute must be at least 1")
 	}
+	if !config.ValidSiteID(rl.Site) {
+		return fmt.Errorf("soireehost_ratelimit: bad site id %q", rl.Site)
+	}
 	if rl.MaxClients == 0 {
 		rl.MaxClients = DefaultMaxClients
 	}
-	rl.limiter = newLimiter(rl.PerMinute, time.Minute, rl.MaxClients, time.Now)
+	rl.poolKey = fmt.Sprintf("soireehost-ratelimit-%s-%d-%d", rl.Site, rl.PerMinute, rl.MaxClients)
+	v, _, err := limiters.LoadOrNew(rl.poolKey, func() (caddy.Destructor, error) {
+		return &pooledLimiter{l: newLimiter(rl.PerMinute, time.Minute, rl.MaxClients, time.Now)}, nil
+	})
+	if err != nil {
+		return err
+	}
+	pl, ok := v.(*pooledLimiter)
+	if !ok {
+		return errors.New("soireehost_ratelimit: unexpected pool entry")
+	}
+	rl.limiter = pl.l
 	return nil
+}
+
+// Cleanup lets go of the site's limiter; the last user frees it.
+func (rl *RateLimit) Cleanup() error {
+	if rl.poolKey == "" {
+		return nil
+	}
+	_, err := limiters.Delete(rl.poolKey)
+	return err
 }
 
 // ServeHTTP implements caddyhttp.MiddlewareHandler.
@@ -158,5 +202,6 @@ func (l *limiter) size() int {
 
 var (
 	_ caddy.Provisioner           = (*RateLimit)(nil)
+	_ caddy.CleanerUpper          = (*RateLimit)(nil)
 	_ caddyhttp.MiddlewareHandler = (*RateLimit)(nil)
 )

@@ -24,11 +24,20 @@ describe("S-34 lint rules", () => {
     "document.write(data);",
     'new DOMParser().parseFromString(data, "text/html");',
     "document.createRange().createContextualFragment(data);",
+    "el.setHTMLUnsafe(data);",
+    "Document.parseHTMLUnsafe(data);",
+    "window.document.write(data);",
   ])("rejects %s", async (stmt) => {
     const code = `export function f(el: HTMLElement, data: string): void { ${stmt} }\n`;
     const ids = await ruleIds(code, "src/probe.ts");
     expect(ids.some((id) => id === "no-restricted-properties" || id === "no-restricted-syntax")).toBe(true);
   });
+
+  it("rejects bind:innerHTML in Svelte", async () => {
+    const code = ['<script lang="ts">let x = $state("");</script>', '<div contenteditable="true" bind:innerHTML={x}></div>', ""].join("\n");
+    const ids = await ruleIds(code, "src/Probe.svelte");
+    expect(ids).toContain("no-restricted-syntax");
+  }, 60_000);
 
   it("accepts textContent", async () => {
     const ids = await ruleIds("export function f(el: HTMLElement, data: string): void { el.textContent = data; }\n", "src/probe.ts");

@@ -32,8 +32,8 @@ func (AppService) Version() string {
 }
 
 // ContentSecurityPolicy is sent with every page and asset the window loads
-// (S-33). It matches the meta tag in frontend/index.html, so neither copy is
-// the only one: bundled scripts and styles only, no inline script, no remote
+// (S-33). It is the meta tag in frontend/index.html plus frame-src and
+// frame-ancestors, so neither copy is the only one: bundled scripts and styles only, no inline script, no remote
 // content of any kind, no framing, no form submissions.
 const ContentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; " +
 	"connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'"
