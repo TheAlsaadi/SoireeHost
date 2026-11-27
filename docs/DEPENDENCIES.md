@@ -69,7 +69,7 @@ Also vendored as data: 26 icons of Fluent System Icons (Microsoft, MIT), path da
 
 | Data | Version | Licence | Why |
 | --- | --- | --- | --- |
-| OWASP Core Rule Set, request rules and their data files (30 files in `internal/waf/crs/`) | v4.30.0, archive SHA-256 `3d678a41fd5aade34760127fef5dd64fd7a77848913fc0f70dde0cf467c94427` | Apache-2.0 | The firewall's rules (S-14; owner decision of 15 Nov 2026). Copied byte for byte from the official signed release (signature checked with the CRS key `36006F0E0BA167832158821138EEACA1AB8A6E72`). Pinned in `build/crs.lock`, and `build/check-crs.ps1` fails CI if any file differs from the release. The response rules and their data files are left out (ADR-0008) |
+| OWASP Core Rule Set, request rules and their data files (28 files in `internal/waf/crs/`) | v4.31.0, archive SHA-256 `70e8c32ea5b57962a9081c74b738a498dcd299b1fc32099de6444b8ca5cdd8f5` | Apache-2.0 | The firewall's rules (S-14; owner decision of 15 Nov 2026). Copied byte for byte from the official signed release (signature checked with the CRS key `36006F0E0BA167832158821138EEACA1AB8A6E72`). Pinned in `build/crs.lock`, and `build/check-crs.ps1` fails CI if any file differs from the release. The response rules and their data files are left out (ADR-0008) |
 
 ## Embedded executable
 

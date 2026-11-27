@@ -1,8 +1,8 @@
 # cloudflared pinned for embedding (S-23, S-71).
-# Source: https://github.com/cloudflare/cloudflared/releases/tag/2026.11.1
-# SHA-256 copied from the "SHA256 Checksums" section of the release notes on 2026-11-20,
+# Source: https://github.com/cloudflare/cloudflared/releases/tag/2026.11.2
+# SHA-256 copied from the "SHA256 Checksums" section of the release notes on 2026-11-23,
 # and matching the asset digest GitHub reports for the release.
 # internal/tunnel/pin.go holds the same values; TestPinMatchesLock keeps them equal.
-version=2026.11.1
+version=2026.11.2
 asset=cloudflared-windows-amd64.exe
-sha256=341deda3db5ec498a0482254d6c38c0b7cf01a30c37bb5dd95d2216d08955e35
+sha256=555b46c85582461d189cac30d14ad05480d612613801be9f110b8ce08c5b2113

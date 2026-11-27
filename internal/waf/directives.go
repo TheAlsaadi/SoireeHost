@@ -18,8 +18,10 @@ const (
 const InspectBytes = config.FirewallInspectBytes
 
 // AllowedMethods replaces CRS's default GET HEAD POST OPTIONS, which makes
-// rule 911100 block the methods typical JSON APIs use (ADR-0008).
-const AllowedMethods = "GET HEAD POST OPTIONS PUT PATCH DELETE"
+// rule 911100 block the methods typical JSON APIs use (ADR-0008). Since CRS
+// 4.31.0 each entry is wrapped in pipes: rule 911100 compares |METHOD|, so the
+// old space-separated list would flag every request.
+const AllowedMethods = "|GET| |HEAD| |POST| |OPTIONS| |PUT| |PATCH| |DELETE|"
 
 // directives is the whole Coraza configuration for one mode and paranoia
 // level. It is fixed text: no part of it comes from the user's config except

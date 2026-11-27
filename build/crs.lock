@@ -1,14 +1,14 @@
 # OWASP Core Rule Set pinned for embedding (S-14, S-65, S-71; ADR-0008).
-# Source: https://github.com/coreruleset/coreruleset/releases/tag/v4.30.0
-# SHA-256 matches the asset digest GitHub reports for the release (checked 2026-11-15).
-# The archive's .asc signature was verified on 2026-11-15 with the CRS release key,
+# Source: https://github.com/coreruleset/coreruleset/releases/tag/v4.31.0
+# SHA-256 matches the asset digest GitHub reports for the release (checked 2026-11-27).
+# The archive's .asc signature was verified on 2026-11-27 with the CRS release key,
 # fingerprint 36006F0E0BA167832158821138EEACA1AB8A6E72 (published in the release's docs/INSTALL.md).
 # build/check-crs.ps1 downloads the archive, refuses it unless the hash matches, and checks
 # that internal/waf/crs holds exactly the files below, byte for byte.
 # internal/waf/crs.go holds the same version; TestCRSVersionMatchesLock keeps them equal.
-version=4.30.0
-url=https://github.com/coreruleset/coreruleset/releases/download/v4.30.0/coreruleset-4.30.0-minimal.tar.gz
-sha256=3d678a41fd5aade34760127fef5dd64fd7a77848913fc0f70dde0cf467c94427
+version=4.31.0
+url=https://github.com/coreruleset/coreruleset/releases/download/v4.31.0/coreruleset-4.31.0-minimal.tar.gz
+sha256=70e8c32ea5b57962a9081c74b738a498dcd299b1fc32099de6444b8ca5cdd8f5
 signer=36006F0E0BA167832158821138EEACA1AB8A6E72
 # Request rules only, and the data files they reference. The response rules and their data
 # files are left out: responses are not inspected (ADR-0008), and Windows Defender
@@ -38,8 +38,6 @@ file=rules/lfi-os-files.data
 file=rules/php-function-names-933150.data
 file=rules/php-variables.data
 file=rules/restricted-files.data
-file=rules/scanners-user-agents.data
 file=rules/ssrf-no-scheme.data
 file=rules/ssrf.data
 file=rules/unix-shell.data
-file=rules/windows-powershell-commands.data
