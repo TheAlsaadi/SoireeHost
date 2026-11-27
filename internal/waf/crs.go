@@ -11,10 +11,10 @@ import (
 
 // CRSVersion is the vendored Core Rule Set release. build/crs.lock holds the
 // same value; TestCRSVersionMatchesLock keeps them equal.
-const CRSVersion = "4.30.0"
+const CRSVersion = "4.31.0"
 
 // crsSetupVersion is what CRS rule 901001 expects in tx.crs_setup_version.
-const crsSetupVersion = "4300"
+const crsSetupVersion = "4310"
 
 //go:embed crs/LICENSE crs/rules
 var vendored embed.FS
