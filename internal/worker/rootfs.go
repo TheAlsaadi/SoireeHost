@@ -19,8 +19,32 @@ func init() {
 }
 
 // blockedLocations reads the Windows known folders once per process; they do
-// not move while the worker runs.
-var blockedLocations = sync.OnceValues(sitecheck.DefaultLocations)
+// not move while the worker runs. A failed lookup is not kept, so one
+// failure does not refuse every static site until the worker restarts
+// (review finding GO-14).
+var blockedLocations = cacheSuccess(sitecheck.DefaultLocations)
+
+// cacheSuccess calls lookup until it succeeds once, then returns that value.
+func cacheSuccess[T any](lookup func() (T, error)) func() (T, error) {
+	var (
+		mu  sync.Mutex
+		val T
+		ok  bool
+	)
+	return func() (T, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if ok {
+			return val, nil
+		}
+		v, err := lookup()
+		if err != nil {
+			return v, err
+		}
+		val, ok = v, true
+		return v, nil
+	}
+}
 
 // RootFS is the file system behind every static site (S-11, S-12, S-13). It
 // is an os.Root opened on the checked site folder, so no name and no symbolic

@@ -257,7 +257,8 @@ func startWith(t *testing.T, svc *fakeServices, checkRoot func(string) (string, 
 		checkRoot = func(r string) (string, error) { return sitecheck.CheckRoot(r, loc) }
 	}
 	sup, err := New(Options{
-		Paths: paths, Identity: Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID},
+		SkipACLCheck: true,
+		Paths:        paths, Identity: Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID},
 		Pipes: pipes, Services: svc, Version: "test", CheckRoot: checkRoot,
 		WorkerStartTimeout: 10 * time.Second, LoadTimeout: loadTimeout,
 	})

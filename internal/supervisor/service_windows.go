@@ -65,7 +65,6 @@ func RunService(version string) error {
 			Pipes:     pipes,
 			Services:  svcrun.SCM{},
 			Version:   version,
-			CheckACLs: true,
 			CheckRoot: func(r string) (string, error) { return sitecheck.CheckRoot(r, loc) },
 			WorkerCanRead: func(r string) (bool, error) {
 				return winsec.GrantsRead(r, winsec.WorkerGroups(winsec.ServiceSID(winsec.WebService))...)

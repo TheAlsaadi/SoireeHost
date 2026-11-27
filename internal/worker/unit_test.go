@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -322,5 +323,27 @@ func TestRateLimitSharedPerSite(t *testing.T) {
 	_ = changed.Cleanup()
 	if err := (&RateLimit{Site: "../x", PerMinute: 10}).Provision(caddyContext()); err == nil {
 		t.Fatal("a bad site id was accepted")
+	}
+}
+
+// Review finding GO-14: a failed known-folder lookup is tried again; a
+// successful one is kept.
+func TestCacheSuccess(t *testing.T) {
+	calls := 0
+	get := cacheSuccess(func() (int, error) {
+		calls++
+		if calls == 1 {
+			return 0, errors.New("first lookup fails")
+		}
+		return calls, nil
+	})
+	if _, err := get(); err == nil {
+		t.Fatal("the failure was not returned")
+	}
+	if v, err := get(); err != nil || v != 2 {
+		t.Fatalf("second call: %d, %v", v, err)
+	}
+	if v, err := get(); err != nil || v != 2 || calls != 2 {
+		t.Fatalf("the success was not kept: %d, %v, %d calls", v, err, calls)
 	}
 }

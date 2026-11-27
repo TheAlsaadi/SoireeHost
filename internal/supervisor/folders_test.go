@@ -119,7 +119,7 @@ func TestNewRefusesWritableFolders(t *testing.T) {
 		}
 		return false
 	})
-	if _, err := New(Options{Paths: p, Identity: id, CheckACLs: true}); err == nil || !strings.Contains(err.Error(), "refusing to run") {
+	if _, err := New(Options{Paths: p, Identity: id}); err == nil || !strings.Contains(err.Error(), "refusing to run") {
 		t.Fatalf("writable secrets folder: %v", err)
 	}
 }
@@ -139,5 +139,13 @@ func TestCheckProgramRefusesUserFolder(t *testing.T) {
 	}
 	if err := checkProgram(filepath.Join(dir, "missing.exe")); err == nil {
 		t.Fatal("a missing program was accepted")
+	}
+}
+
+// Review finding SE-23: a data folder given as a relative path is refused,
+// with or without the folder check.
+func TestNewRefusesRelativeRoot(t *testing.T) {
+	if _, err := New(Options{Paths: Paths{Root: "SoireeHost"}, SkipACLCheck: true}); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("relative data folder: %v", err)
 	}
 }

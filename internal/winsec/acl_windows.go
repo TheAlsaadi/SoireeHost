@@ -136,8 +136,15 @@ func EnableTokenPrivileges(tok windows.Token, names ...string) error {
 		}
 		tp := windows.Tokenprivileges{PrivilegeCount: 1}
 		tp.Privileges[0] = windows.LUIDAndAttributes{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}
-		if err := windows.AdjustTokenPrivileges(tok, false, &tp, 0, nil, nil); err != nil {
-			return fmt.Errorf("enabling %s: %w", n, err)
+		// AdjustTokenPrivileges succeeds for a privilege the token does not
+		// hold and reports it only through the last error, which x/sys
+		// drops (review finding SE-01), so the call is made directly
+		r, _, e := procAdjustTokenPrivileges.Call(uintptr(tok), 0, uintptr(unsafe.Pointer(&tp)), 0, 0, 0)
+		if r == 0 {
+			return fmt.Errorf("enabling %s: %w", n, e)
+		}
+		if errors.Is(e, windows.ERROR_NOT_ALL_ASSIGNED) {
+			return fmt.Errorf("enabling %s: the token does not hold it", n)
 		}
 	}
 	return nil

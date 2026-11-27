@@ -108,10 +108,14 @@ func (l *Log) Append(actor, action string, detail map[string]string) (Entry, err
 	_, werr := f.Write(append(line, '\n'))
 	serr := f.Sync()
 	cerr := f.Close()
+	if werr == nil {
+		// the line is in the file: the next entry must follow it, or Verify
+		// would report a break the program made (review finding GO-8)
+		l.last = e
+	}
 	if err := errors.Join(werr, serr, cerr); err != nil {
 		return Entry{}, fmt.Errorf("writing audit log: %w", err)
 	}
-	l.last = e
 	return e, nil
 }
 

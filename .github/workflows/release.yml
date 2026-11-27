@@ -104,6 +104,8 @@ jobs:
           Write-Output "Both builds: sha256 $($a.ToLowerInvariant())"
       - name: Binary has ASLR, DEP and high-entropy VA (S-24)
         run: go run ./build/pecheck bin/soireehost.exe
+      - name: govulncheck on the shipped binary (review finding GOE-2)
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary bin/soireehost.exe
       - name: Checksums and SBOMs (S-73)
         shell: pwsh
         env:

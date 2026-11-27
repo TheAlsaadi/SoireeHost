@@ -21,7 +21,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # only pull-request runs cancel each other: a push to main must not cancel
+  # the nightly fuzz and isolation run (review finding GOE-7)
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GOTOOLCHAIN: local

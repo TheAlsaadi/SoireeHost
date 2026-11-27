@@ -300,3 +300,21 @@ func TestForceSDDLDoesNotPropagate(t *testing.T) {
 		t.Fatalf("descriptor not applied: %s", s)
 	}
 }
+
+// Review finding SE-01: enabling a privilege the token does not hold is an
+// error, not a silent success; one it holds is enabled.
+func TestEnableTokenPrivilegesRefusesUnheld(t *testing.T) {
+	var tok windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &tok); err != nil {
+		t.Fatal(err)
+	}
+	defer tok.Close() //nolint:errcheck // test token
+	if err := EnableTokenPrivileges(tok, "SeChangeNotifyPrivilege"); err != nil {
+		t.Fatalf("a held privilege: %v", err)
+	}
+	// SeTcbPrivilege (act as part of the operating system) is held by
+	// SYSTEM only, never by a test account or an administrator's token
+	if err := EnableTokenPrivileges(tok, "SeTcbPrivilege"); err == nil {
+		t.Fatal("enabling a privilege the token does not hold reported success")
+	}
+}

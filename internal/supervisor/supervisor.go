@@ -104,9 +104,10 @@ type Options struct {
 	Pipes    Pipes
 	Services ServiceControl
 	Version  string
-	// CheckACLs runs the S-22 folder check at start. Always true in the
-	// service; tests that do not set the folders up turn it off.
-	CheckACLs bool
+	// SkipACLCheck leaves out the S-22 folder check at start, for tests
+	// that do not set the folders up. The zero value checks (review
+	// finding SE-22: a forgotten field must not turn S-22 off).
+	SkipACLCheck bool
 	// CheckRoot resolves and checks a static site folder (sitecheck.CheckRoot
 	// in production).
 	CheckRoot func(root string) (string, error)
@@ -170,7 +171,10 @@ func New(opts Options) (*Supervisor, error) {
 	if opts.PortFree == nil {
 		opts.PortFree = LoopbackPortFree
 	}
-	if opts.CheckACLs {
+	if !filepath.IsAbs(opts.Paths.Root) {
+		return nil, fmt.Errorf("refusing to run: the data folder %q is not an absolute path", opts.Paths.Root)
+	}
+	if !opts.SkipACLCheck {
 		// the check reads writers only, so the control users do not matter
 		if err := checkFolders(opts.Paths, opts.Identity); err != nil {
 			return nil, err
