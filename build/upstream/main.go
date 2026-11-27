@@ -272,9 +272,20 @@ func applyCRS(v, dir string) error {
 	if _, err := download(sig.URL, "coreruleset/coreruleset", filepath.Join(dir, name+".asc")); err != nil {
 		return err
 	}
+	// a release may add, drop or rename request rules and data files
+	files, err := crsFiles(filepath.Join(dir, name), v)
+	if err != nil {
+		return err
+	}
 	return editFiles(map[string]func(string) (string, error){
-		crsLock: func(s string) (string, error) { return setCRSLock(s, v, a.URL, got) },
-		crsGo:   func(s string) (string, error) { return setCRSGo(s, v) },
+		crsLock: func(s string) (string, error) {
+			s, err := setCRSLock(s, v, a.URL, got)
+			if err != nil {
+				return "", err
+			}
+			return setCRSFiles(s, files)
+		},
+		crsGo: func(s string) (string, error) { return setCRSGo(s, v) },
 	})
 }
 
