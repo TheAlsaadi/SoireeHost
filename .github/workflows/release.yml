@@ -27,6 +27,8 @@ env:
   GOFLAGS: -mod=readonly -tags=no_fs_access
   NODE_VERSION: "26"
   WAILS_VERSION: v3.1.0
+  # keep equal to ci.yml
+  GOVULNCHECK_VERSION: v1.9.0
   # the oldest version a release may update from (ADR-0004); raise it when a
   # release can no longer read older settings
   MIN_FROM: "0.1.0"
@@ -105,7 +107,7 @@ jobs:
       - name: Binary has ASLR, DEP and high-entropy VA (S-24)
         run: go run ./build/pecheck bin/soireehost.exe
       - name: govulncheck on the shipped binary (review finding GOE-2)
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary bin/soireehost.exe
+        run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }} -mode=binary bin/soireehost.exe
       - name: Checksums and SBOMs (S-73)
         shell: pwsh
         env:

@@ -71,6 +71,11 @@ func TestLogMasksAfterRawHash(t *testing.T) {
 	if lines := accessLogLines(t, h, marker); len(lines) > 0 {
 		t.Errorf("R-19: secret logged unmasked:\n%s", strings.Join(lines, "\n"))
 	}
+	// and the entry is there, so the check above looked at something (code
+	// review CR-10)
+	if lines := accessLogLines(t, h, "/p?a="); len(lines) == 0 {
+		t.Error("no access-log entry for the request, so masking was not checked")
+	}
 }
 
 func TestRedactURIMasksEveryName(t *testing.T) {

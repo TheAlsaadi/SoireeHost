@@ -99,6 +99,18 @@ func (w *workerMgr) setStateDetail(state, lastErr, detail string) {
 	}
 }
 
+// setProblem records a problem without touching the state, which serve owns:
+// a report that arrives after the worker went down must not show it running
+// (code review CR-2, review finding GO-3).
+func (w *workerMgr) setProblem(lastErr string, detail ...string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lastErr, w.lastDet = lastErr, ""
+	if len(detail) > 0 {
+		w.lastDet = detail[0]
+	}
+}
+
 func (w *workerMgr) status() ipc.WorkerStatus {
 	w.mu.Lock()
 	defer w.mu.Unlock()

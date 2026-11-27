@@ -20,9 +20,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  # only pull-request runs cancel each other: a push to main must not cancel
-  # the nightly fuzz and isolation run (review finding GOE-7)
+  # pull-request runs share one group and cancel each other; every other run
+  # (push, nightly) has a group of its own, so a push to main never cancels
+  # or replaces a running or pending nightly fuzz and isolation run (review
+  # finding GOE-7, code review CR-8)
+  group: ci-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
