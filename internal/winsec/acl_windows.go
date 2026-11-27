@@ -139,7 +139,7 @@ func EnableTokenPrivileges(tok windows.Token, names ...string) error {
 		// AdjustTokenPrivileges succeeds for a privilege the token does not
 		// hold and reports it only through the last error, which x/sys
 		// drops (review finding SE-01), so the call is made directly
-		r, _, e := procAdjustTokenPrivileges.Call(uintptr(tok), 0, uintptr(unsafe.Pointer(&tp)), 0, 0, 0)
+		r, _, e := procAdjustTokenPrivileges.Call(uintptr(tok), 0, uintptr(unsafe.Pointer(&tp)), 0, 0, 0) // #nosec G103 -- the documented TOKEN_PRIVILEGES argument
 		if r == 0 {
 			return fmt.Errorf("enabling %s: %w", n, e)
 		}

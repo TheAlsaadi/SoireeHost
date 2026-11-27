@@ -159,7 +159,7 @@ func (f *fakeServices) Stop(name string) error {
 }
 
 // kill ends a worker as if its process died.
-func (f *fakeServices) kill(name string) {
+func (f *fakeServices) kill(name string) { //nolint:unparam // the tunnel launcher is killed the same way when a test needs it
 	f.mu.Lock()
 	cancel, done := f.cancels[name], f.exited[name]
 	f.mu.Unlock()
@@ -342,7 +342,7 @@ func (h *harness) confirmed(method string, params, out any) error {
 	return h.call(method, params, out)
 }
 
-func (h *harness) waitWorkers(want string) {
+func (h *harness) waitWorkers(want string) { //nolint:unparam // a test may wait for another state
 	h.t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for {
