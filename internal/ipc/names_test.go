@@ -14,6 +14,7 @@ import (
 
 	"github.com/TheAlsaadi/SoireeHost/internal/fsutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec/winsectest"
 )
 
 // DR-1: pipe names are random at every start, so none can be taken in advance.
@@ -37,7 +38,7 @@ func TestNewPipeNameIsRandom(t *testing.T) {
 func writeNameFile(t *testing.T, content string) (file, owner string) {
 	t.Helper()
 	root := t.TempDir()
-	if err := winsec.SetFolderSDDL(PipeFileFolder(root, WebPipeFile), winsec.PipeNameFolderSDDL(me(t), me(t))); err != nil {
+	if err := winsectest.SetFolderSDDL(PipeFileFolder(root, WebPipeFile), winsec.PipeNameFolderSDDL(me(t), me(t))); err != nil {
 		t.Fatal(err)
 	}
 	file = PipeFilePath(root, WebPipeFile)

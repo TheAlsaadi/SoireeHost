@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec/winsectest"
 )
 
 func hashFile(t *testing.T, p string) [32]byte {
@@ -66,7 +67,7 @@ func TestOpenSelfHoldsTheProgram(t *testing.T) {
 func TestOpenSelfRefusesFolderOthersCanChange(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "shared")
 	sddl := "D:P(A;OICI;FA;;;" + me(t) + ")(A;OICI;0x1301bf;;;" + winsec.SIDAuthenticated + ")"
-	if err := winsec.SetFolderSDDL(dir, sddl); err != nil {
+	if err := winsectest.SetFolderSDDL(dir, sddl); err != nil {
 		t.Fatal(err)
 	}
 	exe := filepath.Join(dir, "soireehost.exe")

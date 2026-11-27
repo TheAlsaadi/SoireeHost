@@ -32,6 +32,7 @@ Read the reference that matches the task:
 | `internal/dllsearch` | DLL search limited to System32 from a package init | Must stay free of imports other than `syscall` (rule 9) |
 | `internal/setup` | Elevated install and uninstall | Runs only on CI runners or a VM, never on the owner's PC |
 | `internal/e2e` | Tests against an installed system | Build tag `e2e`, CI isolation job only |
+| `internal/winsec/winsectest` | Windows security fixtures (`SetFolderSDDL`) | Imported only from `_test.go` files (a test enforces it) |
 | `internal/testutil` | Test helpers (junctions, publishable site folders) | Imported only from tests |
 
 ## Rules that are easy to break

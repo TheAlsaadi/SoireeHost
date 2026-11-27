@@ -29,7 +29,7 @@ Builders are in `winsec/sddl.go`. Conventions:
 | New protected folder | `winsec.CreateFolderSDDL(path, sddl)` | `MkdirAll` then set leaves the parent's permissions on it for a moment |
 | Change an existing descriptor | `winsec.ForceSDDL(path, sddl)` after `winsec.EnablePrivileges("SeRestorePrivilege", "SeTakeOwnershipPrivilege")` | `SetSecurityInfo` and `SetNamedSecurityInfo` propagate down the tree without the privilege and fail at locked children |
 | Take back a tree to delete it | `winsec.ForceSDDLUnlessLinked` per entry, walking top-down | A file with several hard links would carry the new descriptor to its other ends |
-| Test fixture with fixed descriptor | `winsec.SetFolderSDDL` (applies the owner too if the SDDL names one) | — |
+| Test fixture with fixed descriptor | `winsectest.SetFolderSDDL` in `internal/winsec/winsectest` (applies the owner too if the SDDL names one); `_test.go` files only, enforced by `TestImportedOnlyFromTests` | In the product it would be a privileged re-permission primitive (SE-03): it inherits the parent's permissions first, follows junctions and propagates down the tree |
 
 `ForceSDDL` opens with `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`, so it never follows a junction, and writes with `SetKernelObjectSecurity`, which changes that one object only. Protection comes from the descriptor's own `D:P`.
 

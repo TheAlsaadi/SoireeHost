@@ -37,6 +37,7 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/supervisor"
 	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec/winsectest"
 )
 
 const canary = "CANARY-E2E-TUNNEL-TOKEN-5d1e"
@@ -257,7 +258,7 @@ func TestServesThroughInstalledServices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := winsec.SetFolderSDDL(root, "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;"+me.SID+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(root, "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;"+me.SID+")"); err != nil {
 		t.Fatal(err)
 	}
 	// before access is granted, the supervisor cannot use the folder
