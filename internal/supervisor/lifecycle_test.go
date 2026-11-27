@@ -262,3 +262,119 @@ func TestWorkerRestartIsRecorded(t *testing.T) {
 	}
 	t.Fatal("the web worker restarted but no worker.restart entry was recorded")
 }
+
+// saveBehindWorker stores a revision with one more proxy site without the
+// web worker loading it, as a change saved while the worker was down.
+func saveBehindWorker(h *harness, id, target string) uint64 {
+	h.t.Helper()
+	h.sup.changeMu.Lock()
+	defer h.sup.changeMu.Unlock()
+	cur, err := h.sup.store.Current()
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	cfg := cur.Config
+	cfg.Sites = append(slices.Clone(cfg.Sites), h.proxySite(id, target))
+	rec, err := h.sup.store.Save(cfg, winsec.SIDSystem, "saved while the worker was down")
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return rec.Revision
+}
+
+// waitRestored waits for the current revision to lose site id, then checks
+// the audit entry names the cause.
+func waitRestored(t *testing.T, h *harness, id, cause string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for slices.Contains(siteIDs(h), id) {
+		if time.Now().After(deadline) {
+			t.Fatalf("settings the web worker cannot load were not restored at connect: %v", siteIDs(h))
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !auditHas(t, h, "config.restored", "cause", cause) {
+		t.Fatalf("no config.restored entry with cause %s", cause)
+	}
+}
+
+// S-41 (owner's decision of 27 Nov 2026): saved settings that kill the web
+// worker at two connects in a row are replaced by the last good revision,
+// and the restarted worker serves it.
+func TestCrashAtConnectRestoresLastGood(t *testing.T) {
+	var crashes atomic.Int32
+	svc := &fakeServices{webLoad: loadsWith("boom.example.com", func(die func()) error {
+		crashes.Add(1)
+		die()
+		return errors.New("process died")
+	})}
+	h := startWith(t, svc, nil, 20*time.Second)
+	app := okApp(t)
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("app", app.Listener.Addr().String())}, nil); err != nil {
+		t.Fatal(err)
+	}
+	saveBehindWorker(h, "boom", app.Listener.Addr().String())
+	svc.kill(winsec.WebService)
+	waitRestored(t, h, "boom", "stopped")
+	if n := crashes.Load(); n != 2 {
+		t.Errorf("the worker loaded the bad settings %d times; one death gets one more start", n)
+	}
+	h.waitWorkers(StateRunning)
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if code, _ := get(t, h.listen, "app.example.com", "/"); code == http.StatusOK {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the restarted worker does not serve the restored settings")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// S-41: saved settings the web worker hangs on past the load timeout at
+// connect are replaced by the last good revision at once.
+func TestHangAtConnectRestoresLastGood(t *testing.T) {
+	svc := &fakeServices{webLoad: loadsWith("hang.example.com", func(func()) error {
+		time.Sleep(5 * time.Second)
+		return nil
+	})}
+	h := startWith(t, svc, nil, 2*time.Second)
+	app := okApp(t)
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("app", app.Listener.Addr().String())}, nil); err != nil {
+		t.Fatal(err)
+	}
+	saveBehindWorker(h, "hang", app.Listener.Addr().String())
+	svc.kill(winsec.WebService)
+	waitRestored(t, h, "hang", "timed_out")
+}
+
+// S-41: one death at connect is not blamed on the settings: a worker that
+// dies once and then loads them keeps them.
+func TestOneCrashAtConnectKeepsSettings(t *testing.T) {
+	var crashes atomic.Int32
+	svc := &fakeServices{webLoad: loadsWith("flaky.example.com", func(die func()) error {
+		if crashes.Add(1) == 1 {
+			die()
+			return errors.New("process died")
+		}
+		return nil
+	})}
+	h := startWith(t, svc, nil, 20*time.Second)
+	app := okApp(t)
+	if err := h.call(ipc.MethodSitePut, ipc.SitePutParams{Site: h.proxySite("app", app.Listener.Addr().String())}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rev := saveBehindWorker(h, "flaky", app.Listener.Addr().String())
+	svc.kill(winsec.WebService)
+	deadline := time.Now().Add(20 * time.Second)
+	for h.sup.store.LastGood() != rev {
+		if time.Now().After(deadline) {
+			t.Fatalf("the settings were not loaded on the second start (%d loads)", crashes.Load())
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !slices.Contains(siteIDs(h), "flaky") {
+		t.Fatal("settings that loaded on the second start were replaced")
+	}
+}

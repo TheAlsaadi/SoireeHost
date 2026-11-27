@@ -48,10 +48,7 @@ func (s *Supervisor) status() ipc.StatusResult {
 		AuditOK:   s.auditOK(),
 		StartedAt: s.started,
 		Tunnel:    s.tunnelStatus(rec.Config),
-		Update:    ipc.UpdateStatus{State: ipc.UpdateOff},
-	}
-	if s.upd != nil {
-		st.Update = s.upd.status()
+		Update:    s.statusUpdate(),
 	}
 	if good := s.store.LastGood(); rec.Revision != 0 && good != rec.Revision {
 		st.ConfigNote = fmt.Sprintf("Revision %d is saved but the web server last loaded revision %d.", rec.Revision, good)
@@ -125,7 +122,7 @@ func (s *Supervisor) applyOrRestore(rec config.Record, prev config.Config) (any,
 		var back config.Record
 		rerr := errors.New("no revision the web server loaded is known")
 		if good != 0 {
-			back, rerr = s.store.Rollback(good, winsec.SIDSystem)
+			back, rerr = s.restoreGood(good, prev)
 		}
 		if rerr != nil {
 			// the last good revision is unknown or cannot be read: restore
@@ -137,7 +134,10 @@ func (s *Supervisor) applyOrRestore(rec config.Record, prev config.Config) (any,
 		}
 		_ = s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 			"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10)})
-		_ = s.applyWeb(back)
+		if aerr := s.applyWeb(back); aerr != nil && !errors.Is(aerr, errWorkerDown) {
+			// review finding GO-4: saved is not loaded; say so
+			return nil, le.withDetail(ipc.Errorf(ipc.CodeInvalid, "The web server could not use these settings, so the previous settings were saved again, but the web server has not loaded them yet (%v). Reason: %s.", aerr, le.reason))
+		}
 		return nil, le.withDetail(ipc.Errorf(ipc.CodeInvalid, "The web server could not use these settings, so the previous settings were restored. Reason: %s.", le.reason))
 	default:
 		return nil, ipc.Errorf(ipc.CodeUnavailable, "The change was saved but could not be applied: %v", err)
@@ -157,6 +157,34 @@ func (s *Supervisor) applyWeb(rec config.Record) error {
 	return s.store.MarkGood(rec.Revision)
 }
 
+// restoreGood saves revision good again as the current settings after the
+// web worker could not use newer ones. The tunnel side stays as it was in
+// cur, the settings in force: the offline switch keeps its value, and no
+// quick share comes back that is not running there (sharp-edges finding
+// SE7-1). Neither decides whether the web worker can load the settings,
+// and an automatic restore must never put anything back on the internet.
+func (s *Supervisor) restoreGood(good uint64, cur config.Config) (config.Record, error) {
+	old, err := s.store.Get(good)
+	if err != nil {
+		return config.Record{}, err
+	}
+	cfg, err := cloneConfig(old.Config)
+	if err != nil {
+		return config.Record{}, err
+	}
+	cfg.Tunnel.Offline = cur.Tunnel.Offline
+	for i, site := range cfg.Sites {
+		if site.QuickShare == nil {
+			continue
+		}
+		j := slices.IndexFunc(cur.Sites, func(x config.Site) bool { return x.ID == site.ID })
+		if j < 0 || !cur.Sites[j].Enabled || cur.Sites[j].QuickShare == nil {
+			cfg.Sites[i].QuickShare = nil
+		}
+	}
+	return s.store.Save(cfg, winsec.SIDSystem, fmt.Sprintf("Rolled back to revision %d", good))
+}
+
 // workerConnected brings a newly connected worker up to date.
 func (s *Supervisor) workerConnected(_ context.Context, role string) {
 	switch role {
@@ -171,21 +199,36 @@ func (s *Supervisor) workerConnected(_ context.Context, role string) {
 		err = s.applyWeb(rec)
 		var le *loadError
 		if !errors.As(err, &le) {
+			if err == nil {
+				s.connectLost.revision, s.connectLost.times = 0, 0
+			}
 			return
 		}
+		cause := "refused"
 		if !le.refused {
-			// a slow or dying worker says nothing about the settings: report
-			// it and keep them, so a change saved while the worker was down
-			// is not undone by a slow first load
-			s.web.setStateDetail(StateRunning, "The web server did not finish loading the saved settings: "+le.reason, le.detail)
-			return
+			// S-41 (owner's decision of 27 Nov 2026): settings the worker
+			// hangs on past the load timeout, or dies on at two connects in
+			// a row, count as refused. One death may have another cause, so
+			// the settings get one more start before they are blamed; a
+			// hung worker never connects again, so a hang counts at once.
+			if s.connectLost.revision != rec.Revision {
+				s.connectLost.revision, s.connectLost.times = rec.Revision, 0
+			}
+			s.connectLost.times++
+			cause = "stopped"
+			if le.timedOut {
+				cause = "timed_out"
+			} else if s.connectLost.times < 2 {
+				s.web.setStateDetail(StateRunning, "The web server did not finish loading the saved settings: "+le.reason, le.detail)
+				return
+			}
 		}
 		// At connect time only a known-good revision is restored; with none,
 		// the saved settings stay as they are and the reason is reported, so
 		// a folder that is missing at boot never wipes the user's sites.
 		s.web.setStateDetail(StateRunning, "The web server could not use the saved settings: "+le.reason, le.detail)
 		if good := s.store.LastGood(); good != 0 && good != rec.Revision {
-			back, err := s.store.Rollback(good, winsec.SIDSystem)
+			back, err := s.restoreGood(good, rec.Config)
 			if err != nil {
 				// reported, not hidden (R-22): the saved settings stay as
 				// they are until someone fixes or replaces them
@@ -195,8 +238,13 @@ func (s *Supervisor) workerConnected(_ context.Context, role string) {
 				return
 			}
 			_ = s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
-				"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10)})
-			_ = s.applyWeb(back)
+				"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10), "cause": cause})
+			// a worker still stuck in the old load takes this one after it,
+			// if ever; a restarted one loads the restored settings at connect
+			if aerr := s.applyWeb(back); aerr != nil && !errors.Is(aerr, errWorkerDown) {
+				// review finding GO-4: saved is not loaded; say so
+				s.web.setStateDetail(StateRunning, fmt.Sprintf("The web server could not use the saved settings (%s). Revision %d was saved again, but the web server has not loaded it yet: %v", le.reason, good, aerr), le.detail)
+			}
 		}
 	case ipc.RoleTunnel:
 		// the whole tunnel plan, token included; the token travels only on
@@ -230,6 +278,8 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 	w.firewall(cur.Config, target.Config)
 	w.updates(cur.Config, target.Config)
 	w.headers(cur.Config, target.Config)
+	w.quickShares(cur.Config, target.Config, p.Revision)
+	w.online(cur.Config, target.Config, p.Revision)
 	// ADR-0008 decision 3: a static folder that goes live through a rollback
 	// is checked as when it is switched on; a folder that cannot be checked
 	// does not go live

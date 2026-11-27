@@ -92,6 +92,7 @@ export function statusLine(st: ipc.StatusResult | undefined, cfg: config.Config 
   if (!st || !cfg) return { tone: "off", key: "statusline.checking" };
   if (st.tunnel.offline) return { tone: "off", key: "statusline.offline" };
   if (st.tunnel.repair_needed) return { tone: "danger", key: "statusline.repair" };
+  if (st.update.state === "interrupted") return { tone: "danger", key: "statusline.updateInterrupted" };
   const enabled = cfg.sites.filter((s) => s.enabled);
   if (cfg.sites.length === 0) return { tone: "off", key: "statusline.noSites" };
   const online = enabled.filter((s) => siteOnline(s, st)).length;

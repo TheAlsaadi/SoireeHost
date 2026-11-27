@@ -72,7 +72,8 @@ func RunService(version string) error {
 			},
 			// a key file that does not parse trusts nothing, so every
 			// update is refused (S-60)
-			Updates: &UpdateOptions{Keys: trustedKeys()},
+			Updates:       &UpdateOptions{Keys: trustedKeys()},
+			UpdateJournal: filepath.Join(filepath.Dir(exe), UpdateJournalName),
 		})
 		if err != nil {
 			return err

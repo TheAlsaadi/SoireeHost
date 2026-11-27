@@ -30,6 +30,12 @@ updates:
       day: monday
     cooldown:
       default-days: 7
+      # Caddy and Coraza sit on the internet-facing path: their releases are
+      # proposed the week they appear, so a fix without a published advisory
+      # still lands within S-65's 7 days (owner's decision of 27 Nov 2026)
+      exclude:
+        - "github.com/caddyserver/*"
+        - "github.com/corazawaf/*"
     groups:
       # Minor and patch releases in one pull request; a major one gets its own
       go-minor-and-patch:

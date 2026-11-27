@@ -42,6 +42,9 @@ type loadError struct {
 	reason  string // the supervisor's own sentence
 	detail  string // the worker's cleaned detail, if any (DR-6)
 	refused bool
+	// timedOut is set when the worker did not answer in time: it may still
+	// be stuck in the load, and nothing short of a restart frees it
+	timedOut bool
 }
 
 func (e *loadError) Error() string { return e.reason }
@@ -334,7 +337,7 @@ func (w *workerMgr) request(m ipc.WorkerMsg, timeout time.Duration) (ipc.WorkerM
 		w.mu.Unlock()
 		// counted as refused, so the change is undone (R-22); the worker
 		// handles messages in order, so a restore sent next lands after it
-		return ipc.WorkerMsg{}, &loadError{reason: fmt.Sprintf("the %s worker did not answer in time", w.role)}
+		return ipc.WorkerMsg{}, &loadError{reason: fmt.Sprintf("the %s worker did not answer in time", w.role), timedOut: true}
 	}
 }
 

@@ -107,7 +107,7 @@ Each line of stderr is read with a 64 KB cap and decoded as JSON. Lines that do 
 
 ### 6. The offline switch
 
-`"tunnel": {"offline": true}` in config, set with the new control method `tunnel.set_offline {offline}`, stops every cloudflared process. Nothing is reachable from the internet while it is on. The web worker keeps serving loopback, so going back online is instant. The switch survives restarts. Both directions write an audit entry. Going offline needs no confirmation. Going back online re-exposes only what was exposed before, which is not one of the S-32 weakening actions, but it is audited.
+`"tunnel": {"offline": true}` in config, set with the new control method `tunnel.set_offline {offline}`, stops every cloudflared process. Nothing is reachable from the internet while it is on. The web worker keeps serving loopback, so going back online is instant. The switch survives restarts. Both directions write an audit entry. Going offline needs no confirmation. Going back online re-exposes only what was exposed before, which is not one of the S-32 weakening actions, but it is audited. A rollback is different, because it changes the switch on the side: going back to a revision that turns the switch off, or that runs a quick share the owner has since stopped, needs confirmation and is audited with the `online` or `quick_share` weakening (owner's decision of 27 Nov 2026; sharp-edges finding SE7-1). An automatic restore of the last good revision (S-41) never does either: it keeps the switch and the running quick shares as they are (`TestRollbackGoingOnlineNeedsConfirmation`, `TestRollbackRestartingQuickShareNeedsConfirmation`, `TestRestoreKeepsOfflineAndStoppedShares`).
 
 ### 7. Ports SoiréeHost owns (R-06, S-10)
 

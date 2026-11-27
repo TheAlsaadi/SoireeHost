@@ -123,6 +123,11 @@ type Options struct {
 	// Updates turns the update check on (ADR-0004). Nil leaves it out, as
 	// most tests do; status then reports it off.
 	Updates *UpdateOptions
+	// UpdateJournal is apply-update's journal in the program folder
+	// (UpdateJournalName beside soireehost.exe). Status reports an update
+	// as interrupted while one is there and has not changed for
+	// updateStalled (S-63). Empty skips the check, as most tests do.
+	UpdateJournal string
 }
 
 // Supervisor is one running supervisor.
@@ -137,6 +142,12 @@ type Supervisor struct {
 	started  time.Time
 
 	changeMu sync.Mutex // serialises config changes and their application
+	// connectLost counts the web worker's connects in a row whose load of
+	// one revision it never finished (S-41); guarded by changeMu
+	connectLost struct {
+		revision uint64
+		times    int
+	}
 	tunnelMu sync.Mutex // serialises tunnel plans and secret.set (GO-6); taken after changeMu
 	web      *workerMgr
 	tunnel   *workerMgr

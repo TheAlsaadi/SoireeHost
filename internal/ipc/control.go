@@ -128,6 +128,9 @@ const (
 	UpdateDownloading = "downloading" // fetching and checking the new version
 	UpdateReady       = "ready"       // verified and staged; Install raises the Windows prompt
 	UpdateFailed      = "failed"      // the last check failed; Problem says why
+	// UpdateInterrupted: an update stopped part way (its journal is still in
+	// the program folder); Repair finishes or undoes it (S-63)
+	UpdateInterrupted = "interrupted"
 )
 
 // UpdateStatus is the update check's state. Problem is a closed-set code
