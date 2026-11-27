@@ -17,6 +17,7 @@ import (
 
 	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec/winsectest"
 )
 
 func plantedRoot(t *testing.T) string {
@@ -44,7 +45,7 @@ func TestCheckContentsRefusesOtherOwner(t *testing.T) {
 	// checkContents always allows.
 	root := plantedRoot(t)
 	planted := filepath.Join(root, "config", "history")
-	if err := winsec.SetFolderSDDL(planted, "O:"+me(t)+"D:P(A;OICI;FA;;;"+me(t)+")(A;OICI;FA;;;"+winsec.SIDAdministrators+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(planted, "O:"+me(t)+"D:P(A;OICI;FA;;;"+me(t)+")(A;OICI;FA;;;"+winsec.SIDAdministrators+")"); err != nil {
 		t.Fatal(err)
 	}
 	err := checkContents(root, "S-1-5-80-0")

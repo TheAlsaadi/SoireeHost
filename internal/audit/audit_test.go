@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec/winsectest"
 )
 
 func newLog(t *testing.T) (*Log, string) {
@@ -158,7 +159,7 @@ func TestAppendUnderAppendOnlyFolder(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "audit")
 	// The extra folder-only entry lets the test's cleanup delete the file (the
 	// real folder grants no one that); it does not reach the file itself.
-	if err := winsec.SetFolderSDDL(dir, "O:"+c.SID+winsec.AuditFolderSDDL(c.SID)+"(A;;FA;;;"+c.SID+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(dir, "O:"+c.SID+winsec.AuditFolderSDDL(c.SID)+"(A;;FA;;;"+c.SID+")"); err != nil {
 		t.Fatal(err)
 	}
 	p := filepath.Join(dir, "audit.log")

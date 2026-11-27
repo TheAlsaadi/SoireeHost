@@ -10,6 +10,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec/winsectest"
 )
 
 func TestServiceSID(t *testing.T) {
@@ -89,7 +91,7 @@ func TestSDDLParses(t *testing.T) {
 func TestCheckWriters(t *testing.T) {
 	user := me(t)
 	dir := filepath.Join(t.TempDir(), "config")
-	if err := SetFolderSDDL(dir, ConfigFolderSDDL(user)); err != nil {
+	if err := winsectest.SetFolderSDDL(dir, ConfigFolderSDDL(user)); err != nil {
 		t.Fatal(err)
 	}
 	if err := CheckWriters(dir, SIDSystem, SIDAdministrators, user); err != nil {
@@ -101,7 +103,7 @@ func TestCheckWriters(t *testing.T) {
 
 	open := filepath.Join(t.TempDir(), "open")
 	sddl := ConfigFolderSDDL(user) + "(A;OICI;0x1301bf;;;" + SIDUsers + ")"
-	if err := SetFolderSDDL(open, sddl); err != nil {
+	if err := winsectest.SetFolderSDDL(open, sddl); err != nil {
 		t.Fatal(err)
 	}
 	err := CheckWriters(open, SIDSystem, SIDAdministrators, user)
@@ -110,7 +112,7 @@ func TestCheckWriters(t *testing.T) {
 	}
 
 	readOnly := filepath.Join(t.TempDir(), "ro")
-	if err := SetFolderSDDL(readOnly, ConfigFolderSDDL(user)+"(A;OICI;FR;;;"+SIDUsers+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(readOnly, ConfigFolderSDDL(user)+"(A;OICI;FR;;;"+SIDUsers+")"); err != nil {
 		t.Fatal(err)
 	}
 	if err := CheckWriters(readOnly, SIDSystem, SIDAdministrators, user); err != nil {
@@ -211,7 +213,7 @@ func TestGrantSiteAccess(t *testing.T) {
 	user := me(t)
 	web, sup := ServiceSID(WebService), ServiceSID(SupervisorService)
 	dir := filepath.Join(t.TempDir(), "site")
-	if err := SetFolderSDDL(dir, "D:P(A;OICI;FA;;;"+SIDSystem+")(A;OICI;FA;;;"+user+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(dir, "D:P(A;OICI;FA;;;"+SIDSystem+")(A;OICI;FA;;;"+user+")"); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := GrantsRead(dir, WorkerGroups(web)...); err != nil || ok {
@@ -235,14 +237,14 @@ func TestGrantSiteAccess(t *testing.T) {
 	}
 
 	denied := filepath.Join(t.TempDir(), "denied")
-	if err := SetFolderSDDL(denied, "D:P(D;OICI;FR;;;"+SIDUsers+")(A;OICI;FA;;;"+user+")(A;OICI;FR;;;"+web+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(denied, "D:P(D;OICI;FR;;;"+SIDUsers+")(A;OICI;FA;;;"+user+")(A;OICI;FR;;;"+web+")"); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := GrantsRead(denied, WorkerGroups(web)...); ok {
 		t.Fatal("a deny entry for Users was ignored")
 	}
 	public := filepath.Join(t.TempDir(), "public")
-	if err := SetFolderSDDL(public, "D:P(A;OICI;FA;;;"+user+")(A;OICI;FR;;;"+SIDUsers+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(public, "D:P(A;OICI;FA;;;"+user+")(A;OICI;FR;;;"+SIDUsers+")"); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := GrantsRead(public, WorkerGroups(web)...); !ok {
@@ -293,11 +295,11 @@ func TestForceSDDLSkipsHardLinks(t *testing.T) {
 func TestForceSDDLDoesNotPropagate(t *testing.T) {
 	user := me(t)
 	parent := filepath.Join(t.TempDir(), "parent")
-	if err := SetFolderSDDL(parent, "D:P(A;OICI;FA;;;"+user+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(parent, "D:P(A;OICI;FA;;;"+user+")"); err != nil {
 		t.Fatal(err)
 	}
 	child := filepath.Join(parent, "locked")
-	if err := SetFolderSDDL(child, "D:P(A;OICI;FA;;;"+SIDSystem+")(A;OICI;RC;;;"+SIDOwnerRights+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(child, "D:P(A;OICI;FA;;;"+SIDSystem+")(A;OICI;RC;;;"+SIDOwnerRights+")"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ForceSDDL(parent, "D:P(A;OICI;FA;;;"+user+")(A;OICI;FR;;;"+SIDSystem+")"); err != nil {
