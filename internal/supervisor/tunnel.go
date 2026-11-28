@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/audit"
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/secrets"
@@ -221,7 +222,7 @@ func (s *Supervisor) quickShareStart(c winsec.Caller, id string) (any, *ipc.Erro
 		}
 	}
 	detail := map[string]string{"site": id}
-	return s.withTunnel(s.change(c, "quickshare.start", detail, func(cfg *config.Config) *ipc.Error {
+	return s.withTunnel(s.change(c, audit.QuickshareStart, detail, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == id })
 		if i < 0 {
 			return ipc.Errorf(ipc.CodeNotFound, "There is no site %q.", id)
@@ -256,7 +257,7 @@ func (s *Supervisor) quickShareStart(c winsec.Caller, id string) (any, *ipc.Erro
 
 // quickShareStop ends a site's quick share.
 func (s *Supervisor) quickShareStop(c winsec.Caller, id string) (any, *ipc.Error) {
-	return s.withTunnel(s.change(c, "quickshare.stop", map[string]string{"site": id}, func(cfg *config.Config) *ipc.Error {
+	return s.withTunnel(s.change(c, audit.QuickshareStop, map[string]string{"site": id}, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == id })
 		if i < 0 {
 			return ipc.Errorf(ipc.CodeNotFound, "There is no site %q.", id)
@@ -268,7 +269,7 @@ func (s *Supervisor) quickShareStop(c winsec.Caller, id string) (any, *ipc.Error
 
 // setOffline is the offline switch: while it is on, no cloudflared runs.
 func (s *Supervisor) setOffline(c winsec.Caller, offline bool) (any, *ipc.Error) {
-	return s.withTunnel(s.change(c, "tunnel.set_offline", map[string]string{"offline": strconv.FormatBool(offline)}, func(cfg *config.Config) *ipc.Error {
+	return s.withTunnel(s.change(c, audit.TunnelSetOffline, map[string]string{"offline": strconv.FormatBool(offline)}, func(cfg *config.Config) *ipc.Error {
 		cfg.Tunnel.Offline = offline
 		return nil
 	}))

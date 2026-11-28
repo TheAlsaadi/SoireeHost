@@ -78,6 +78,7 @@ Run `gitleaks dir --redact . >/dev/null 2>&1 &&` before every commit (chained wi
 
 - Pull request 33: a Dependabot update of the actions group. Its checks are green and it is not merged. Merging it changes only workflow pins, not the candidate's code.
 - `phase7-handoff`: this file.
+- `claude/audit-medium-fixes-e66f53`: the SE-13 and SE-15 fixes (audit anchor, typed audit API), a **draft** pull request titled "[after rc.1]" with no auto-merge. Merge it only after `v1.0.0-rc.1` is tagged, so the candidate stays the soaked build. The owner also decides on the ADR-0006 *Audit anchor* section (Proposed; implemented option 1, alternatives listed there).
 - No other open branch on GitHub.
 
 ## Decisions waiting for the owner
@@ -86,7 +87,7 @@ Fix each of these before `1.0.0`, or have the owner accept it for 1.0. The full 
 
 - The open High and Medium items of the 12 Nov 2026 review:
   - **SE-03 (High):** `winsec.SetFolderSDDL` is exported, though only tests use it. Phase 7's "no high-severity finding open" condition needs it fixed (for example made test-only) or formally accepted.
-  - SE-02, SE-04, SE-06, SE-08, SE-09, SE-13, SE-15, GOE-1, GOE-5, GOE-13, GOE-17, GOE-20.
+  - SE-02, SE-04, SE-06, SE-08, SE-09, GOE-1, GOE-5, GOE-13, GOE-17, GOE-20. (SE-13 and SE-15: fixed on the draft branch above, to merge after rc.1.)
 - Low sharp-edges findings: SE7-3 to SE7-9 and S12V-1 to S12V-5.
 - Code review leftovers:
   - CR-4: rollback exposure sentences do not name the site.

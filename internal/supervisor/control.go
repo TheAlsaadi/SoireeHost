@@ -60,7 +60,7 @@ func (s *Supervisor) status() ipc.StatusResult {
 // it, and loads it into the web worker. If the worker refuses it, the last
 // revision the worker loaded is restored and the worker's reason returned
 // (S-41).
-func (s *Supervisor) change(c winsec.Caller, action string, detail map[string]string,
+func (s *Supervisor) change(c winsec.Caller, action audit.Action, detail map[string]string,
 	mutate func(*config.Config) *ipc.Error,
 ) (any, *ipc.Error) {
 	s.changeMu.Lock()
@@ -76,12 +76,12 @@ func (s *Supervisor) change(c winsec.Caller, action string, detail map[string]st
 	if e := mutate(&next); e != nil {
 		return nil, e
 	}
-	rec, err := s.store.Save(next, c.SID, action)
+	rec, err := s.store.Save(next, c.SID, action.String())
 	if err != nil {
 		return nil, ipc.Errorf(ipc.CodeInvalid, "%v", err)
 	}
 	detail["revision"] = strconv.FormatUint(rec.Revision, 10)
-	if e := s.recordOrUndo(c.SID, action, detail, cur.Config); e != nil {
+	if e := s.recordOrUndo(actorOf(c.SID), action, detail, cur.Config); e != nil {
 		return nil, e
 	}
 	return s.applyOrRestore(rec, cur.Config)
@@ -91,8 +91,8 @@ func (s *Supervisor) change(c winsec.Caller, action string, detail map[string]st
 // audit entry (S-32): when the entry cannot be written, prev is saved again
 // before any worker has loaded the change, and the call fails. Other changes
 // keep going; the failure shows on the Security page (audit_ok false).
-func (s *Supervisor) recordOrUndo(sid, action string, detail map[string]string, prev config.Config) *ipc.Error {
-	if s.record(sid, action, detail) == nil || detail["weakening"] == "" {
+func (s *Supervisor) recordOrUndo(actor audit.Actor, action audit.Action, detail map[string]string, prev config.Config) *ipc.Error {
+	if s.record(actor, action, detail) == nil || detail["weakening"] == "" {
 		return nil
 	}
 	back, err := s.store.Save(prev, winsec.SIDSystem, "Undid a weakening change that could not be audited")
@@ -101,7 +101,7 @@ func (s *Supervisor) recordOrUndo(sid, action string, detail map[string]string, 
 	}
 	// best effort: the failed write may still have left the weakening's
 	// entry in the log, so the undo is recorded too (security review SR-4)
-	_ = s.record(winsec.SIDSystem, "config.undone", map[string]string{"action": action, "new_revision": strconv.FormatUint(back.Revision, 10)})
+	_ = s.record(audit.System, audit.ConfigUndone, map[string]string{"action": action.String(), "new_revision": strconv.FormatUint(back.Revision, 10)})
 	return errNotAudited
 }
 
@@ -140,7 +140,7 @@ func (s *Supervisor) applyOrRestore(rec config.Record, prev config.Config) (any,
 		if rerr != nil {
 			return nil, le.withDetail(ipc.Errorf(ipc.CodeInternal, "The web server could not use these settings (%s), and restoring revision %d failed: %v", le.reason, good, rerr))
 		}
-		_ = s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+		_ = s.record(audit.System, audit.ConfigRestored, map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 			"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10)})
 		if aerr := s.applyWeb(back); aerr != nil && !errors.Is(aerr, errWorkerDown) {
 			// review finding GO-4: saved is not loaded; say so
@@ -308,11 +308,11 @@ func (s *Supervisor) workerConnected(_ context.Context, role string) {
 				// reported, not hidden (R-22): the saved settings stay as
 				// they are until someone fixes or replaces them
 				s.web.setProblem(fmt.Sprintf("The web server could not use the saved settings (%s), and restoring revision %d failed: %v", le.reason, good, err), le.detail)
-				_ = s.record(winsec.SIDSystem, "config.restore_failed", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+				_ = s.record(audit.System, audit.ConfigRestoreFailed, map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 					"restored_revision": strconv.FormatUint(good, 10)})
 				return
 			}
-			_ = s.record(winsec.SIDSystem, "config.restored", map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
+			_ = s.record(audit.System, audit.ConfigRestored, map[string]string{"failed_revision": strconv.FormatUint(rec.Revision, 10),
 				"restored_revision": strconv.FormatUint(good, 10), "new_revision": strconv.FormatUint(back.Revision, 10), "cause": cause})
 			// a worker still stuck in the old load takes this one after it,
 			// if ever; a restarted one loads the restored settings at connect
@@ -390,7 +390,7 @@ func (s *Supervisor) rollback(c winsec.Caller, p *ipc.RollbackParams) (any, *ipc
 	if cerr != nil {
 		prev = config.Default()
 	}
-	if e := s.recordOrUndo(c.SID, "config.rollback", detail, prev); e != nil {
+	if e := s.recordOrUndo(actorOf(c.SID), audit.ConfigRollback, detail, prev); e != nil {
 		// the tunnel may have taken the rolled-back plan meanwhile; push
 		// the undone one (security review SR-2)
 		return s.withTunnel(nil, e)
@@ -454,7 +454,7 @@ func (s *Supervisor) sitePut(c winsec.Caller, p *ipc.SitePutParams) (any, *ipc.E
 			return nil, perr
 		}
 	}
-	res, e := s.change(c, "site.put", detail, func(cfg *config.Config) *ipc.Error {
+	res, e := s.change(c, audit.SitePut, detail, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == site.ID })
 		// quick shares are changed only through quickshare.start and
 		// quickshare.stop; replacing a site keeps its share as it is
@@ -502,7 +502,7 @@ func withExposure(res any, e *ipc.Error, rep *sitecheck.ExposureReport, warn []s
 }
 
 func (s *Supervisor) siteRemove(c winsec.Caller, id string) (any, *ipc.Error) {
-	return s.withTunnel(s.change(c, "site.remove", map[string]string{"site": id}, func(cfg *config.Config) *ipc.Error {
+	return s.withTunnel(s.change(c, audit.SiteRemove, map[string]string{"site": id}, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == id })
 		if i < 0 {
 			return ipc.Errorf(ipc.CodeNotFound, "There is no site %q.", id)
@@ -537,7 +537,7 @@ func (s *Supervisor) siteSetEnabled(c winsec.Caller, p *ipc.SiteEnabledParams) (
 			}
 		}
 	}
-	res, e := s.change(c, "site.set_enabled", detail, func(cfg *config.Config) *ipc.Error {
+	res, e := s.change(c, audit.SiteSetEnabled, detail, func(cfg *config.Config) *ipc.Error {
 		i := slices.IndexFunc(cfg.Sites, func(x config.Site) bool { return x.ID == id })
 		if i < 0 {
 			return ipc.Errorf(ipc.CodeNotFound, "There is no site %q.", id)
@@ -586,24 +586,24 @@ func (s *Supervisor) secretSet(c winsec.Caller, p *ipc.SecretSetParams) (any, *i
 			return nil, e
 		}
 	}
-	action := "secret.set"
+	action := audit.SecretSet
 	if st.Set {
-		action = "secret.replace"
+		action = audit.SecretReplace
 		// replacing the token is a weakening action (S-32): the old token
 		// cannot be put back, so the entry is written before the change and
 		// a failure refuses it
-		if s.record(c.SID, action, detail) != nil {
+		if s.record(actorOf(c.SID), action, detail) != nil {
 			return nil, errNotAudited
 		}
 	}
 	if err := s.secrets.Set(p.Name, []byte(p.Value)); err != nil {
 		if st.Set {
-			_ = s.record(c.SID, action+".failed", map[string]string{"name": p.Name})
+			_ = s.record(actorOf(c.SID), audit.SecretReplaceFailed, map[string]string{"name": p.Name})
 		}
 		return nil, ipc.Errorf(ipc.CodeInvalid, "The token could not be stored: %v", err)
 	}
 	if !st.Set {
-		_ = s.record(c.SID, action, detail)
+		_ = s.record(actorOf(c.SID), action, detail)
 	}
 	res := ipc.SecretStatusResult{}
 	switch err := s.pushTunnelLocked(); {
@@ -636,7 +636,7 @@ func (s *Supervisor) auditList(p *ipc.AuditListParams) (any, *ipc.Error) {
 	if err != nil {
 		return nil, ipc.Errorf(ipc.CodeInternal, "The audit log could not be read.")
 	}
-	rep, err := audit.Verify(path)
+	rep, err := s.audit.Verify()
 	if err != nil {
 		return nil, ipc.Errorf(ipc.CodeInternal, "The audit log could not be checked.")
 	}

@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/audit"
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/fsutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
@@ -72,7 +73,7 @@ type updater struct {
 	running string
 	client  *http.Client
 	enabled func() bool
-	record  func(action string, detail map[string]string)
+	record  func(action audit.Action, detail map[string]string)
 	now     func() time.Time
 	kick    chan struct{} // "Check now"
 
@@ -86,7 +87,7 @@ type updater struct {
 	lastKick time.Time
 }
 
-func newUpdater(dir, running string, o UpdateOptions, enabled func() bool, record func(string, map[string]string)) *updater {
+func newUpdater(dir, running string, o UpdateOptions, enabled func() bool, record func(audit.Action, map[string]string)) *updater {
 	if o.ManifestURL == "" {
 		o.ManifestURL = update.ManifestURL
 	}
@@ -309,7 +310,7 @@ func (u *updater) checkOnce(ctx context.Context) error {
 	}
 	u.removeStaged(m.Version)
 	u.ready(m.Version)
-	u.record("update.ready", map[string]string{"version": m.Version})
+	u.record(audit.UpdateReady, map[string]string{"version": m.Version})
 	return nil
 }
 
@@ -434,7 +435,7 @@ func (s *Supervisor) updateCheck(c winsec.Caller) (any, *ipc.Error) {
 	case !started:
 		return nil, ipc.Errorf(ipc.CodeUnavailable, "SoiréeHost checked for updates less than a minute ago.")
 	}
-	_ = s.record(c.SID, "update.check", nil)
+	_ = s.record(actorOf(c.SID), audit.UpdateCheck, nil)
 	return s.upd.status(), nil
 }
 
@@ -442,7 +443,7 @@ func (s *Supervisor) updateCheck(c winsec.Caller) (any, *ipc.Error) {
 // (S-32).
 func (s *Supervisor) updateSetCheck(c winsec.Caller, p *ipc.UpdateSetCheckParams) (any, *ipc.Error) {
 	detail := map[string]string{"check": strconv.FormatBool(p.Check)}
-	return s.change(c, "update.set_check", detail, func(cfg *config.Config) *ipc.Error {
+	return s.change(c, audit.UpdateSetCheck, detail, func(cfg *config.Config) *ipc.Error {
 		next := *cfg
 		next.Updates.Off = !p.Check
 		var w weakenings
