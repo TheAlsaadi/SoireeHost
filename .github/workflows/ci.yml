@@ -46,7 +46,7 @@ jobs:
   go:
     name: Go checks
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,8 +67,15 @@ jobs:
       - name: Vendored Core Rule Set matches its signed release (S-71, ADR-0008)
         shell: pwsh
         run: ./build/check-crs.ps1
+      # The default tags, then the installed-system tests (e2e) and the
+      # release build's files (production); a step's -tags replaces GOFLAGS',
+      # so each list names no_fs_access (GOE-1, ADR-0008)
       - name: go vet
         run: go vet ./...
+      - name: go vet (e2e)
+        run: go vet -tags e2e,no_fs_access ./...
+      - name: go vet (production)
+        run: go vet -tags production,no_fs_access ./...
       - name: Tests with race detector
         # The race detector needs cgo; release builds stay CGO_ENABLED=0.
         # On failure the relevant lines are also published as an annotation,
@@ -77,7 +84,8 @@ jobs:
           CGO_ENABLED: "1"
         shell: pwsh
         run: |
-          $out = go test -race -count=1 ./... 2>&1 | Out-String
+          # quoted: PowerShell splits a bare -coverprofile=x.out at the dot
+          $out = go test -race -count=1 '-coverprofile=coverage.out' ./... 2>&1 | Out-String
           $code = $LASTEXITCODE
           Write-Output $out
           if ($code -ne 0) {
@@ -86,23 +94,35 @@ jobs:
             Write-Output "::error title=go test -race failed::$msg"
             exit $code
           }
+      - name: Coverage of the packages with a target (TEST_PLAN, GOE-5)
+        shell: pwsh
+        run: ./build/check-coverage.ps1 -Profile coverage.out
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
-      - name: golangci-lint (installed-system tests)
-        # internal/e2e builds only with the e2e tag; --build-tags replaces the
-        # config's list, so no_fs_access is named again (ADR-0008)
+      - name: golangci-lint (e2e)
+        # internal/e2e and setup's administrator tests build only with the e2e
+        # tag; --build-tags replaces the config's list, so no_fs_access is
+        # named again (ADR-0008)
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
-          args: --build-tags no_fs_access,e2e ./internal/e2e/...
+          args: --build-tags no_fs_access,e2e ./...
       - name: staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@${{ env.STATICCHECK_VERSION }} -tags no_fs_access ./...
+      - name: staticcheck (e2e)
+        run: go run honnef.co/go/tools/cmd/staticcheck@${{ env.STATICCHECK_VERSION }} -tags e2e,no_fs_access ./...
+      - name: staticcheck (production)
+        run: go run honnef.co/go/tools/cmd/staticcheck@${{ env.STATICCHECK_VERSION }} -tags production,no_fs_access ./...
       - name: gosec
         run: go run github.com/securego/gosec/v2/cmd/gosec@${{ env.GOSEC_VERSION }} -quiet -tags no_fs_access -exclude-dir=.semgrep ./...
+      - name: gosec (production)
+        run: go run github.com/securego/gosec/v2/cmd/gosec@${{ env.GOSEC_VERSION }} -quiet -tags production,no_fs_access -exclude-dir=.semgrep ./...
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }} -tags no_fs_access ./...
+      - name: govulncheck (production)
+        run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }} -tags production,no_fs_access ./...
 
   frontend:
     name: Frontend checks
@@ -231,6 +251,22 @@ jobs:
           Copy-Item bin\soireehost.exe C:\soireehost-ci\soireehost.exe
       - name: Compile the e2e tests before the clock starts
         run: go test -c -tags e2e,no_fs_access -o C:\soireehost-ci\e2e.test.exe ./internal/e2e/
+      - name: Setup folder tests that need administrator rights (DR-7, DR-8)
+        # internal/setup/admin_windows_test.go, in a temporary folder, before
+        # anything is installed
+        env:
+          SOIREEHOST_E2E: "1"
+        shell: pwsh
+        run: |
+          $out = go test -tags e2e,no_fs_access -count=1 -v -run '^TestAdmin' ./internal/setup/ 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -eq 0 -and $out -notmatch '--- PASS: TestAdminTakeBack') { Write-Output "::error title=setup administrator tests::the tests did not run"; exit 1 }
+          if ($code -ne 0) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|panic|error|--- |\.go:\d+' } | Select-Object -First 20
+            Write-Output "::error title=setup administrator tests::$(($lines -join '%0A') -replace '::', ': :')"
+            exit $code
+          }
       - name: setup install, timed to the first live site (Phase 6 check)
         # From the downloaded soireehost.exe to a page served over the
         # internet through quick share, on a runner where SoiréeHost was

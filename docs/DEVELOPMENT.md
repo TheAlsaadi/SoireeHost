@@ -30,7 +30,7 @@ To work on the control panel without the service, run `npm run dev:fake` in `fro
 | What | Command |
 | --- | --- |
 | Go tests | `go test ./...` (race tests need cgo and run in CI only) |
-| Go static analysis | `go vet ./...`, `golangci-lint run ./...`, `golangci-lint run --build-tags no_fs_access,e2e ./internal/e2e/...`, `staticcheck -tags no_fs_access ./...`, `gosec -quiet -tags no_fs_access -exclude-dir=.semgrep ./...` |
+| Go static analysis | `go vet ./...`, `golangci-lint run ./...`, `golangci-lint run --build-tags no_fs_access,e2e ./...`, `staticcheck -tags no_fs_access ./...`, `gosec -quiet -tags no_fs_access -exclude-dir=.semgrep ./...` |
 | Known vulnerabilities | `govulncheck -tags no_fs_access ./...`; `npm audit` in `frontend/` |
 | Frontend | in `frontend/`: `npm ci --ignore-scripts`, `npm run check`, `npm run lint`, `npm test` |
 | Fuzzing | `powershell -File build\fuzz.ps1 -Duration 30s` (every target, one after another) |

@@ -1,7 +1,10 @@
 package ipc
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -84,6 +87,79 @@ func FuzzDecodeWorkerMsg(f *testing.F) {
 			if tun.Caddy != nil || tun.Scan != nil || tun.Exposure != nil {
 				t.Fatal("a web payload accepted on the tunnel pipe")
 			}
+		}
+	})
+}
+
+// FuzzReadFrame: the frame parser runs before the caller is identified
+// (GOE-13). It never panics, never returns more than MaxFrame, and what it
+// accepts is the declared length and writes back as the bytes it read.
+func FuzzReadFrame(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte{0, 0, 0})
+	f.Add([]byte{0, 0, 0, 0})
+	f.Add([]byte{0, 0, 0, 2, '{', '}', 'x'})
+	f.Add([]byte{0, 0, 0, 9, '{', '}'})
+	f.Add([]byte{0, 0x10, 0, 0})
+	f.Add([]byte{0, 0x10, 0, 1})
+	f.Add([]byte{0xff, 0xff, 0xff, 0xff, 'x'})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		r := bytes.NewReader(data)
+		payload, err := ReadFrame(r)
+		if len(data) >= 4 && binary.BigEndian.Uint32(data) > MaxFrame {
+			if !errors.Is(err, ErrFrameTooLarge) || r.Len() != len(data)-4 {
+				t.Fatalf("oversized frame: %v, %d bytes of payload read", err, len(data)-4-r.Len())
+			}
+			return
+		}
+		if err != nil {
+			if len(data) >= 4 && int(binary.BigEndian.Uint32(data)) <= len(data)-4 {
+				t.Fatalf("complete frame refused: %v", err)
+			}
+			return
+		}
+		if len(payload) > MaxFrame || len(payload) != int(binary.BigEndian.Uint32(data)) {
+			t.Fatalf("%d bytes returned", len(payload))
+		}
+		var out bytes.Buffer
+		if err := WriteFrame(&out, payload); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(out.Bytes(), data[:len(data)-r.Len()]) {
+			t.Fatal("the frame does not write back as it was read")
+		}
+	})
+}
+
+// FuzzDecodeResponse: decoding never panics, and anything accepted holds
+// exactly one of a result and an error and decodes again (GOE-13).
+func FuzzDecodeResponse(f *testing.F) {
+	for _, s := range []string{
+		`{"id":1,"result":{}}`,
+		`{"id":2,"error":{"code":"invalid","message":"x"}}`,
+		`{"id":3,"error":{"code":"confirmation_required","message":"x","confirmation":{}}}`,
+		`{"id":4,"result":null}`,
+		`{"id":5,"result":{},"error":{"code":"internal","message":"x"}}`,
+		`{"id":6}`,
+		`{"id":7,"result":{}} {}`,
+		`{"id":8,"result":{},"extra":1}`,
+	} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		resp, err := DecodeResponse(data)
+		if err != nil {
+			return
+		}
+		if (resp.Error == nil) == (len(resp.Result) == 0) {
+			t.Fatalf("accepted %q without exactly one of result and error", data)
+		}
+		again, err := json.Marshal(resp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := DecodeResponse(again); err != nil {
+			t.Fatalf("re-encoded response refused: %v\n%s", err, again)
 		}
 	})
 }

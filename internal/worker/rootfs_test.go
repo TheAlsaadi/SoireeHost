@@ -175,6 +175,7 @@ func TestRootFSRefusesBlockedFolder(t *testing.T) {
 }
 
 func TestRunStopsOnCancel(t *testing.T) {
+	testutil.CheckGoroutines(t)
 	c := config.Default()
 	c.Listen = fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	ctx, cancel := context.WithCancel(t.Context())

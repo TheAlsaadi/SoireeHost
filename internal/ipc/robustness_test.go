@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
@@ -155,6 +156,7 @@ func TestControlConnectionLimit(t *testing.T) {
 // GO-15: a handler that panics fails only its own call; the server keeps
 // serving.
 func TestHandlerPanicIsContained(t *testing.T) {
+	testutil.CheckGoroutines(t)
 	user := me(t)
 	path := pipeName(t)
 	ln, err := Listen(path, winsec.ControlPipeSDDL(user, user))
@@ -221,6 +223,7 @@ func TestCutReason(t *testing.T) {
 // GO-1, end to end: a worker whose load fails with a long non-ASCII error
 // reaches the supervisor with a failed message it accepts.
 func TestFailedReasonReachesSupervisor(t *testing.T) {
+	testutil.CheckGoroutines(t)
 	user := me(t)
 	path := pipeName(t)
 	ln, err := Listen(path, winsec.WorkerPipeSDDL(user, user))
@@ -264,6 +267,7 @@ func TestFailedReasonReachesSupervisor(t *testing.T) {
 // R-05: a load error that wraps ErrAgentExit is reported to the supervisor,
 // and then the agent returns, so the worker process ends.
 func TestAgentExitsAfterFatalLoad(t *testing.T) {
+	testutil.CheckGoroutines(t)
 	user := me(t)
 	path := pipeName(t)
 	ln, err := Listen(path, winsec.WorkerPipeSDDL(user, user))

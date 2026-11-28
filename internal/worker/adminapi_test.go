@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
+	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 )
 
 // SE-20 (docs/reviews/2026-11-12-skills-review.md): Caddy starts its
@@ -97,6 +98,7 @@ func TestWatchListenersStopsOnPublicSocket(t *testing.T) {
 
 // WatchListeners ends quietly when its context ends.
 func TestWatchListenersEndsWithContext(t *testing.T) {
+	testutil.CheckGoroutines(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if err := WatchListeners(ctx, time.Hour); err != nil {
