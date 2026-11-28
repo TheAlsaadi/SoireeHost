@@ -10,7 +10,7 @@ Written 27 Nov 2026, updated 28 Nov 2026. The Claude subscription that built Soi
   2. build, pull request 28, done;
   3. security pass, pull request 32, merged 27 Nov 2026, done;
   4. **long runs, now in progress** (below);
-  5. the release candidate `v1.0.0-rc.1`, not started.
+  5. the release candidate `v1.0.0-rc.1`, prepared but not tagged (see "rc.1 status" below).
 - Stage 4 (fuzz, soak candidate) ran on `main` `03f57bb`, the merge of pull request 32. Since then `main` has taken pull requests 33 to 35 (workflow pins, this file, SE-03).
 
 ## Stage 4: long runs
@@ -100,6 +100,125 @@ When the fuzz run has passed and the soak has passed, open one small pull reques
 - updates this file.
 
 Run `gitleaks dir --redact . >/dev/null 2>&1 &&` before every commit (chained with `&&`, never piped).
+
+## rc.1 status
+
+As of 28 Nov 2026. Nothing is tagged or released, and the release workflow has not been run for a tag. Tagging needs a passed soak and the owner's word.
+
+### Ready
+
+- Release notes: `docs/release-notes/v1.0.0-rc.1.md`.
+- `docs/RELEASE_CHECKLIST.md`, "Before tagging": every item but the first is ticked, with its evidence.
+- Fuzzing passed (run 46010926821).
+- Owner decision, 28 Nov 2026: SE-02, SE-04, SE-06, SE-08, SE-09, SE-13 and SE-15 stay open in rc.1 as known issues and are fixed before 1.0.0. GOE-1, GOE-5, GOE-13, GOE-17 and GOE-20 are test gaps, closed now without changing the program. Record both in `docs/HISTORY.md` with the soak result.
+
+### Left
+
+1. The 72-hour soak ends about 1 Dec 00:30 UTC. It must end in `PASS`. Collect its files, restore the host's settings (above), and record the result (see "Recording Stage 4").
+2. Choose the commit to tag (below). The first "Before tagging" item is ticked for that commit.
+3. On the day of the tag, look again at the Dependabot, code-scanning and secret-scanning pages.
+4. The owner gives the word, tags, approves the `manifest` job, checks the draft in the VM, decides the rollback triggers and publishes.
+5. Record the release in `docs/HISTORY.md`.
+
+### The commit to tag
+
+The soak runs the build of `03f57bb`. `main` has moved since. When these notes were written, the only changes outside `docs/` and tests were workflow action pins (pull request 33; its Release dry run 46008430451 passed), the removal of the test-only `SetFolderSDDL` from `internal/winsec` (pull request 35), and notes for Claude sessions (`CLAUDE.md`, `.claude/`). If the list below shows any other program code, the soak does not cover it: do not tag that commit without the owner's decision. The fixes for the seven SE findings should wait until after the tag. If one is merged first, update the release notes too.
+
+If the GOE test gaps are not all closed on the tagged commit, add the open ones to the known issues in the release notes.
+
+### Commands
+
+Run them in PowerShell, in an up-to-date checkout of the repository, in one window (later commands use `$sha`, `$run` and `$d`).
+
+Choose the commit and list what changed in it since the soaked build:
+
+```powershell
+git fetch origin
+```
+
+```powershell
+$sha = git rev-parse origin/main
+```
+
+```powershell
+git diff --stat 03f57bb $sha -- . ':(exclude)docs' ':(exclude)*_test.go'
+```
+
+CI must show `success` for that commit (the tag run refuses it otherwise):
+
+```powershell
+gh run list --workflow ci.yml --commit $sha
+```
+
+Only after the soak has passed and the owner says so, tag and push. Never move or reuse a tag: if the tag run fails after the push, fix the cause and release `rc.2`.
+
+```powershell
+git tag -a v1.0.0-rc.1 $sha -m "v1.0.0-rc.1"
+```
+
+```powershell
+git push origin v1.0.0-rc.1
+```
+
+Find the Release run, open it, and approve the `manifest` job ("Review deployments", environment `release`):
+
+```powershell
+$run = gh run list --workflow release.yml --branch v1.0.0-rc.1 --limit 1 --json databaseId --jq '.[0].databaseId'
+```
+
+```powershell
+gh run view $run --web
+```
+
+```powershell
+gh run watch $run --exit-status
+```
+
+The run creates a draft pre-release. Replace its short text with the release notes:
+
+```powershell
+git switch --detach $sha
+```
+
+```powershell
+gh release edit v1.0.0-rc.1 --notes-file docs/release-notes/v1.0.0-rc.1.md
+```
+
+Download the draft into a new folder and check it. Every line must end in `True`:
+
+```powershell
+$d = "$env:USERPROFILE\Downloads\soireehost-rc1"
+```
+
+```powershell
+gh release download v1.0.0-rc.1 --dir $d
+```
+
+```powershell
+Get-Content "$d\SHA256SUMS" | ForEach-Object { $h, $n = $_ -split '\s+', 2; "$n $((Get-FileHash (Join-Path $d $n)).Hash -eq $h)" }
+```
+
+```powershell
+gh attestation verify "$d\soireehost.exe" --repo TheAlsaadi/SoireeHost
+```
+
+Then, in the VM restored to "clean": install the draft's `soireehost.exe` and check the install and uninstall items in the checklist. The update item starts with the second release. When they pass, and the owner says so, publish:
+
+```powershell
+gh release edit v1.0.0-rc.1 --draft=false --prerelease
+```
+
+```powershell
+gh release view v1.0.0-rc.1 --json isDraft,isPrerelease,url
+```
+
+The first two "After publishing" items cannot hold for a candidate: `releases/latest` skips pre-releases, so the manifest address answers 404 until 1.0.0, and no earlier release exists. An rc.1 install's update check reports "Could not reach GitHub" until then. The release notes say so.
+
+### Noticed while preparing, not yet fixed
+
+- `docs/USER_GUIDE.md` says the change history "cannot be rewritten". SE-13 shows that is too strong.
+- The user guide's download link goes to the latest full release, so it does not lead to the candidate's files until 1.0.0.
+- S-03, S-04, S-06, S-21, S-64 and S-73 still read "Partial" in `docs/SECURITY_CHECKLIST.md`. Phase 7 needs every row linked to a passing test or a recorded check, so settle them before the sign-off. S-73 needs the tag run; S-64 needs the update from rc.1 to 1.0.0.
 
 ## Open pull requests and branches
 
