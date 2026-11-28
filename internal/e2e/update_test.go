@@ -232,9 +232,11 @@ func TestApplyUpdate(t *testing.T) {
 	stageUpdate(t, sign(t, "0.9.0", v110, priv), v110, "0.9.0")
 	refused("older version", setup.CodeUpdateRefused)
 
-	// a good update
+	// a good update, with the supervisor started again just after the stop,
+	// as the service manager's recovery action may do (the flake of CI run
+	// 46130645262): setup must stop it again before the swap
 	stageUpdate(t, good, v110, "1.1.0")
-	if code := runSetup(t, nil, "apply-update"); code != setup.CodeOK {
+	if code := runSetup(t, []string{"SOIREEHOST_TEST_RESTART_AT=stopped"}, "apply-update"); code != setup.CodeOK {
 		t.Fatalf("good update: apply-update exited %d", code)
 	}
 	if got := runningVersion(t); got != "1.1.0" {

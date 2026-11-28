@@ -645,6 +645,16 @@ func stopAndWait(s *mgr.Service) bool {
 			if st, err = s.Query(); err != nil {
 				return false
 			}
+			if st.ProcessId != 0 {
+				pid = st.ProcessId
+			}
+			// a service that was still starting refused the stop; ask
+			// again once it runs
+			if st.State == svc.Running {
+				if c, err := s.Control(svc.Stop); err == nil {
+					st = c
+				}
+			}
 		}
 		if st.State != svc.Stopped {
 			return false

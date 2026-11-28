@@ -251,6 +251,8 @@ Fix each of the rest before `1.0.0`, or have the owner accept it for 1.0:
   - no high-severity finding is open;
   - the owner signs off.
 
+- **UPD-1, the update rolled back for nothing (owner decision, draft pull request "[decision] ...").** Found 28 Nov 2026 from a CI flake (run 46130645262, attempt 1, `TestSignedUpdates`: "rolled back: the supervisor reports version 1.1.0, not 1.3.0"; the re-run passed). Cause, in the product: the supervisor service has restart recovery actions (5, 30, 60 s). An earlier failure leaves a restart on the service manager's timer, and if it fires while `apply-update` has the services stopped and before the swap, the old program starts again from the old path. It keeps serving the control pipe while the new one is installed, so the version check fails and the update is rolled back. In the CI run the 1.2.0 test build that refuses to start failed at 09:47:19; the 60 s restart came due at 09:48:19, while the next update had the services stopped. The service manager's events show the web and tunnel services stopping at 09:48:39 and starting at 09:48:40 with no supervisor start: the old one was already running again. Seen once in the last 40 CI runs. A user sees a failed update that rolls back safely; trying again works. The fix in the draft re-checks that the services stay stopped before the settings snapshot, after the swap and in the rollback, and re-sends the stop to a service that was still starting. A `setuptesthooks` restart hook makes the e2e good update reproduce it. Options: ship rc.1 as soaked and fix in rc.2 or 1.0.0, or merge before rc.1 and soak again briefly.
+
 ## Findings for after rc.1
 
 Found or recorded while the candidate's code was frozen. Do these once `v1.0.0-rc.1` is out, before `1.0.0`.

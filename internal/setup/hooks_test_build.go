@@ -12,3 +12,12 @@ func testKillAt(step Step) {
 		os.Exit(99)
 	}
 }
+
+// testRestartAt starts the supervisor at step when SOIREEHOST_TEST_RESTART_AT
+// names it, as a recovery action scheduled by an earlier failure would
+// (the CI flake of 28 Nov 2026, run 46130645262).
+func testRestartAt(step Step) {
+	if os.Getenv("SOIREEHOST_TEST_RESTART_AT") == string(step) {
+		_ = startSupervisor()
+	}
+}

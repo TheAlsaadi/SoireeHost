@@ -15,6 +15,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/fsutil"
@@ -109,6 +110,13 @@ func ApplyUpdate(l Layout) error {
 		return abort(errors.New("a SoiréeHost service did not stop; nothing was changed"))
 	}
 	testKillAt(StepStopped)
+	testRestartAt(StepStopped)
+	// The service manager may have started the supervisor again meanwhile
+	// (keepStopped says when), so the stop is checked again before the
+	// settings are copied and again after the swap.
+	if !keepStopped(servicesRunning, stopServices) {
+		return abort(errors.New("a SoiréeHost service started again and did not stop; nothing was changed"))
+	}
 	// The settings are copied only once the supervisor has stopped, so no
 	// change made meanwhile is lost and the copy is consistent.
 	if err := step(StepSnapshot); err != nil {
@@ -125,6 +133,11 @@ func ApplyUpdate(l Layout) error {
 		return rollback(l, sid, j, true, fmt.Errorf("swapping the program: %w", err))
 	}
 	testKillAt(StepSwapped)
+	// A supervisor started between the last check and the swap still runs
+	// the old program. Any start from here on runs the new one.
+	if !keepStopped(servicesRunning, stopServices) {
+		return rollback(l, sid, j, true, errors.New("a SoiréeHost service started again during the swap and did not stop"))
+	}
 	if err := runNewRepair(l); err != nil {
 		return rollback(l, sid, j, true, fmt.Errorf("the new version's setup: %w", err))
 	}
@@ -521,6 +534,32 @@ func stopServices() bool {
 	return ok
 }
 
+// servicesRunning reports whether any of the three services is not
+// stopped. When the service manager cannot be asked it says yes, so the
+// caller tries to stop them and fails safe.
+func servicesRunning() bool {
+	m, err := mgr.Connect()
+	if err != nil {
+		return true
+	}
+	defer m.Disconnect() //nolint:errcheck // nothing to do on failure
+	for _, spec := range services {
+		s, err := m.OpenService(spec.name)
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			continue // not installed: nothing runs
+		}
+		if err != nil {
+			return true
+		}
+		st, err := s.Query()
+		_ = s.Close()
+		if err != nil || st.State != svc.Stopped {
+			return true
+		}
+	}
+	return false
+}
+
 // runNewRepair runs the new program's own "setup repair", which unpacks its
 // cloudflared and applies its release's service, folder and firewall
 // settings. The journal names this process, so the child may run while it
@@ -597,6 +636,11 @@ func rollback(l Layout, sid string, j Journal, inProcess bool, cause error) erro
 	var errs []error
 	if err := restoreFiles(l, j.OldHash); err != nil {
 		errs = append(errs, err)
+	}
+	// a supervisor the service manager started before the files went back
+	// runs the version being undone
+	if !keepStopped(servicesRunning, stopServices) {
+		errs = append(errs, errors.New("a SoiréeHost service started again and did not stop"))
 	}
 	if err := restoreConfig(l); err != nil {
 		errs = append(errs, err)

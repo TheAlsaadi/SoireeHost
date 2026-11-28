@@ -355,3 +355,24 @@ func signatureAllows(runSigned, runValid bool, runPublisher string, newValid boo
 	}
 	return nil
 }
+
+// keepStopped makes sure the services are still stopped, stopping them again
+// if they are not. The service manager may start the supervisor again on its
+// own while an update has it stopped: a recovery action scheduled by an
+// earlier failure (5, 30 or 60 seconds later) fires on its timer whatever
+// setup is doing. Before the swap such a supervisor runs the old program;
+// left alone it keeps serving the control pipe through the new version's
+// repair, and the version check then rolls the update back for nothing.
+// running reports whether any service is not stopped (true when it cannot
+// tell); stop stops them all and waits for their processes.
+func keepStopped(running, stop func() bool) bool {
+	for range 3 {
+		if !running() {
+			return true
+		}
+		if !stop() {
+			return false
+		}
+	}
+	return !running()
+}
