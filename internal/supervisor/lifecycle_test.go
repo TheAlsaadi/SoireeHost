@@ -22,6 +22,7 @@ import (
 
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
+	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 	"github.com/TheAlsaadi/SoireeHost/internal/worker"
 )
@@ -175,6 +176,7 @@ func TestRestartBackoffSurvivesHello(t *testing.T) {
 
 // R-24 (2): the supervisor tells a worker to stop before closing its pipe.
 func TestStopIsSentToWorkers(t *testing.T) {
+	testutil.CheckGoroutines(t)
 	var gotStop atomic.Bool
 	svc := &fakeServices{rawWeb: func(ctx context.Context, pipe, sid string) {
 		dctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -213,6 +215,7 @@ func TestStopIsSentToWorkers(t *testing.T) {
 // R-24 (4): an idle control connection does not hold up the supervisor's
 // exit (it used to wait up to ipc.IdleTimeout, 5 minutes).
 func TestIdleControlConnectionDoesNotStallExit(t *testing.T) {
+	testutil.CheckGoroutines(t)
 	h := start(t)
 	me, _ := winsec.CurrentCaller()
 	dctx, dcancel := context.WithTimeout(t.Context(), 5*time.Second)

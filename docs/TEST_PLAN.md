@@ -18,7 +18,7 @@ Turns plan section 10 into concrete tests per layer and phase. Rule: every secur
 
 ### Unit and table tests (Go, Vitest)
 
-Every package. Pure functions get table tests with hostile inputs as well as normal ones: config validation, path rules, hostname rules, header filtering, log redaction, version parsing, manifest verification. Coverage target: 85% of statements in `internal/config`, `internal/sitecheck`, `internal/secrets`, `internal/update`, `internal/ipc`, `internal/audit`; no fixed target elsewhere.
+Every package. Pure functions get table tests with hostile inputs as well as normal ones: config validation, path rules, hostname rules, header filtering, log redaction, version parsing, manifest verification. Coverage target: 85% of statements in `internal/config`, `internal/sitecheck`, `internal/secrets`, `internal/update`, `internal/ipc`, `internal/audit`; no fixed target elsewhere. CI checks it on the race run's profile (`build/check-coverage.ps1`, which holds the floors; the gaps are in `docs/HANDOFF.md`).
 
 ### Fuzzing (Go native)
 

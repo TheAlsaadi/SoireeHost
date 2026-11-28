@@ -633,6 +633,7 @@ func TestWorkerRestarted(t *testing.T) {
 
 // Plan Phase 2: stopping the supervisor ends both workers.
 func TestStoppingSupervisorEndsWorkers(t *testing.T) {
+	testutil.CheckGoroutines(t)
 	h := start(t)
 	if !h.svc.running(winsec.WebService) || !h.svc.running(winsec.TunnelService) {
 		t.Fatal("workers not running")

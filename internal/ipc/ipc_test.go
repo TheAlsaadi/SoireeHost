@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/sitecheck"
+	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 )
 
@@ -249,6 +250,7 @@ type served struct {
 
 func serve(t *testing.T, auth Authorizer) *served {
 	t.Helper()
+	testutil.CheckGoroutines(t)
 	user := me(t)
 	path := pipeName(t)
 	ln, err := Listen(path, winsec.ControlPipeSDDL(user, user))

@@ -17,7 +17,7 @@ Written 27 Nov 2026. The Claude subscription that built SoiréeHost so far ends 
 
 ### Fuzzing in CI
 
-The workflow is `.github/workflows/fuzz-long.yml`, run by hand from `main`. It covers 23 targets, each in two 4-hour halves (owner decision, 21 Nov 2026).
+The workflow is `.github/workflows/fuzz-long.yml`, run by hand from `main`. It lists every `Fuzz` function itself (23 targets at the runs below; 25 since `FuzzReadFrame` and `FuzzDecodeResponse` were added on 28 Nov 2026), each in two 4-hour halves (owner decision, 21 Nov 2026).
 
 | Run | Commit | State |
 | --- | --- | --- |
@@ -84,9 +84,13 @@ Run `gitleaks dir --redact . >/dev/null 2>&1 &&` before every commit (chained wi
 
 Fix each of these before `1.0.0`, or have the owner accept it for 1.0. The full rows are in `docs/HISTORY.md` (Phase 7, Stage 3) and `docs/reviews/2026-11-12-skills-review.md`.
 
-- The open High and Medium items of the 12 Nov 2026 review:
-  - **SE-03 (High):** `winsec.SetFolderSDDL` is exported, though only tests use it. Phase 7's "no high-severity finding open" condition needs it fixed (for example made test-only) or formally accepted.
-  - SE-02, SE-04, SE-06, SE-08, SE-09, SE-13, SE-15, GOE-1, GOE-5, GOE-13, GOE-17, GOE-20.
+- Decided by the owner on 28 Nov 2026 ("tests now, code later"), for the Medium items of the 12 Nov 2026 review:
+  - the seven code findings **SE-02, SE-04, SE-06, SE-08, SE-09, SE-13 and SE-15 stay open for `v1.0.0-rc.1`**, are listed as known issues in its release notes, and are fixed before `1.0.0`;
+  - the five test and CI findings GOE-1, GOE-5, GOE-13, GOE-17 and GOE-20 were fixed on 28 Nov 2026 without changing the binary.
+  - SE-03 (High) was fixed on 27 Nov 2026.
+
+Fix each of the rest before `1.0.0`, or have the owner accept it for 1.0:
+
 - Low sharp-edges findings: SE7-3 to SE7-9 and S12V-1 to S12V-5.
 - Code review leftovers:
   - CR-4: rollback exposure sentences do not name the site.
@@ -98,14 +102,23 @@ Fix each of these before `1.0.0`, or have the owner accept it for 1.0. The full 
   - no high-severity finding is open;
   - the owner signs off.
 
+## Findings for after rc.1
+
+Found or recorded while the candidate's code was frozen. Do these once `v1.0.0-rc.1` is out, before `1.0.0`.
+
+- The seven code findings above (rows in `docs/reviews/2026-11-12-skills-review.md`).
+- Coverage below the 85% target (GOE-5). `build/check-coverage.ps1` holds each floor at today's value; raise it to 85 as tests are added:
+  - `internal/ipc`: 80.1% on 28 Nov 2026, floor 80;
+  - `internal/secrets`: 83.3% on 28 Nov 2026, floor 83.
+
 ## Next steps, in order
 
 1. **Finish Stage 4** (above): the fuzz result, the soak result, the records pull request.
-2. **Close the open findings** the owner wants fixed before the candidate, SE-03 at least, each on a branch with tests and through CI. Ask the owner which of the rest to fix and which to accept. Record the answers in `docs/HISTORY.md`.
+2. **Open findings.** SE-03 and the five GOE findings are fixed, and the seven code findings wait until after rc.1 (owner, 28 Nov 2026). Ask the owner which of the Low findings and review leftovers above to fix and which to accept. Record the answers in `docs/HISTORY.md`. Until rc.1 is tagged, do not change production code: the soak runs the candidate built from `03f57bb`. Since that commit the only change to non-test Go code on `main` is the SE-03 fix (`winsec.SetFolderSDDL`, which no production code called, moved to `winsectest`); check `git diff 03f57bb <tag commit>` before tagging.
 3. **Stage 5, `v1.0.0-rc.1`.** Follow `docs/RELEASE_CHECKLIST.md` from "Before tagging". In short:
    - Main is green.
    - No high finding is open.
-   - The release notes name the platform and the known limits:
+   - The release notes name the platform, list SE-02, SE-04, SE-06, SE-08, SE-09, SE-13 and SE-15 as known issues (one sentence each, from their review rows), and name the known limits:
      - not Authenticode-signed yet;
      - no independent review yet, with private reports invited;
      - tunnel-token mode with a real hostname not verified.
