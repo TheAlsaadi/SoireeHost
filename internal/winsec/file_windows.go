@@ -10,16 +10,19 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec/sdparse"
 )
 
 // WriteFileSDDL replaces path with data, giving the new file exactly the
 // descriptor sddl from the moment it exists. It writes a temporary file in
 // the same folder with that descriptor, flushes it, and moves it over path.
 // A moved file keeps its own descriptor, so an inherited one never applies.
+// The descriptor must have a protected, non-NULL DACL (sdparse.Parse).
 func WriteFileSDDL(path, sddl string, data []byte) error {
-	sd, err := windows.SecurityDescriptorFromString(sddl)
+	d, err := sdparse.Parse(sddl)
 	if err != nil {
-		return fmt.Errorf("security descriptor: %w", err)
+		return fmt.Errorf("permissions for %s: %w", path, err)
 	}
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
@@ -30,7 +33,7 @@ func WriteFileSDDL(path, sddl string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	sa := windows.SecurityAttributes{SecurityDescriptor: sd}
+	sa := windows.SecurityAttributes{SecurityDescriptor: d.SD}
 	sa.Length = uint32(unsafe.Sizeof(sa)) // #nosec G103 G115 -- the size of a fixed Windows structure
 	h, err := windows.CreateFile(p, windows.GENERIC_WRITE, 0, &sa, windows.CREATE_NEW, windows.FILE_ATTRIBUTE_NORMAL, 0)
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/testutil"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec/winsectest"
 )
@@ -59,6 +60,25 @@ func TestOpenSelfHoldsTheProgram(t *testing.T) {
 	}
 	if hashFile(t, dst) != hashFile(t, self) {
 		t.Fatal("installed copy differs from the running image")
+	}
+}
+
+// SE-09: a program reached through a junction is refused with its own
+// message, not the advice to copy it to Downloads.
+func TestOpenSelfRefusesJunction(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "real")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "soireehost.exe"), []byte("MZ"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	testutil.Junction(t, link, dir)
+	_, err := openSelf(filepath.Join(link, "soireehost.exe"), me(t))
+	if err == nil || !strings.Contains(err.Error(), "link or junction") {
+		t.Fatalf("got %v, want a refusal naming the junction", err)
 	}
 }
 

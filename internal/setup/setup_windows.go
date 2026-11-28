@@ -24,6 +24,7 @@ import (
 	"github.com/TheAlsaadi/SoireeHost/internal/supervisor"
 	"github.com/TheAlsaadi/SoireeHost/internal/version"
 	"github.com/TheAlsaadi/SoireeHost/internal/winsec"
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec/sdparse"
 )
 
 // Layout is where setup puts things.
@@ -188,7 +189,11 @@ func installSteps(l Layout, sid string) error {
 func openSelf(self, user string) (*os.File, error) {
 	allowed := []string{winsec.SIDSystem, winsec.SIDAdministrators, user, winsec.SIDTrustedInstaller, winsec.SIDCreatorOwner, winsec.SIDOwnerRights}
 	for _, p := range []string{filepath.Dir(self), self} {
-		if err := winsec.CheckWriters(p, allowed...); err != nil {
+		if err := winsec.CheckWriters(p, allowed...); errors.Is(err, winsec.ErrLinkInPath) {
+			return nil, fail(CodeUnsafeSource, fmt.Errorf("refusing to install from %s, because it is reached through a link or junction (%w); "+
+				"copy soireehost.exe to a plain folder that only you and administrators can change, and run setup from there",
+				filepath.Dir(self), err))
+		} else if err != nil {
 			return nil, fail(CodeUnsafeSource, fmt.Errorf("refusing to install from %s, because another account could replace the program there (%w); "+
 				"copy soireehost.exe to a folder only you and administrators can change, such as your Downloads folder, and run setup from there",
 				filepath.Dir(self), err))
@@ -442,8 +447,8 @@ func writeControlUsers(root, user string) error {
 	// depends on the elevated token's default owner (which is the user's own
 	// account on a full administrator token) or on an earlier file's.
 	p := supervisor.Paths{Root: root}.ControlUsersFile()
-	sup := winsec.ServiceSID(winsec.SupervisorService)
-	sddl := "O:" + winsec.SIDAdministrators + "D:P(A;;FA;;;" + winsec.SIDSystem + ")(A;;FA;;;" + winsec.SIDAdministrators + ")(A;;FR;;;" + sup + ")"
+	sup := winsec.SupervisorAccount()
+	sddl := "O:" + winsec.SIDAdministrators + "D:P(A;;FA;;;" + winsec.SIDSystem + ")(A;;FA;;;" + winsec.SIDAdministrators + ")(A;;FR;;;" + string(sup) + ")"
 	return winsec.WriteFileSDDL(p, sddl, b)
 }
 
@@ -678,7 +683,7 @@ func takeBack(root string) error {
 	if err := winsec.EnablePrivileges("SeBackupPrivilege", "SeRestorePrivilege", "SeTakeOwnershipPrivilege"); err != nil {
 		return err
 	}
-	sd, err := windows.SecurityDescriptorFromString("O:" + winsec.SIDAdministrators + "D:P(A;OICI;FA;;;" + winsec.SIDAdministrators + ")")
+	d, err := sdparse.Parse("O:" + winsec.SIDAdministrators + "D:P(A;OICI;FA;;;" + winsec.SIDAdministrators + ")")
 	if err != nil {
 		return err
 	}
@@ -692,7 +697,7 @@ func takeBack(root string) error {
 		if !e.IsDir() && e.Links > 1 {
 			return nil
 		}
-		if err := windows.SetKernelObjectSecurity(e.Handle, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION, sd); err != nil {
+		if err := windows.SetKernelObjectSecurity(e.Handle, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION, d.SD); err != nil {
 			return fmt.Errorf("taking ownership of %s: %w", filepath.Join(root, e.Rel), err)
 		}
 		return nil

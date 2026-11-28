@@ -52,6 +52,10 @@ func CheckOwnerAndWriters(path string, owners, writers []string) error {
 	return checkParents(abs, owners)
 }
 
+// ErrLinkInPath is returned by CheckWriters and CheckOwnerAndWriters when the
+// path, or a folder above it, is a link, junction or mount point.
+var ErrLinkInPath = errors.New("is a link, junction or mount point")
+
 // securityNoFollow reads the owner and DACL of path through a handle that
 // does not follow a reparse point, and refuses path if it is a link,
 // junction or mount point.
@@ -72,7 +76,7 @@ func securityNoFollow(path string) (*windows.SECURITY_DESCRIPTOR, error) {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 	if isLink(fi) {
-		return nil, fmt.Errorf("%s is a link, junction or mount point", path)
+		return nil, fmt.Errorf("%s %w", path, ErrLinkInPath)
 	}
 	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
@@ -93,7 +97,9 @@ const replaceMask = windows.DELETE | fileDeleteChild | windows.WRITE_DAC | windo
 // Administrators, TrustedInstaller or one of owners, and must give no one
 // else a right in replaceMask. Rights only to add entries (such as the right
 // of Users to create folders in %ProgramData%) do not let anyone replace an
-// existing one, and are allowed.
+// existing one, and are allowed. On a volume root, which cannot be renamed
+// or deleted, plain delete is allowed too (a drive formatted by Windows
+// gives Authenticated Users modify there).
 func checkParents(path string, owners []string) error {
 	trusted := append([]string{SIDSystem, SIDAdministrators, SIDTrustedInstaller}, owners...)
 	for child, dir := path, filepath.Dir(path); dir != child; child, dir = dir, filepath.Dir(dir) {
@@ -120,6 +126,10 @@ func checkParent(sd *windows.SECURITY_DESCRIPTOR, dir string, trusted []string) 
 	if err != nil || dacl == nil {
 		return fmt.Errorf("%s has no access list", dir)
 	}
+	mask := uint32(replaceMask)
+	if filepath.Dir(dir) == dir {
+		mask &^= windows.DELETE
+	}
 	for i := range uint32(dacl.AceCount) {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &ace); err != nil {
@@ -138,7 +148,7 @@ func checkParent(sd *windows.SECURITY_DESCRIPTOR, dir string, trusted []string) 
 		default:
 			return fmt.Errorf("%s has an access entry of type %d, which is not expected", dir, ace.Header.AceType)
 		}
-		if uint32(ace.Mask)&replaceMask == 0 {
+		if uint32(ace.Mask)&mask == 0 {
 			continue
 		}
 		// #nosec G103 -- the SID starts at SidStart inside the ACE, per the ACCESS_ALLOWED_ACE layout
@@ -536,7 +546,8 @@ var ErrHardLinked = errors.New("has more than one hard link, so its permissions 
 // anywhere on the volume. The link count is read and the descriptor written
 // through one handle, so the file checked is the file changed (review
 // finding SE-08). The count is read again afterwards, and a link added in
-// between is reported as an error.
+// between is reported as an error; the descriptor has then been written
+// already, so that error says only that another file may share it now.
 func ForceSDDLUnlessLinked(path, sddl string) error {
 	d, err := sdparse.Parse(sddl)
 	if err != nil {

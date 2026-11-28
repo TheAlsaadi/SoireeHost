@@ -94,6 +94,13 @@ func TestAppliersRefuseUnprotectedDescriptors(t *testing.T) {
 			t.Errorf("ForceSDDLUnlessLinked accepted %s: %v", name, err)
 		}
 		fixture := filepath.Join(base, "fixture-"+strings.ReplaceAll(name, " ", "-"))
+		file := filepath.Join(base, "file-"+strings.ReplaceAll(name, " ", "-"))
+		if err := WriteFileSDDL(file, sddl, []byte("x")); err == nil {
+			t.Errorf("WriteFileSDDL accepted %s", name)
+		}
+		if _, err := os.Lstat(file); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("WriteFileSDDL wrote a file for %s: %v", name, err)
+		}
 		if err := winsectest.SetFolderSDDL(fixture, sddl); err == nil {
 			t.Errorf("SetFolderSDDL accepted %s", name)
 		}
@@ -237,6 +244,8 @@ func TestCheckWritersLinksAndParents(t *testing.T) {
 		"delete":       "(A;;SD;;;" + SIDUsers + ")",
 		"write DACL":   "(A;;WD;;;" + SIDUsers + ")",
 		"full control": "(A;;FA;;;" + SIDUsers + ")",
+		"write owner":  "(A;;WO;;;" + SIDUsers + ")",
+		"generic all":  "(A;;GA;;;" + SIDUsers + ")",
 	} {
 		parent := filepath.Join(base, "open-"+strings.ReplaceAll(name, " ", "-"))
 		child := filepath.Join(parent, "child")
@@ -264,6 +273,55 @@ func TestCheckWritersLinksAndParents(t *testing.T) {
 	}
 	if err := CheckWriters(child, allowed...); err != nil {
 		t.Fatalf("add-only and inherit-only rights on a parent were refused: %v", err)
+	}
+	if err := CheckWriters(filepath.Join(link, "inner"), allowed...); !errors.Is(err, ErrLinkInPath) {
+		t.Fatalf("a junction above the folder: %v, want ErrLinkInPath", err)
+	}
+
+	// a symbolic link to a file (needs developer mode or the privilege)
+	file := filepath.Join(inner, "file.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(file, filepath.Join(inner, "symlink.txt")); err != nil {
+		t.Logf("no symbolic link test: %v", err)
+	} else if err := CheckWriters(filepath.Join(inner, "symlink.txt"), allowed...); !errors.Is(err, ErrLinkInPath) {
+		t.Fatalf("a symbolic link was checked through: %v", err)
+	}
+}
+
+// SE-09: the parent rule on descriptors that cannot be made on disk without
+// administrator rights.
+func TestCheckParent(t *testing.T) {
+	trusted := []string{SIDSystem, SIDAdministrators, SIDTrustedInstaller}
+	const dir, root = `C:\Parent`, `C:\`
+	cases := []struct {
+		name, dir, sddl string
+		ok              bool
+	}{
+		{"locked", dir, "O:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", true},
+		{"untrusted owner", dir, "O:BUD:P(A;OICI;FA;;;SY)", false},
+		{"no owner", dir, "D:P(A;OICI;FA;;;SY)", false},
+		{"NULL DACL", dir, "O:SYD:NO_ACCESS_CONTROL", false},
+		{"object entry", dir, "O:SYD:P(OA;;FA;bf967aba-0de6-11d0-a285-00aa003049e2;;BU)", false},
+		{"deny entry", dir, "O:SYD:P(D;;FA;;;BU)(A;;FA;;;SY)", true},
+		{"inherit-only full control", dir, "O:SYD:P(A;OICIIO;FA;;;BU)", true},
+		{"add-only", dir, "O:SYD:P(A;CI;0x116;;;BU)", true},
+		{"modify for users", dir, "O:SYD:P(A;OICI;0x1301bf;;;AU)", false},
+		{"modify for users on a volume root", root, "O:SYD:P(A;OICI;0x1301bf;;;AU)", true},
+		{"delete child on a volume root", root, "O:SYD:P(A;;0x40;;;AU)", false},
+		{"app container full control", dir, "O:SYD:P(A;;FA;;;S-1-15-3-1024-1)", true},
+		{"app package full control", dir, "O:SYD:P(A;;FA;;;S-1-15-2-1)", true},
+		{"logon SID full control", dir, "O:SYD:P(A;;FA;;;S-1-5-5-0-1)", false},
+	}
+	for _, c := range cases {
+		sd, err := windows.SecurityDescriptorFromString(c.sddl)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if err := checkParent(sd, c.dir, trusted); (err == nil) != c.ok {
+			t.Errorf("%s: err = %v, want ok = %v", c.name, err, c.ok)
+		}
 	}
 }
 

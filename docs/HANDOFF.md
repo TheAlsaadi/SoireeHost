@@ -109,6 +109,7 @@ Run `gitleaks dir --redact . >/dev/null 2>&1 &&` before every commit (chained wi
   - 35: SE-03.
 - `phase7-stage4-records`: the Stage 4 records (fuzz result, soak start), with auto-merge on.
 - The soak's result still needs its own records pull request when it is in.
+- Pull request PRNUM, branch `claude/winsec-medium-fixes-323c28`: fixes SE-02, SE-04, SE-06, SE-08 and SE-09 (`docs/HISTORY.md`, Phase 7). It is a draft titled "[after rc.1]", without auto-merge, on purpose: rc.1 must be the exact build in the soak (main 03f57bb). **Merge it after `v1.0.0-rc.1` is tagged**: mark it ready, check that CI is green on the then-current main (rebase if needed), and merge. Its CI was green when it was opened.
 
 ## Decisions waiting for the owner
 
@@ -116,7 +117,7 @@ Fix each of these before `1.0.0`, or have the owner accept it for 1.0. The full 
 
 - The open High and Medium items of the 12 Nov 2026 review:
   - **SE-03 (High): fixed** in pull request 35 (27 Nov 2026). `SetFolderSDDL` moved to the test-only package `internal/winsec/winsectest`, and `TestImportedOnlyFromTests` guards it. No High finding is open now.
-  - Still open: SE-02, SE-04, SE-06, SE-08, SE-09, SE-13, SE-15, GOE-1, GOE-5, GOE-13, GOE-17, GOE-20.
+  - Still open: SE-13, SE-15, GOE-1, GOE-5, GOE-13, GOE-17, GOE-20. SE-02, SE-04, SE-06, SE-08 and SE-09 are fixed in pull request PRNUM, held until rc.1 is tagged (the owner chose on 28 Nov 2026 to fix the seven code findings before 1.0.0, after rc.1).
 - Low sharp-edges findings: SE7-3 to SE7-9 and S12V-1 to S12V-5.
 - Code review leftovers:
   - CR-4: rollback exposure sentences do not name the site.
@@ -146,9 +147,10 @@ Fix each of these before `1.0.0`, or have the owner accept it for 1.0. The full 
    - Publish the draft as a **pre-release** (owner decision, 21 Nov 2026).
    - Run the "After publishing" checks.
    - Record the release in `docs/HISTORY.md`.
-4. **The owner's sign-off on Phase 7**, recorded in `docs/HISTORY.md` and the Phase 7 checkboxes in `docs/PLAN.md`.
-5. **`v1.0.0`**, once the candidate has run without problems (owner decision, 21 Nov 2026). Use the same checklist. This time "On a VM running the previous release" applies: install rc.1 in the VM, then check that the update to 1.0.0 is found and installed with one prompt, and that the settings are kept (S-64).
-6. **After 1.0:** the order in `docs/PLAN.md` (Phase 7, "After 1.0"). Each item gets a decision record and the owner's decisions before any code.
+4. **Merge pull request PRNUM** (the five winsec fixes) once rc.1 is tagged, and the other fixes held for after rc.1.
+5. **The owner's sign-off on Phase 7**, recorded in `docs/HISTORY.md` and the Phase 7 checkboxes in `docs/PLAN.md`.
+6. **`v1.0.0`**, once the candidate has run without problems (owner decision, 21 Nov 2026). Use the same checklist. This time "On a VM running the previous release" applies: install rc.1 in the VM, then check that the update to 1.0.0 is found and installed with one prompt, and that the settings are kept (S-64).
+7. **After 1.0:** the order in `docs/PLAN.md` (Phase 7, "After 1.0"). Each item gets a decision record and the owner's decisions before any code.
 
 ## Working arrangements the new account should know
 
