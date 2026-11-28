@@ -52,19 +52,20 @@ func (p Paths) Updates() string { return filepath.Join(p.Root, "updates") }
 // ControlUsersFile lists the accounts setup allowed on the control pipe.
 func (p Paths) ControlUsersFile() string { return filepath.Join(p.Config(), "control-users.json") }
 
-// Identity holds the SIDs of the three service accounts.
+// Identity holds the SIDs of the three service accounts, each of its own
+// type so that two cannot be swapped (review finding SE-06).
 type Identity struct {
-	Supervisor string
-	Web        string
-	Tunnel     string
+	Supervisor winsec.SupervisorSID
+	Web        winsec.WebSID
+	Tunnel     winsec.TunnelSID
 }
 
 // ServiceIdentity is the production identity: the three virtual accounts.
 func ServiceIdentity() Identity {
 	return Identity{
-		Supervisor: winsec.ServiceSID(winsec.SupervisorService),
-		Web:        winsec.ServiceSID(winsec.WebService),
-		Tunnel:     winsec.ServiceSID(winsec.TunnelService),
+		Supervisor: winsec.SupervisorAccount(),
+		Web:        winsec.WebAccount(),
+		Tunnel:     winsec.TunnelAccount(),
 	}
 }
 
@@ -200,8 +201,8 @@ func New(opts Options) (*Supervisor, error) {
 		return nil, err
 	}
 	s := &Supervisor{opts: opts, store: store, secrets: sec, audit: al, auditRep: rep, users: users, started: time.Now(), conf: newConfirmations(nil)}
-	s.web = newWorkerMgr(s, ipc.RoleWeb, winsec.WebService, opts.Identity.Web)
-	s.tunnel = newWorkerMgr(s, ipc.RoleTunnel, winsec.TunnelService, opts.Identity.Tunnel)
+	s.web = newWorkerMgr(s, ipc.RoleWeb, winsec.WebService, string(opts.Identity.Web))
+	s.tunnel = newWorkerMgr(s, ipc.RoleTunnel, winsec.TunnelService, string(opts.Identity.Tunnel))
 	if opts.Updates != nil {
 		s.upd = newUpdater(opts.Paths.Updates(), opts.Version, *opts.Updates, s.updatesEnabled,
 			func(action string, detail map[string]string) { _ = s.record(winsec.SIDSystem, action, detail) })

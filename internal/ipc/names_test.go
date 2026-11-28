@@ -38,7 +38,7 @@ func TestNewPipeNameIsRandom(t *testing.T) {
 func writeNameFile(t *testing.T, content string) (file, owner string) {
 	t.Helper()
 	root := t.TempDir()
-	if err := winsectest.SetFolderSDDL(PipeFileFolder(root, WebPipeFile), winsec.PipeNameFolderSDDL(me(t), me(t))); err != nil {
+	if err := winsectest.SetFolderSDDL(PipeFileFolder(root, WebPipeFile), winsec.PipeNameFolderSDDL(winsec.SupervisorSID(me(t)), me(t))); err != nil {
 		t.Fatal(err)
 	}
 	file = PipeFilePath(root, WebPipeFile)

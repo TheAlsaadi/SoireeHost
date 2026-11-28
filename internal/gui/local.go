@@ -60,7 +60,7 @@ func (l *Local) PrepareFolder(path string) (string, error) {
 		return "", plainError(ipc.CodeInternal, "Could not find the system folders to protect.")
 	}
 	canon, err := winsec.GrantSiteAccess(filepath.Clean(path),
-		winsec.ServiceSID(winsec.WebService), winsec.ServiceSID(winsec.SupervisorService),
+		winsec.WebAccount(), winsec.SupervisorAccount(),
 		func(p string) (string, error) { return sitecheck.CheckRoot(p, loc) })
 	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 		return "", plainError(ipc.CodeInvalid, "You are not allowed to change who can read that folder. Choose a folder you own, or copy the site into one.")

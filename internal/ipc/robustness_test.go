@@ -157,7 +157,7 @@ func TestControlConnectionLimit(t *testing.T) {
 func TestHandlerPanicIsContained(t *testing.T) {
 	user := me(t)
 	path := pipeName(t)
-	ln, err := Listen(path, winsec.ControlPipeSDDL(user, user))
+	ln, err := Listen(path, winsec.ControlPipeSDDL(winsec.SupervisorSID(user), user))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestCutReason(t *testing.T) {
 func TestFailedReasonReachesSupervisor(t *testing.T) {
 	user := me(t)
 	path := pipeName(t)
-	ln, err := Listen(path, winsec.WorkerPipeSDDL(user, user))
+	ln, err := Listen(path, winsec.WorkerPipeSDDL(winsec.SupervisorSID(user), winsec.WebSID(user)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestFailedReasonReachesSupervisor(t *testing.T) {
 func TestAgentExitsAfterFatalLoad(t *testing.T) {
 	user := me(t)
 	path := pipeName(t)
-	ln, err := Listen(path, winsec.WorkerPipeSDDL(user, user))
+	ln, err := Listen(path, winsec.WorkerPipeSDDL(winsec.SupervisorSID(user), winsec.WebSID(user)))
 	if err != nil {
 		t.Fatal(err)
 	}

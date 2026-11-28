@@ -6,6 +6,7 @@ package supervisor
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -25,7 +26,7 @@ import (
 func installFolders(t *testing.T, sid string, tweak func(i int, f *Folder) bool) Paths {
 	t.Helper()
 	p := Paths{Root: filepath.Join(dataRoot, "acl-"+randHex())}
-	id := Identity{Supervisor: sid, Web: sid, Tunnel: sid}
+	id := soleIdentity(sid)
 	folders := p.Folders(id, []string{sid})
 	skip := map[string]bool{}
 	for i := range folders {
@@ -52,7 +53,7 @@ func installFolders(t *testing.T, sid string, tweak func(i int, f *Folder) bool)
 func TestFolderCheckAcceptsInstalledTable(t *testing.T) {
 	me, _ := winsec.CurrentCaller()
 	p := installFolders(t, me.SID, nil)
-	id := Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID}
+	id := soleIdentity(me.SID)
 	if err := checkFolders(p, id); err != nil {
 		t.Fatalf("installed folders refused: %v", err)
 	}
@@ -62,7 +63,7 @@ func TestFolderCheckAcceptsInstalledTable(t *testing.T) {
 // stops the supervisor.
 func TestFolderCheckRefusesWritableFolder(t *testing.T) {
 	me, _ := winsec.CurrentCaller()
-	id := Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID}
+	id := soleIdentity(me.SID)
 	for want, row := range (Paths{Root: `X:\root`}).Folders(id, nil) {
 		rel, _ := filepath.Rel(`X:\root`, row.Path)
 		t.Run(rel, func(t *testing.T) {
@@ -84,7 +85,7 @@ func TestFolderCheckRefusesWritableFolder(t *testing.T) {
 // the junction points.
 func TestFolderCheckRefusesJunction(t *testing.T) {
 	me, _ := winsec.CurrentCaller()
-	id := Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID}
+	id := soleIdentity(me.SID)
 	target := t.TempDir()
 	// tweak runs while the folders are created, before the root is locked
 	p := installFolders(t, me.SID, func(_ int, f *Folder) bool {
@@ -102,7 +103,7 @@ func TestFolderCheckRefusesJunction(t *testing.T) {
 // A missing folder stops the supervisor with a pointer to setup.
 func TestFolderCheckRefusesMissingFolder(t *testing.T) {
 	me, _ := winsec.CurrentCaller()
-	id := Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID}
+	id := soleIdentity(me.SID)
 	p := installFolders(t, me.SID, func(_ int, f *Folder) bool { return strings.HasSuffix(f.Path, `\pipe-web`) })
 	if err := checkFolders(p, id); err == nil || !strings.Contains(err.Error(), "run setup again") {
 		t.Fatalf("missing folder accepted: %v", err)
@@ -112,7 +113,7 @@ func TestFolderCheckRefusesMissingFolder(t *testing.T) {
 // New runs the check when asked to.
 func TestNewRefusesWritableFolders(t *testing.T) {
 	me, _ := winsec.CurrentCaller()
-	id := Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID}
+	id := soleIdentity(me.SID)
 	p := installFolders(t, me.SID, func(_ int, f *Folder) bool {
 		if strings.HasSuffix(f.Path, `\secrets`) {
 			f.SDDL += "(A;OICI;0x1301bf;;;" + winsec.SIDUsers + ")"
@@ -147,5 +148,29 @@ func TestCheckProgramRefusesUserFolder(t *testing.T) {
 func TestNewRefusesRelativeRoot(t *testing.T) {
 	if _, err := New(Options{Paths: Paths{Root: "SoireeHost"}, SkipACLCheck: true}); err == nil || !strings.Contains(err.Error(), "absolute") {
 		t.Fatalf("relative data folder: %v", err)
+	}
+}
+
+// soleIdentity is an Identity in which one account plays every role, as the
+// test account does here.
+func soleIdentity(sid string) Identity {
+	return Identity{Supervisor: winsec.SupervisorSID(sid), Web: winsec.WebSID(sid), Tunnel: winsec.TunnelSID(sid)}
+}
+
+// SE-06: the three roles of an Identity have distinct types, so a value
+// meant for one cannot be assigned to another.
+func TestIdentityRolesAreDistinctTypes(t *testing.T) {
+	ty := reflect.TypeFor[Identity]()
+	seen := map[reflect.Type]string{}
+	for f := range ty.Fields() {
+		if other, dup := seen[f.Type]; dup || f.Type == reflect.TypeFor[string]() {
+			t.Fatalf("Identity.%s has type %v, shared with %q or plain string", f.Name, f.Type, other)
+		}
+		seen[f.Type] = f.Name
+	}
+	id := ServiceIdentity()
+	if string(id.Web) != winsec.ServiceSID(winsec.WebService) || string(id.Tunnel) != winsec.ServiceSID(winsec.TunnelService) ||
+		string(id.Supervisor) != winsec.ServiceSID(winsec.SupervisorService) {
+		t.Fatalf("ServiceIdentity mixes up the roles: %+v", id)
 	}
 }

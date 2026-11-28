@@ -39,7 +39,7 @@ func Confine(l Limits) error {
 	if l.ActiveProcesses == 0 || l.MemoryBytes == 0 {
 		return errors.New("confine: limits must be set")
 	}
-	if err := DropPrivileges("SeChangeNotifyPrivilege"); err != nil {
+	if err := keepOnlyPrivileges("SeChangeNotifyPrivilege"); err != nil {
 		return err
 	}
 	if err := joinJob(l); err != nil {
@@ -53,14 +53,22 @@ func Confine(l Limits) error {
 	return nil
 }
 
-// DropPrivileges removes from the process token every privilege not named in
-// keep. Removed privileges cannot be re-enabled.
-func DropPrivileges(keep ...string) error {
+// keepOnlyPrivileges removes from the process token every privilege not
+// named in keep, and keeps those named. Removed privileges cannot be
+// re-enabled. It was exported as DropPrivileges, a name that said the
+// opposite of what it does (review finding SE-02); Confine is its only user.
+func keepOnlyPrivileges(keep ...string) error {
 	var tok windows.Token
 	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_ADJUST_PRIVILEGES, &tok); err != nil {
 		return fmt.Errorf("opening process token: %w", err)
 	}
 	defer tok.Close() //nolint:errcheck // nothing to do on failure
+	return keepOnlyTokenPrivileges(tok, keep...)
+}
+
+// keepOnlyTokenPrivileges is keepOnlyPrivileges on tok, which needs
+// TOKEN_QUERY and TOKEN_ADJUST_PRIVILEGES.
+func keepOnlyTokenPrivileges(tok windows.Token, keep ...string) error {
 	keepLUIDs := map[windows.LUID]bool{}
 	for _, name := range keep {
 		var luid windows.LUID

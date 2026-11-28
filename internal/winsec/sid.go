@@ -54,3 +54,31 @@ func ServiceSID(name string) string {
 	}
 	return sb.String()
 }
+
+// Role SIDs (review finding SE-06). The SID of each SoiréeHost service
+// account has a type of its own, so passing one role's SID where another
+// role's is expected does not compile: a swapped call would otherwise, for
+// example, grant the supervisor read access to every site file. Convert a
+// plain string to one of these only where the SID is known to be that
+// role's (tests run every role as the test account).
+
+// SupervisorSID is the SID of the supervisor's account.
+type SupervisorSID string
+
+// WebSID is the SID of the web worker's account.
+type WebSID string
+
+// TunnelSID is the SID of the tunnel launcher's account.
+type TunnelSID string
+
+// WorkerSID is the SID of either worker's account.
+type WorkerSID interface{ WebSID | TunnelSID }
+
+// SupervisorAccount is the SID of NT SERVICE\SoireeHost.
+func SupervisorAccount() SupervisorSID { return SupervisorSID(ServiceSID(SupervisorService)) }
+
+// WebAccount is the SID of NT SERVICE\SoireeHostWeb.
+func WebAccount() WebSID { return WebSID(ServiceSID(WebService)) }
+
+// TunnelAccount is the SID of NT SERVICE\SoireeHostTunnel.
+func TunnelAccount() TunnelSID { return TunnelSID(ServiceSID(TunnelService)) }

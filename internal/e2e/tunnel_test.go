@@ -154,7 +154,7 @@ func publishTestSite(t *testing.T, c *ipc.Client, body string) string {
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte(body), 0o644); err != nil { //nolint:gosec // G306: a published page
 		t.Fatal(err)
 	}
-	if _, err := winsec.GrantSiteAccess(root, winsec.ServiceSID(winsec.WebService), winsec.ServiceSID(winsec.SupervisorService), checkRoot(t)); err != nil {
+	if _, err := winsec.GrantSiteAccess(root, winsec.WebAccount(), winsec.SupervisorAccount(), checkRoot(t)); err != nil {
 		t.Fatal(err)
 	}
 	id := "share-" + randHex()[:6]

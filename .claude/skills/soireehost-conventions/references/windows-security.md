@@ -5,6 +5,7 @@ The code lives in `internal/winsec`; the design and its reasons are in `docs/adr
 ## Identities
 
 - Service SIDs come from `winsec.ServiceSID(name)`, which computes `S-1-5-80-…` from the service name (SHA-1 of the upper-case name in UTF-16LE). It works before the service exists; `LookupAccountName` does not.
+- The three SoiréeHost accounts have their own SID types (SE-06): `winsec.SupervisorSID`, `WebSID` and `TunnelSID`, from `winsec.SupervisorAccount()`, `WebAccount()` and `TunnelAccount()`. The SDDL builders, `GrantSiteAccess` and `supervisor.Identity` take them, so a swapped role does not compile. Convert a plain string only where the SID is known to be that role's (tests that play every role as the test account).
 - A virtual service account's token user is its service SID, so a service can name itself as owner of an object it creates (for example a pipe, with `O:<sid>` in the SDDL).
 - The services run with `SERVICE_SID_TYPE_RESTRICTED`, which makes their tokens write-restricted: a write is allowed only if both the normal SIDs and the restricting SIDs (the service SID, Everyone, write-restricted) are granted it. Grant writes to the service SID itself, not to a group it belongs to.
 - Required privileges are trimmed to `SeChangeNotifyPrivilege`, so a service cannot impersonate. Pipe callers are identified at Identification level, which needs no privilege.
@@ -18,7 +19,7 @@ Builders are in `winsec/sddl.go`. Conventions:
 - Setup prefixes an explicit owner: `O:BA` for everything, `O:SY` for `secrets`.
 - SDDL access masks are either right codes concatenated (`FRFW`) or one hex number. `FR|0x2` is not valid; write `0x12008b`.
 - Masks in use: `0x1301bf` modify; `0x12008d` read and append (file); `0x12008b` read plus bit 0x2, which means add-file on a folder and write-data on a pipe (so the same number serves the audit folder and every pipe client); `0x1200a9` read and traverse; `0x120080` read-attributes and read-permissions.
-- `winsec.CheckWriters(path, allowed...)` is the S-22 check: it fails if any allow entry with a write right names a SID outside `allowed`, if the owner is outside `allowed`, if the DACL is missing, or if an entry type is unexpected.
+- `winsec.CheckWriters(path, allowed...)` is the S-22 check: it fails if any allow entry with a write right names a SID outside `allowed`, if the owner is outside `allowed`, if the DACL is missing, or if an entry type is unexpected. It reads the descriptor without following a reparse point and refuses a link, junction or mount point (SE-09). It also checks every folder above, up to the volume root: each must be plain, owned by SYSTEM, Administrators, TrustedInstaller or an accepted owner, and give no one else delete, delete-child, write-DAC, write-owner or full control on the folder itself. Rights only to add entries (Users in `%ProgramData%`), inherit-only entries and app container SIDs (`S-1-15-2-…`, `S-1-15-3-…`) are allowed there.
 - `winsec.GrantsRead(path, sids...)` answers "can this account read the folder" from the DACL alone, for accounts we cannot impersonate (the web worker). Pass `winsec.WorkerGroups(webSID)` so access through Users, Authenticated Users, Everyone or SERVICE counts.
 - `winsec.GrantSiteAccess(path, web, supervisor)` is what the control panel runs, as the folder's owner, when a site is added: read and list for the web worker (inherited), and read-attributes plus read-permissions on the folder only for the supervisor (enough to resolve and inspect it, not to read files). Without the supervisor entry, folders inside a user profile cannot be published at all.
 
@@ -28,10 +29,12 @@ Builders are in `winsec/sddl.go`. Conventions:
 | --- | --- | --- |
 | New protected folder | `winsec.CreateFolderSDDL(path, sddl)` | `MkdirAll` then set leaves the parent's permissions on it for a moment |
 | Change an existing descriptor | `winsec.ForceSDDL(path, sddl)` after `winsec.EnablePrivileges("SeRestorePrivilege", "SeTakeOwnershipPrivilege")` | `SetSecurityInfo` and `SetNamedSecurityInfo` propagate down the tree without the privilege and fail at locked children |
-| Take back a tree to delete it | `winsec.ForceSDDLUnlessLinked` per entry, walking top-down | A file with several hard links would carry the new descriptor to its other ends |
+| Take back a tree to delete it | `winsec.ForceSDDLUnlessLinked` per entry, walking top-down; it returns `winsec.ErrHardLinked` for a file it left alone, and reads the link count and writes through one handle (SE-08) | A file with several hard links would carry the new descriptor to its other ends |
 | Test fixture with fixed descriptor | `winsectest.SetFolderSDDL` in `internal/winsec/winsectest` (applies the owner too if the SDDL names one); `_test.go` files only, enforced by `TestImportedOnlyFromTests` | In the product it would be a privileged re-permission primitive (SE-03): it inherits the parent's permissions first, follows junctions and propagates down the tree |
 
 `ForceSDDL` opens with `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`, so it never follows a junction, and writes with `SetKernelObjectSecurity`, which changes that one object only. Protection comes from the descriptor's own `D:P`.
+
+Every applier (`CreateFolderSDDL`, `ForceSDDL`, `ForceSDDLUnlessLinked`, `winsectest.SetFolderSDDL`) reads its SDDL through `sdparse.Parse` (SE-04): the DACL must be present, not NULL and protected (`D:P`); an owner is optional; a group (`G:`) or SACL (`S:`) is refused, since none of them writes one.
 
 Before installing over an existing `%ProgramData%\SoireeHost`, setup refuses one that is a link or junction, or that is owned by anyone but Administrators or SYSTEM: standard users can create folders in `%ProgramData%`.
 

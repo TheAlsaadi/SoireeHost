@@ -271,7 +271,7 @@ func TestServesThroughInstalledServices(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("E2E-STATIC"), 0o644); err != nil { //nolint:gosec // G306: a published page
 		t.Fatal(err)
 	}
-	if _, err := winsec.GrantSiteAccess(root, winsec.ServiceSID(winsec.WebService), winsec.ServiceSID(winsec.SupervisorService), checkRoot(t)); err != nil {
+	if _, err := winsec.GrantSiteAccess(root, winsec.WebAccount(), winsec.SupervisorAccount(), checkRoot(t)); err != nil {
 		t.Fatal(err)
 	}
 	static := config.Site{ID: "files", Name: "Files", Enabled: true, Hostnames: []string{"files.e2e.example"},
@@ -590,7 +590,7 @@ func TestACLDriftRefused(t *testing.T) {
 
 	p := supervisor.Paths{Root: layout(t).DataRoot}
 	enablePrivilege(t, "SeRestorePrivilege")
-	drifted := winsec.SecretsFolderSDDL(winsec.ServiceSID(winsec.SupervisorService)) + "(A;OICI;0x1301bf;;;" + winsec.SIDUsers + ")"
+	drifted := winsec.SecretsFolderSDDL(winsec.SupervisorAccount()) + "(A;OICI;0x1301bf;;;" + winsec.SIDUsers + ")"
 	setDACL(t, p.Secrets(), drifted)
 	if err := sup.Start(); err != nil {
 		t.Fatal(err)
@@ -605,7 +605,7 @@ func TestACLDriftRefused(t *testing.T) {
 
 	_, _ = sup.Control(svc.Stop)
 	waitState(t, winsec.SupervisorService, svc.Stopped, 60*time.Second)
-	setDACL(t, p.Secrets(), winsec.SecretsFolderSDDL(winsec.ServiceSID(winsec.SupervisorService)))
+	setDACL(t, p.Secrets(), winsec.SecretsFolderSDDL(winsec.SupervisorAccount()))
 	if err := sup.Start(); err != nil && !errors.Is(err, windows.ERROR_SERVICE_ALREADY_RUNNING) {
 		t.Fatal(err)
 	}

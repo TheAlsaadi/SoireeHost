@@ -236,11 +236,11 @@ func startWith(t *testing.T, svc *fakeServices, checkRoot func(string) (string, 
 	// Config is locked last: OWNER RIGHTS would keep the test account from
 	// setting the descriptors of folders it then creates inside it.
 	for _, f := range []string{ipc.ControlPipeFile, ipc.WebPipeFile, ipc.TunnelPipeFile} {
-		if err := winsec.CreateFolderSDDL(ipc.PipeFileFolder(paths.Root, f), winsec.PipeNameFolderSDDL(me.SID, me.SID)); err != nil {
+		if err := winsec.CreateFolderSDDL(ipc.PipeFileFolder(paths.Root, f), winsec.PipeNameFolderSDDL(winsec.SupervisorSID(me.SID), me.SID)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := winsec.ForceSDDL(paths.Config(), winsec.ConfigFolderSDDL(me.SID)); err != nil {
+	if err := winsec.ForceSDDL(paths.Config(), winsec.ConfigFolderSDDL(winsec.SupervisorSID(me.SID))); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(paths.ControlUsersFile(), []byte(`{"users":["`+me.SID+`"]}`), 0o600); err != nil {
@@ -258,7 +258,7 @@ func startWith(t *testing.T, svc *fakeServices, checkRoot func(string) (string, 
 	}
 	sup, err := New(Options{
 		SkipACLCheck: true,
-		Paths:        paths, Identity: Identity{Supervisor: me.SID, Web: me.SID, Tunnel: me.SID},
+		Paths:        paths, Identity: soleIdentity(me.SID),
 		Pipes: pipes, Services: svc, Version: "test", CheckRoot: checkRoot,
 		WorkerStartTimeout: 10 * time.Second, LoadTimeout: loadTimeout,
 	})

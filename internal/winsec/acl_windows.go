@@ -3,11 +3,14 @@ package winsec
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/TheAlsaadi/SoireeHost/internal/winsec/sdparse"
 )
 
 // writeMask is every access right that lets a principal change a file or
@@ -21,25 +24,150 @@ const writeMask = windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA | windows.F
 // allowed (an owner can always rewrite the DACL). A missing (NULL) DACL, an
 // allow entry of a kind this check does not understand, or an unreadable
 // descriptor all fail (S-22).
+//
+// path itself must not be a link, junction or mount point: its own
+// descriptor is read without following it (review finding SE-09). Every
+// folder above it is checked too (checkParents), since an account that can
+// rename or delete a folder on the way could replace path with one of its
+// own.
 func CheckWriters(path string, allowed ...string) error {
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
-		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
-	if err != nil {
-		return fmt.Errorf("reading permissions of %s: %w", path, err)
-	}
-	return checkDescriptor(sd, path, allowed, allowed)
+	return CheckOwnerAndWriters(path, allowed, allowed)
 }
 
 // CheckOwnerAndWriters is CheckWriters with its own list of accepted owners:
 // the owner must be in owners, and every principal the DACL lets change path
-// must be in writers.
+// must be in writers. The folders above path are checked against owners.
 func CheckOwnerAndWriters(path string, owners, writers []string) error {
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	sd, err := securityNoFollow(abs)
+	if err != nil {
+		return err
+	}
+	if err := checkDescriptor(sd, abs, owners, writers); err != nil {
+		return err
+	}
+	return checkParents(abs, owners)
+}
+
+// ErrLinkInPath is returned by CheckWriters and CheckOwnerAndWriters when the
+// path, or a folder above it, is a link, junction or mount point.
+var ErrLinkInPath = errors.New("is a link, junction or mount point")
+
+// securityNoFollow reads the owner and DACL of path through a handle that
+// does not follow a reparse point, and refuses path if it is a link,
+// junction or mount point.
+func securityNoFollow(path string) (*windows.SECURITY_DESCRIPTOR, error) {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, err
+	}
+	h, err := windows.CreateFile(p, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		return nil, fmt.Errorf("reading permissions of %s: %w", path, err)
+	}
+	defer windows.CloseHandle(h) //nolint:errcheck // read-only handle
+	fi, err := attributeTagInfo(h)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	if isLink(fi) {
+		return nil, fmt.Errorf("%s %w", path, ErrLinkInPath)
+	}
+	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
-		return fmt.Errorf("reading permissions of %s: %w", path, err)
+		return nil, fmt.Errorf("reading permissions of %s: %w", path, err)
 	}
-	return checkDescriptor(sd, path, owners, writers)
+	return sd, nil
+}
+
+// replaceMask is every right on a folder that lets a principal take away
+// what is inside it, or the folder itself, and put something else there:
+// delete or rename the folder, delete or rename its entries, or change who
+// may do either.
+const replaceMask = windows.DELETE | fileDeleteChild | windows.WRITE_DAC | windows.WRITE_OWNER | windows.GENERIC_ALL
+
+// checkParents checks every folder above path, up to the volume root (SE-09).
+// Each must not be a link, junction or mount point, must be owned by SYSTEM,
+// Administrators, TrustedInstaller or one of owners, and must give no one
+// else a right in replaceMask. Rights only to add entries (such as the right
+// of Users to create folders in %ProgramData%) do not let anyone replace an
+// existing one, and are allowed. On a volume root, which cannot be renamed
+// or deleted, plain delete is allowed too (a drive formatted by Windows
+// gives Authenticated Users modify there).
+func checkParents(path string, owners []string) error {
+	trusted := append([]string{SIDSystem, SIDAdministrators, SIDTrustedInstaller}, owners...)
+	for child, dir := path, filepath.Dir(path); dir != child; child, dir = dir, filepath.Dir(dir) {
+		sd, err := securityNoFollow(dir)
+		if err != nil {
+			return fmt.Errorf("checking the folders that hold %s: %w", path, err)
+		}
+		if err := checkParent(sd, dir, trusted); err != nil {
+			return fmt.Errorf("%w, so %s could be replaced", err, path)
+		}
+	}
+	return nil
+}
+
+func checkParent(sd *windows.SECURITY_DESCRIPTOR, dir string, trusted []string) error {
+	owner, _, err := sd.Owner()
+	if err != nil || owner == nil {
+		return fmt.Errorf("%s has no owner", dir)
+	}
+	if !slices.Contains(trusted, owner.String()) {
+		return fmt.Errorf("%s is owned by %s", dir, owner)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil || dacl == nil {
+		return fmt.Errorf("%s has no access list", dir)
+	}
+	mask := uint32(replaceMask)
+	if filepath.Dir(dir) == dir {
+		mask &^= windows.DELETE
+	}
+	for i := range uint32(dacl.AceCount) {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, i, &ace); err != nil {
+			return fmt.Errorf("reading access list of %s: %w", dir, err)
+		}
+		// an inherit-only entry applies to what is created inside, not to
+		// the folder itself; what it gives a child shows in the list of that
+		// child, which is checked when the child is
+		if ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
+			continue
+		}
+		switch ace.Header.AceType {
+		case windows.ACCESS_DENIED_ACE_TYPE:
+			continue
+		case windows.ACCESS_ALLOWED_ACE_TYPE:
+		default:
+			return fmt.Errorf("%s has an access entry of type %d, which is not expected", dir, ace.Header.AceType)
+		}
+		if uint32(ace.Mask)&mask == 0 {
+			continue
+		}
+		// #nosec G103 -- the SID starts at SidStart inside the ACE, per the ACCESS_ALLOWED_ACE layout
+		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart)).String()
+		if slices.Contains(trusted, sid) || isAppContainerSID(sid) {
+			continue
+		}
+		return fmt.Errorf("%s can be changed by %s", dir, sid)
+	}
+	return nil
+}
+
+// isAppContainerSID reports whether sid is an app package or capability SID
+// (S-1-15-2-..., S-1-15-3-...). Windows grants an app container a right only
+// if the SIDs of its user are granted it as well, so such an entry never
+// lets anyone do more than the other entries allow. User profile folders
+// carry them (AppData grants one full control).
+func isAppContainerSID(sid string) bool {
+	return strings.HasPrefix(sid, "S-1-15-2-") || strings.HasPrefix(sid, "S-1-15-3-")
 }
 
 func checkDescriptor(sd *windows.SECURITY_DESCRIPTOR, path string, owners, allowed []string) error {
@@ -128,40 +256,53 @@ func EnableTokenPrivileges(tok windows.Token, names ...string) error {
 // current descriptor says. This is
 // how the elevated setup role repairs folders whose descriptors lock even
 // their owner out. The caller must have enabled SeRestorePrivilege.
+//
+// The descriptor must have a protected, non-NULL DACL (sdparse.Parse).
 func ForceSDDL(path, sddl string) error {
-	sd, err := windows.SecurityDescriptorFromString(sddl)
+	d, err := sdparse.Parse(sddl)
 	if err != nil {
-		return fmt.Errorf("security descriptor: %w", err)
+		return fmt.Errorf("permissions for %s: %w", path, err)
 	}
-	if dacl, _, err := sd.DACL(); err != nil || dacl == nil {
-		return fmt.Errorf("descriptor for %s has no access list", path)
-	}
-	owner, _, err := sd.Owner()
+	h, err := openForDescriptor(path, d)
 	if err != nil {
-		return fmt.Errorf("descriptor for %s: owner: %w", path, err)
+		return err
 	}
+	defer windows.CloseHandle(h) //nolint:errcheck // nothing to do on failure
+	return applyDescriptor(h, d)
+}
+
+// openForDescriptor opens path, without following a reparse point and with
+// backup semantics, for exactly the rights applyDescriptor needs.
+func openForDescriptor(path string, d sdparse.Descriptor) (windows.Handle, error) {
 	access := uint32(windows.WRITE_DAC)
-	// protection comes from the descriptor's own "D:P" control flag
-	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION)
-	if owner != nil {
+	if d.Owner != nil {
 		access |= windows.WRITE_OWNER
-		info |= windows.OWNER_SECURITY_INFORMATION
 	}
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return err
+		return windows.InvalidHandle, err
 	}
 	h, err := windows.CreateFile(p, access, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 		nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 	if err != nil {
-		return fmt.Errorf("opening %s to set permissions: %w", path, err)
+		return windows.InvalidHandle, fmt.Errorf("opening %s to set permissions: %w", path, err)
 	}
-	defer windows.CloseHandle(h) //nolint:errcheck // nothing to do on failure
+	return h, nil
+}
+
+// applyDescriptor writes the owner of d (if it names one) and its DACL to
+// the object h holds.
+func applyDescriptor(h windows.Handle, d sdparse.Descriptor) error {
+	// protection comes from the descriptor's own "D:P" control flag
+	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION)
+	if d.Owner != nil {
+		info |= windows.OWNER_SECURITY_INFORMATION
+	}
 	// SetKernelObjectSecurity changes this object only. SetSecurityInfo would
 	// also re-apply inheritance to everything below it, opening each child
 	// without the restore privilege, and fail at the first child that
 	// admits no administrators (the secrets folder).
-	return windows.SetKernelObjectSecurity(h, info, sd)
+	return windows.SetKernelObjectSecurity(h, info, d.SD)
 }
 
 // Site folder access (ADR-0006, owner decision of 12 Nov 2026). When a site
@@ -187,7 +328,9 @@ const (
 // only if no equivalent one is there, so repeated calls add nothing. The
 // caller must be allowed to change the folder's permissions (normally its
 // owner). It returns the canonical path check approved.
-func GrantSiteAccess(path, web, supervisor string, check func(string) (string, error)) (string, error) {
+//
+// The two accounts have types of their own (SE-06), so they cannot be swapped.
+func GrantSiteAccess(path string, web WebSID, supervisor SupervisorSID, check func(string) (string, error)) (string, error) {
 	h, info, err := openFolderNoFollow(path, windows.READ_CONTROL|windows.WRITE_DAC|windows.FILE_READ_ATTRIBUTES)
 	if err != nil {
 		return "", err
@@ -218,11 +361,11 @@ func GrantSiteAccess(path, web, supervisor string, check func(string) (string, e
 		return "", err
 	}
 	var add string
-	if !hasAllow(dacl, web, siteWorkerMask, windows.OBJECT_INHERIT_ACE|windows.CONTAINER_INHERIT_ACE) {
-		add += "(A;OICI;" + siteWorkerAccess + ";;;" + web + ")"
+	if !hasAllow(dacl, string(web), siteWorkerMask, windows.OBJECT_INHERIT_ACE|windows.CONTAINER_INHERIT_ACE) {
+		add += "(A;OICI;" + siteWorkerAccess + ";;;" + string(web) + ")"
 	}
-	if !hasAllow(dacl, supervisor, siteSupervisorMask, 0) {
-		add += "(A;;" + siteSupervisorAccess + ";;;" + supervisor + ")"
+	if !hasAllow(dacl, string(supervisor), siteSupervisorMask, 0) {
+		add += "(A;;" + siteSupervisorAccess + ";;;" + string(supervisor) + ")"
 	}
 	if add == "" {
 		return canon, nil
@@ -377,45 +520,65 @@ func WorkerGroups(web string) []string {
 // CreateFolderSDDL creates a folder that has the given descriptor from the
 // moment it exists, so there is no window in which it carries its parent's
 // permissions. It fails if the folder already exists. Setting an owner other
-// than the caller needs SeRestorePrivilege enabled.
+// than the caller needs SeRestorePrivilege enabled. The descriptor must have
+// a protected, non-NULL DACL (sdparse.Parse).
 func CreateFolderSDDL(path, sddl string) error {
-	sd, err := windows.SecurityDescriptorFromString(sddl)
+	d, err := sdparse.Parse(sddl)
 	if err != nil {
-		return fmt.Errorf("security descriptor: %w", err)
+		return fmt.Errorf("permissions for %s: %w", path, err)
 	}
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
 		return err
 	}
-	sa := windows.SecurityAttributes{SecurityDescriptor: sd}
+	sa := windows.SecurityAttributes{SecurityDescriptor: d.SD}
 	sa.Length = uint32(unsafe.Sizeof(sa)) // #nosec G103 G115 -- the size of a fixed Windows structure
 	return windows.CreateDirectory(p, &sa)
 }
 
+// ErrHardLinked is returned by ForceSDDLUnlessLinked for a file it left
+// alone because it has more than one hard link.
+var ErrHardLinked = errors.New("has more than one hard link, so its permissions were left alone")
+
 // ForceSDDLUnlessLinked is ForceSDDL, except that a file with more than one
-// hard link is left alone and reported as skipped: re-permissioning it would
-// also change the file at the link's other end, which may be anywhere on
-// the volume.
-func ForceSDDLUnlessLinked(path, sddl string) (skipped bool, err error) {
-	p, err := windows.UTF16PtrFromString(path)
+// hard link is left alone and ErrHardLinked returned: re-permissioning it
+// would also change the file at the other end of the link, which may be
+// anywhere on the volume. The link count is read and the descriptor written
+// through one handle, so the file checked is the file changed (review
+// finding SE-08). The count is read again afterwards, and a link added in
+// between is reported as an error; the descriptor has then been written
+// already, so that error says only that another file may share it now.
+func ForceSDDLUnlessLinked(path, sddl string) error {
+	d, err := sdparse.Parse(sddl)
 	if err != nil {
-		return false, err
+		return fmt.Errorf("permissions for %s: %w", path, err)
 	}
-	h, err := windows.CreateFile(p, windows.FILE_READ_ATTRIBUTES, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-		nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	h, err := openForDescriptor(path, d)
 	if err != nil {
-		return false, fmt.Errorf("opening %s: %w", path, err)
+		return err
 	}
-	var info windows.ByHandleFileInformation
-	err = windows.GetFileInformationByHandle(h, &info)
-	_ = windows.CloseHandle(h)
-	if err != nil {
-		return false, err
+	defer windows.CloseHandle(h) //nolint:errcheck // nothing to do on failure
+	linked := func() (bool, error) {
+		fi, err := standardInfo(h)
+		if err != nil {
+			return false, fmt.Errorf("reading %s: %w", path, err)
+		}
+		return fi.Directory == 0 && fi.NumberOfLinks > 1, nil
 	}
-	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 && info.NumberOfLinks > 1 {
-		return true, nil
+	if l, err := linked(); err != nil {
+		return err
+	} else if l {
+		return fmt.Errorf("%s %w", path, ErrHardLinked)
 	}
-	return false, ForceSDDL(path, sddl)
+	if err := applyDescriptor(h, d); err != nil {
+		return err
+	}
+	if l, err := linked(); err != nil {
+		return err
+	} else if l {
+		return fmt.Errorf("%s gained a hard link while its permissions were set", path)
+	}
+	return nil
 }
 
 // CreateMutexSDDL creates or opens a named mutex with the given descriptor.

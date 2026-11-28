@@ -28,22 +28,22 @@ func (p Paths) Folders(id Identity, controlUsers []string) []Folder {
 	sup, web, tun := id.Supervisor, id.Web, id.Tunnel
 	sy, ba := winsec.SIDSystem, winsec.SIDAdministrators
 	admin := []string{sy, ba}
-	withSup := []string{sy, ba, sup}
+	withSup := []string{sy, ba, string(sup)}
 	return []Folder{
 		{p.Root, ba, winsec.DataRootSDDL(sup, web, tun), admin},
 		{p.Config(), ba, winsec.ConfigFolderSDDL(sup), withSup},
 		// one folder per pipe-name file, readable by that pipe's clients (DR-1)
 		{ipc.PipeFileFolder(p.Root, ipc.ControlPipeFile), ba, winsec.PipeNameFolderSDDL(sup, controlUsers...), withSup},
-		{ipc.PipeFileFolder(p.Root, ipc.WebPipeFile), ba, winsec.PipeNameFolderSDDL(sup, web), withSup},
-		{ipc.PipeFileFolder(p.Root, ipc.TunnelPipeFile), ba, winsec.PipeNameFolderSDDL(sup, tun), withSup},
+		{ipc.PipeFileFolder(p.Root, ipc.WebPipeFile), ba, winsec.PipeNameFolderSDDL(sup, string(web)), withSup},
+		{ipc.PipeFileFolder(p.Root, ipc.TunnelPipeFile), ba, winsec.PipeNameFolderSDDL(sup, string(tun)), withSup},
 		// secrets belong to the supervisor alone; SYSTEM owns the folder
-		{p.Secrets(), sy, winsec.SecretsFolderSDDL(sup), []string{sy, sup}},
+		{p.Secrets(), sy, winsec.SecretsFolderSDDL(sup), []string{sy, string(sup)}},
 		{p.Logs(), ba, winsec.LogsFolderSDDL(sup), admin},
 		{p.Audit(), ba, winsec.AuditFolderSDDL(sup), withSup},
 		// worker log folders keep modify rights: log rotation deletes old
 		// files (owner decision, 13 Nov 2026)
-		{p.WebLogs(), ba, winsec.WorkerLogFolderSDDL(sup, web), []string{sy, ba, web}},
-		{p.TunnelLogs(), ba, winsec.WorkerLogFolderSDDL(sup, tun), []string{sy, ba, tun}},
+		{p.WebLogs(), ba, winsec.WorkerLogFolderSDDL(sup, web), []string{sy, ba, string(web)}},
+		{p.TunnelLogs(), ba, winsec.WorkerLogFolderSDDL(sup, tun), []string{sy, ba, string(tun)}},
 		{p.Updates(), ba, winsec.UpdatesFolderSDDL(sup), withSup},
 	}
 }
@@ -102,9 +102,9 @@ func checkFolders(p Paths, id Identity) error {
 		if attrs&windows.FILE_ATTRIBUTE_DIRECTORY == 0 || attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 			return fmt.Errorf("refusing to run: %s is not a plain folder (a file, link or junction)", f.Path)
 		}
-		owners := []string{winsec.SIDSystem, winsec.SIDAdministrators, id.Supervisor}
+		owners := []string{winsec.SIDSystem, winsec.SIDAdministrators, string(id.Supervisor)}
 		if f.Owner == winsec.SIDSystem {
-			owners = []string{winsec.SIDSystem, id.Supervisor}
+			owners = []string{winsec.SIDSystem, string(id.Supervisor)}
 		}
 		if err := winsec.CheckOwnerAndWriters(f.Path, owners, f.Writers); err != nil {
 			return fmt.Errorf("refusing to run: %w", err)
