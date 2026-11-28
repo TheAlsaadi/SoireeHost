@@ -228,6 +228,11 @@ The first two "After publishing" items cannot hold for a candidate: `releases/la
   - 35: SE-03.
 - `phase7-stage4-records`: the Stage 4 records (fuzz result, soak start), with auto-merge on.
 - The soak's result still needs its own records pull request when it is in.
+- Merge after the `v1.0.0-rc.1` tag (drafts, owner decisions of 28 Nov 2026):
+  - 39: SE-13 and SE-15;
+  - 40: SE-02, SE-04, SE-06, SE-08 and SE-09;
+  - 41: UPD-1.
+- 42: the `TestOutboundTraffic` rate-limit fix (test and CI only), with auto-merge on.
 
 ## Decisions waiting for the owner
 
@@ -236,6 +241,11 @@ Fix each of these before `1.0.0`, or have the owner accept it for 1.0. The full 
 - Decided by the owner on 28 Nov 2026 ("tests now, code later"), for the Medium items of the 12 Nov 2026 review:
   - the seven code findings **SE-02, SE-04, SE-06, SE-08, SE-09, SE-13 and SE-15 stay open for `v1.0.0-rc.1`**, are listed as known issues in its release notes, and are fixed before `1.0.0`;
   - the five test and CI findings GOE-1, GOE-5, GOE-13, GOE-17 and GOE-20 were fixed on 28 Nov 2026 without changing the binary.
+  - **UPD-1: fix after rc.1** ("Yes, fix after rc.1", 28 Nov 2026). rc.1 ships exactly as soaked, with UPD-1 listed as a known issue in its release notes. Draft pull request 41 merges after the tag.
+    - The problem: an update can be rolled back for nothing. CI run 46130645262 showed it, in `TestSignedUpdates`: the update was rolled back because the supervisor reported version 1.1.0, not 1.3.0.
+    - The cause is in the product. The supervisor service restarts itself 5, 30 or 60 seconds after a failure. If that restart comes due while `apply-update` has the services stopped, before the program is swapped, the old program starts again and keeps answering. The version check then fails and the update is rolled back.
+    - Seen once in the last 40 CI runs. The rollback is safe, and installing again works.
+    - The fix in pull request 41 checks again that the services are still stopped before the settings snapshot, after the swap and during a rollback. A test hook reproduces the race in the e2e update test.
   - **SE-03 (High): fixed** in pull request 35 (27 Nov 2026). `SetFolderSDDL` moved to the test-only package `internal/winsec/winsectest`, and `TestImportedOnlyFromTests` guards it. No High finding is open now.
 
 Fix each of the rest before `1.0.0`, or have the owner accept it for 1.0:
