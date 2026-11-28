@@ -195,3 +195,10 @@ Pull request numbers refer to `github.com/TheAlsaadi/SoireeHost`. "Isolation" is
   - GOE-13: `FuzzReadFrame` and `FuzzDecodeResponse`; `build/fuzz.ps1` and the long-fuzz workflow find targets by themselves;
   - GOE-17: `internal/setup/setup_windows_test.go` (`checkDataRoot`, `makeFolders`, `copyBinary`, `takeBack`, with junction and pre-created-root cases); `admin_windows_test.go` (tag `e2e`) runs the administrator paths in the CI isolation job;
   - GOE-20: `testutil.CheckGoroutines` at the end of the shutdown tests of the supervisor, ipc, worker and svcrun, with a new `TestServeStopsOnControl`.
+- Stage 4 (long runs), from 27 Nov 2026:
+  - Fuzzing in CI: run 46010926821 of `fuzz-long.yml` on `main` `03f57bb` (after Stage 3) gave every target (23) two 4-hour halves; all 47 jobs passed, no crash (finished 28 Nov 2026, 06:05 UTC). The earlier run 44891777368, on `a6ea514` before Stage 3, had also passed.
+  - Soak candidate: Release dry run 46011058681 on `03f57bb` (`0.0.0-dryrun.24`, built twice from separate clones with matching hashes, provenance and dry-run manifest jobs green); the soak test `e2e.test.exe` compiled from the same commit with the `e2e` and `no_fs_access` tags. The kit and the owner's steps stay on the owner's PC, outside the repository.
+  - Soak trial 1 (27 Nov 2026): failed at 98.65% availability, below the 99% bar. The VM stalled while VirtualBox ran on top of Hyper-V. For the soak the owner turned the host's hypervisor features off (memory integrity, virtualization-based security), to be turned back on afterwards.
+  - Soak trial 2 (28 Nov 2026, 2 hours): passed, 99.574% of 235 probes outside the recovery windows; the tunnel drop and the supervisor restart both recovered.
+  - The 72-hour soak started 28 Nov 2026 at 00:29:44 UTC in the VM and is due to end about 1 Dec 2026 at 00:30 UTC. Its result is recorded here when the owner sends it back.
+  - Possible harness follow-up: the soak counts the first probe, made before quick share has a link, against the 99%.

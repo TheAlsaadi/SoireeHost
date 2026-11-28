@@ -1,6 +1,6 @@
 # Hand-over
 
-Written 27 Nov 2026. The Claude subscription that built SoiréeHost so far ends around 1 Dec 2026, and another Claude account continues the work. This file lets that account start cold. Read it after `CLAUDE.md` and before `docs/PLAN.md`. Keep it current until the release of 1.0.0, then delete it.
+Written 27 Nov 2026, updated 28 Nov 2026. The Claude subscription that built SoiréeHost so far ends around 1 Dec 2026, and another Claude account continues the work. This file lets that account start cold. Read it after `CLAUDE.md` and before `docs/PLAN.md`. Keep it current until the release of 1.0.0, then delete it.
 
 ## Where the project stands
 
@@ -11,7 +11,7 @@ Written 27 Nov 2026. The Claude subscription that built SoiréeHost so far ends 
   3. security pass, pull request 32, merged 27 Nov 2026, done;
   4. **long runs, now in progress** (below);
   5. the release candidate `v1.0.0-rc.1`, not started.
-- Main is at `03f57bb` (the merge of pull request 32) as of this writing.
+- Stage 4 (fuzz, soak candidate) ran on `main` `03f57bb`, the merge of pull request 32. Since then `main` has taken pull requests 33 to 35 (workflow pins, this file, SE-03).
 
 ## Stage 4: long runs
 
@@ -22,7 +22,9 @@ The workflow is `.github/workflows/fuzz-long.yml`, run by hand from `main`. It l
 | Run | Commit | State |
 | --- | --- | --- |
 | 44891777368 | `a6ea514` (21 Nov, before Stage 3) | Passed, every target |
-| **46010926821** | `03f57bb` (current main) | Started 27 Nov 13:52 UTC. GitHub runs about 20 jobs at once, so a few targets queued. Expect it to finish around 28 Nov 06:00 UTC |
+| **46010926821** | `03f57bb` (after Stage 3) | **Passed:** all 47 jobs, no crash, finished 28 Nov 06:05 UTC |
+
+Stage 4's fuzzing is done. Run the workflow again from `main` before the release only if fuzzed code changes.
 
 Check it with:
 
@@ -34,7 +36,32 @@ gh run view 46010926821 --json conclusion,jobs --jq '{conclusion, notok:[.jobs[]
 
 ### The 72-hour soak in the owner's VM
 
-The soak runs without Claude. The owner runs it in the VirtualBox VM "SoireeHost-check", restored to its "clean" snapshot. The aim is to start it by about 28 Nov 2026.
+The soak runs without Claude. The owner runs it in the VirtualBox VM "SoireeHost-check", restored to its "clean" snapshot.
+
+**State (28 Nov 2026):**
+
+- Trial 1 (27 Nov) failed at 98.65%: the VM stalled while VirtualBox ran on Hyper-V.
+- Trial 2 (28 Nov, 2 hours) passed at 99.574% of 235 probes.
+- **The 72-hour run started 28 Nov 2026 at 00:29:44 UTC (03:29:44 local, +03:00), writing to `C:\soak` in the VM. It is due to end about 1 Dec 2026 at 00:30 UTC.**
+- For the run, the owner turned off the host's hypervisor features (memory integrity, virtualization-based security, hypervisor launch). They must be turned back on afterwards, which needs admin on the owner's PC, so it is the owner's step. After the soak's files are collected:
+
+  1. If BitLocker is on, run `manage-bde -protectors -disable C: -RebootCount 1` first.
+  2. In Terminal (Admin), run:
+
+     ```powershell
+     reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 1 /f
+     reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\WindowsHello" /v Enabled /t REG_DWORD /d 1 /f
+     reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v Enabled /t REG_DWORD /d 1 /f
+     bcdedit /set hypervisorlaunchtype auto
+     ```
+
+  3. Restart. Check that `(Get-CimInstance Win32_ComputerSystem).HypervisorPresent` is True and that Memory integrity is on.
+  4. Resume Windows Update.
+  5. Restore the VM snapshot "clean".
+
+  Docker and WSL do not work until this is done.
+- Windows Update is paused in the VM until 4 Dec, and on the host until 2 Dec.
+- Collect the files before powering off the VM. Section E of `SOAK-INSTRUCTIONS.md` explains how to copy them out through a temporary writable VirtualBox share.
 
 - **Kit:** `C:\Users\moham\SoireeHost-soak-kit` on the owner's PC, outside the repository.
   - `soireehost.exe`: the candidate, from Release dry run 46011058681 (`0.0.0-dryrun.24`, commit `03f57bb`, built twice and compared). SHA-256 `aeb0f84c2c2e16a7066585613190fb68ae8dc6fdadd7fe16e6a3d48d212dea91`.
@@ -76,9 +103,12 @@ Run `gitleaks dir --redact . >/dev/null 2>&1 &&` before every commit (chained wi
 
 ## Open pull requests and branches
 
-- Pull request 33: a Dependabot update of the actions group. Its checks are green and it is not merged. Merging it changes only workflow pins, not the candidate's code.
-- `phase7-handoff`: this file.
-- No other open branch on GitHub.
+- Merged since this file was first written:
+  - 33: Dependabot actions update;
+  - 34: this file;
+  - 35: SE-03.
+- `phase7-stage4-records`: the Stage 4 records (fuzz result, soak start), with auto-merge on.
+- The soak's result still needs its own records pull request when it is in.
 
 ## Decisions waiting for the owner
 
@@ -87,7 +117,7 @@ Fix each of these before `1.0.0`, or have the owner accept it for 1.0. The full 
 - Decided by the owner on 28 Nov 2026 ("tests now, code later"), for the Medium items of the 12 Nov 2026 review:
   - the seven code findings **SE-02, SE-04, SE-06, SE-08, SE-09, SE-13 and SE-15 stay open for `v1.0.0-rc.1`**, are listed as known issues in its release notes, and are fixed before `1.0.0`;
   - the five test and CI findings GOE-1, GOE-5, GOE-13, GOE-17 and GOE-20 were fixed on 28 Nov 2026 without changing the binary.
-  - SE-03 (High) was fixed on 27 Nov 2026.
+  - **SE-03 (High): fixed** in pull request 35 (27 Nov 2026). `SetFolderSDDL` moved to the test-only package `internal/winsec/winsectest`, and `TestImportedOnlyFromTests` guards it. No High finding is open now.
 
 Fix each of the rest before `1.0.0`, or have the owner accept it for 1.0:
 
