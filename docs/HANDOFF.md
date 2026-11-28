@@ -109,6 +109,7 @@ Run `gitleaks dir --redact . >/dev/null 2>&1 &&` before every commit (chained wi
   - 35: SE-03.
 - `phase7-stage4-records`: the Stage 4 records (fuzz result, soak start), with auto-merge on.
 - The soak's result still needs its own records pull request when it is in.
+- `claude/audit-medium-fixes-e66f53`: the SE-13 and SE-15 fixes (audit anchor, typed audit API), a **draft** pull request titled "[after rc.1]" with no auto-merge. Merge it only after `v1.0.0-rc.1` is tagged, so the candidate stays the soaked build. The owner also decides on the ADR-0006 *Audit anchor* section (Proposed; implemented option 1, alternatives listed there).
 
 ## Decisions waiting for the owner
 
@@ -116,7 +117,7 @@ Fix each of these before `1.0.0`, or have the owner accept it for 1.0. The full 
 
 - The open High and Medium items of the 12 Nov 2026 review:
   - **SE-03 (High): fixed** in pull request 35 (27 Nov 2026). `SetFolderSDDL` moved to the test-only package `internal/winsec/winsectest`, and `TestImportedOnlyFromTests` guards it. No High finding is open now.
-  - Still open: SE-02, SE-04, SE-06, SE-08, SE-09, SE-13, SE-15, GOE-1, GOE-5, GOE-13, GOE-17, GOE-20.
+  - Still open: SE-02, SE-04, SE-06, SE-08, SE-09, GOE-1, GOE-5, GOE-13, GOE-17, GOE-20. (SE-13 and SE-15: fixed on the draft branch `claude/audit-medium-fixes-e66f53`, to merge after rc.1.)
 - Low sharp-edges findings: SE7-3 to SE7-9 and S12V-1 to S12V-5.
 - Code review leftovers:
   - CR-4: rollback exposure sentences do not name the site.

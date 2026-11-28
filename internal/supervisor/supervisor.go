@@ -191,8 +191,10 @@ func New(opts Options) (*Supervisor, error) {
 	if err := os.MkdirAll(opts.Paths.Audit(), 0o700); err != nil {
 		return nil, err
 	}
-	al, rep, err := audit.Open(filepath.Join(opts.Paths.Audit(), "audit.log"))
-	if err != nil {
+	// a broken chain is reported through auditRep, not fatal: refusing to
+	// start would let anyone who can damage the file stop the service (SE-13)
+	al, rep, err := audit.Open(filepath.Join(opts.Paths.Audit(), "audit.log"), secretAnchor{sec})
+	if err != nil && !errors.Is(err, audit.ErrBroken) {
 		return nil, err
 	}
 	users, err := readControlUsers(opts.Paths.ControlUsersFile())
@@ -204,7 +206,7 @@ func New(opts Options) (*Supervisor, error) {
 	s.tunnel = newWorkerMgr(s, ipc.RoleTunnel, winsec.TunnelService, opts.Identity.Tunnel)
 	if opts.Updates != nil {
 		s.upd = newUpdater(opts.Paths.Updates(), opts.Version, *opts.Updates, s.updatesEnabled,
-			func(action string, detail map[string]string) { _ = s.record(winsec.SIDSystem, action, detail) })
+			func(action audit.Action, detail map[string]string) { _ = s.record(audit.System, action, detail) })
 	}
 	return s, nil
 }
@@ -248,7 +250,7 @@ func (s *Supervisor) controlSDDL() string {
 
 // Run serves until ctx ends, then stops both workers.
 func (s *Supervisor) Run(ctx context.Context) error {
-	_ = s.record(winsec.SIDSystem, "supervisor.start", map[string]string{"version": s.opts.Version, "audit_ok": fmt.Sprint(s.auditOK())})
+	_ = s.record(audit.System, audit.SupervisorStart, map[string]string{"version": s.opts.Version, "audit_ok": fmt.Sprint(s.auditOK())})
 	webLn, err := ipc.Listen(s.opts.Pipes.Web, winsec.WorkerPipeSDDL(s.opts.Identity.Supervisor, s.opts.Identity.Web))
 	if err != nil {
 		return err
@@ -284,7 +286,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	err = ipc.ServeControl(runCtx, ctlLn, s.authorize, s.handle)
 	cancel()
 	wg.Wait()
-	_ = s.record(winsec.SIDSystem, "supervisor.stop", nil)
+	_ = s.record(audit.System, audit.SupervisorStop, nil)
 	return err
 }
 
@@ -312,7 +314,7 @@ func (s *Supervisor) publishPipes() error {
 // record writes an audit entry. A failure to audit is reported by status and
 // returned; it never stops the supervisor. Callers that make a weakening
 // change undo it when the entry cannot be written (S-32).
-func (s *Supervisor) record(actor, action string, detail map[string]string) error {
+func (s *Supervisor) record(actor audit.Actor, action audit.Action, detail map[string]string) error {
 	if _, err := s.audit.Append(actor, action, detail); err != nil {
 		s.auditMu.Lock()
 		s.auditRep.Breaks = append(s.auditRep.Breaks, audit.Break{Reason: "could not write: " + err.Error()})

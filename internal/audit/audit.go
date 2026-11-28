@@ -2,6 +2,16 @@
 // (S-36). Each entry carries the SHA-256 of the previous one, so editing,
 // removing or reordering entries breaks the chain, and Verify reports where.
 // Breaks are reported, never repaired.
+//
+// The chain alone cannot show what happened at its end: a file cut short,
+// deleted, or rewritten with every hash recomputed still chains from the
+// fixed genesis (SE-13). So before every append the log saves an Anchor
+// (the sequence number and hash of the entry it is about to write) in an
+// AnchorStore kept apart from the file; the supervisor keeps it
+// DPAPI-protected in its secrets folder. Verification checks the file
+// against the anchor, and a log whose file disagrees with its anchor chains
+// its next entry from the anchor, so the break stays in the file after later
+// appends.
 package audit
 
 import (
@@ -14,11 +24,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
 
-// Entry is one audit record. Detail must never contain a secret value.
+// Entry is one audit record. Actor is a SID and Action a name from the closed
+// set of Action values; Append refuses detail keys that name secrets.
 type Entry struct {
 	Seq    uint64            `json:"seq"`
 	Time   time.Time         `json:"time"`
@@ -35,6 +47,27 @@ const genesis = "000000000000000000000000000000000000000000000000000000000000000
 // MaxLineBytes bounds one entry on disk.
 const MaxLineBytes = 64 << 10
 
+// ErrBroken is returned by Open, with a usable Log and the full Report, when
+// the log already on disk does not verify. The caller reports it; the log
+// keeps working, because refusing to start would let anyone who can damage
+// the file stop the supervisor.
+var ErrBroken = errors.New("the audit log does not verify")
+
+// Anchor is the newest entry's sequence number and hash, kept outside the
+// log file (SE-13). Seq 0 with the genesis hash is an empty log.
+type Anchor struct {
+	Seq  uint64 `json:"seq"`
+	Hash string `json:"hash"`
+}
+
+// AnchorStore keeps the anchor where those who can rewrite the log file
+// cannot silently rewrite it too. LoadAnchor reports false when there is
+// none yet.
+type AnchorStore interface {
+	LoadAnchor() (Anchor, bool, error)
+	SaveAnchor(Anchor) error
+}
+
 // hashOf is the SHA-256 of the entry's JSON with Hash empty. encoding/json
 // writes struct fields in order and map keys sorted, so it is deterministic.
 func hashOf(e Entry) (string, error) {
@@ -49,23 +82,66 @@ func hashOf(e Entry) (string, error) {
 
 // Log appends to one audit file.
 type Log struct {
-	mu   sync.Mutex
-	path string
-	last Entry
+	mu      sync.Mutex
+	path    string
+	anchors AnchorStore
+	// head is what the next entry chains from: Seq and Hash only
+	head Anchor
 	now  func() time.Time
 }
 
-// Open opens (creating if needed) the audit log at path, finds the last valid
-// entry to chain from, and returns the verification report of what is
-// already there.
-func Open(path string) (*Log, Report, error) {
-	rep, last, err := verifyFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, rep, err
+// Open opens the audit log at path (the file is created by the first
+// append), verifies what is already there against the anchor, and returns
+// the report. When the report is not OK the error is ErrBroken and the Log
+// is still returned, ready to append.
+//
+// A log with entries but no anchor (the first start after the upgrade that
+// added anchors) or with an anchor that cannot be read is anchored to its
+// last entry, and Open records that as an audit.anchored entry, so the
+// moment the anchor was (re)made stays visible in the log itself.
+//
+// Open fails only without an anchor store. Everything else it cannot do
+// (read the file, save a first anchor, write the audit.anchored entry) is a
+// break in the report: the supervisor keeps running and says so.
+func Open(path string, anchors AnchorStore) (*Log, Report, error) {
+	if anchors == nil {
+		return nil, Report{}, errors.New("audit log needs an anchor store")
 	}
-	l := &Log{path: path, last: last, now: time.Now}
-	if last.Hash == "" {
-		l.last = Entry{Hash: genesis}
+	a, hasAnchor, aerr := anchors.LoadAnchor()
+	var want *Anchor
+	if aerr == nil && hasAnchor {
+		want = &a
+	}
+	rep, res, err := verifyFile(path, want)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		rep.Breaks = append(rep.Breaks, Break{Reason: "the audit file could not be read"})
+	}
+	l := &Log{path: path, anchors: anchors, head: res.last, now: time.Now}
+	var reason string
+	switch {
+	case aerr != nil:
+		rep.Breaks = append(rep.Breaks, Break{Reason: "the audit anchor could not be read, so removal of the newest entries cannot be ruled out"})
+		reason = "unreadable"
+	case !hasAnchor && res.last.Seq > 0:
+		reason = "missing"
+	case !hasAnchor:
+		// a new log: anchor it empty, so deleting it later is reported
+		if err := anchors.SaveAnchor(l.head); err != nil {
+			rep.Breaks = append(rep.Breaks, Break{Reason: "the audit anchor could not be saved"})
+		}
+	case !res.anchorMatched:
+		// the file was cut short, deleted, rewritten or added to: chain on
+		// from the newest entry the supervisor wrote, so the break stays in
+		// the file after this start
+		l.head = Anchor{Seq: max(a.Seq, res.last.Seq), Hash: a.Hash}
+	}
+	if reason != "" {
+		if _, err := l.Append(System, AuditAnchored, map[string]string{"reason": reason, "from_seq": strconv.FormatUint(res.last.Seq, 10)}); err != nil {
+			rep.Breaks = append(rep.Breaks, Break{Reason: "the audit log could not be anchored"})
+		}
+	}
+	if !rep.OK() {
+		return l, rep, ErrBroken
 	}
 	return l, rep, nil
 }
@@ -73,16 +149,32 @@ func Open(path string) (*Log, Report, error) {
 // Append adds an entry. The file is opened for append only, so this code
 // cannot overwrite earlier entries even by mistake (the folder ACL enforces
 // the same for the supervisor's account).
-func (l *Log) Append(actor, action string, detail map[string]string) (Entry, error) {
+//
+// The anchor is saved first, naming the entry about to be written, so an
+// entry added to the file by anyone else is always past the anchor and
+// reported. When the anchor cannot be saved nothing is written and the
+// error is returned. When the write fails after it, the anchor names an
+// entry that is not in the file, which Verify reports until the next
+// successful append (it reuses the sequence number and moves the anchor).
+func (l *Log) Append(actor Actor, action Action, detail map[string]string) (Entry, error) {
+	if actor.sid == "" {
+		return Entry{}, errors.New("audit entry has no actor")
+	}
+	if !action.valid() {
+		return Entry{}, errors.New("audit entry has an unknown action")
+	}
+	if err := checkDetail(detail); err != nil {
+		return Entry{}, err
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e := Entry{
-		Seq:    l.last.Seq + 1,
+		Seq:    l.head.Seq + 1,
 		Time:   l.now().UTC(),
-		Actor:  actor,
-		Action: action,
+		Actor:  actor.sid,
+		Action: action.String(),
 		Detail: detail,
-		Prev:   l.last.Hash,
+		Prev:   l.head.Hash,
 	}
 	h, err := hashOf(e)
 	if err != nil {
@@ -95,6 +187,9 @@ func (l *Log) Append(actor, action string, detail map[string]string) (Entry, err
 	}
 	if len(line) >= MaxLineBytes {
 		return Entry{}, errors.New("audit entry too large")
+	}
+	if err := l.anchors.SaveAnchor(Anchor{Seq: e.Seq, Hash: e.Hash}); err != nil {
+		return Entry{}, fmt.Errorf("saving the audit anchor: %w", err)
 	}
 	f, err := openAppendOnly(l.path)
 	if err != nil {
@@ -111,12 +206,31 @@ func (l *Log) Append(actor, action string, detail map[string]string) (Entry, err
 	if werr == nil {
 		// the line is in the file: the next entry must follow it, or Verify
 		// would report a break the program made (review finding GO-8)
-		l.last = e
+		l.head = Anchor{Seq: e.Seq, Hash: e.Hash}
 	}
 	if err := errors.Join(werr, serr, cerr); err != nil {
 		return Entry{}, fmt.Errorf("writing audit log: %w", err)
 	}
 	return e, nil
+}
+
+// Verify checks the log's chain and its agreement with the anchor.
+func (l *Log) Verify() (Report, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	a, ok, err := l.anchors.LoadAnchor()
+	if err != nil {
+		return Report{Breaks: []Break{{Reason: "the audit anchor could not be read"}}}, nil
+	}
+	var want *Anchor
+	if ok {
+		want = &a
+	}
+	rep, _, err := verifyFile(l.path, want)
+	if errors.Is(err, os.ErrNotExist) {
+		return rep, nil
+	}
+	return rep, err
 }
 
 func needsNewline(path string) bool {
@@ -136,7 +250,8 @@ func needsNewline(path string) bool {
 	return b[0] != '\n'
 }
 
-// Break is one place where the chain does not hold.
+// Break is one place where the chain does not hold. Line 0 means the file as
+// a whole (its end, or the file itself).
 type Break struct {
 	Line   int    `json:"line"`
 	Reason string `json:"reason"`
@@ -151,26 +266,39 @@ type Report struct {
 // OK reports whether the whole chain verified.
 func (r Report) OK() bool { return len(r.Breaks) == 0 }
 
-// Verify checks the chain of the log at path.
-func Verify(path string) (Report, error) {
-	rep, _, err := verifyFile(path)
-	return rep, err
+type verifyResult struct {
+	last          Anchor // the last entry that verified, or the genesis
+	anchorMatched bool   // the anchor's entry is in the file, unchanged
 }
 
-// verifyFile walks every line. After a break it carries on from the last
-// good entry, so one damaged line does not hide later tampering.
-func verifyFile(path string) (Report, Entry, error) {
+// verifyFile walks every line and checks the file against want, when there
+// is an anchor. A missing file is reported as removed when the anchor says
+// entries were written, and returns os.ErrNotExist.
+func verifyFile(path string, want *Anchor) (Report, verifyResult, error) {
 	f, err := os.Open(path) // #nosec G304 -- the supervisor's own audit file
 	if err != nil {
-		return Report{}, Entry{}, err
+		if !errors.Is(err, os.ErrNotExist) {
+			return Report{}, verifyResult{}, err
+		}
+		rep, res := verifyReader(bytes.NewReader(nil), want)
+		if want != nil && want.Seq > 0 {
+			rep.Breaks = []Break{{Reason: fmt.Sprintf("the audit file is missing, but %d entries were written (it was deleted or moved)", want.Seq)}}
+		}
+		return rep, res, err
 	}
 	defer f.Close() //nolint:errcheck // read-only
-	return verifyReader(f)
+	rep, res := verifyReader(f, want)
+	return rep, res, nil
 }
 
-func verifyReader(r io.Reader) (Report, Entry, error) {
+// verifyReader walks every line. After a break it carries on from the last
+// good entry, so one damaged line does not hide later tampering.
+func verifyReader(r io.Reader, want *Anchor) (Report, verifyResult) {
 	var rep Report
 	last := Entry{Hash: genesis}
+	matched := want == nil || (want.Seq == 0 && want.Hash == genesis)
+	rewritten := false // the anchor's entry is there with another hash
+	added := false     // valid entries follow the anchor's entry
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 4096), MaxLineBytes)
 	line := 0
@@ -187,9 +315,9 @@ func verifyReader(r io.Reader) (Report, Entry, error) {
 			rep.Breaks = append(rep.Breaks, Break{line, "not a valid entry"})
 			continue
 		}
-		want, err := hashOf(e)
+		sum, err := hashOf(e)
 		switch {
-		case err != nil || e.Hash != want:
+		case err != nil || e.Hash != sum:
 			rep.Breaks = append(rep.Breaks, Break{line, "entry was changed after it was written"})
 			continue
 		case e.Prev != last.Hash:
@@ -197,16 +325,33 @@ func verifyReader(r io.Reader) (Report, Entry, error) {
 		case e.Seq != last.Seq+1:
 			rep.Breaks = append(rep.Breaks, Break{line, fmt.Sprintf("sequence jumps from %d to %d", last.Seq, e.Seq)})
 		}
+		if want != nil && matched && want.Seq < e.Seq && !added {
+			// the anchor names the newest entry written (it is saved before
+			// each write), so nothing may follow it
+			added = true
+			matched = false
+			rep.Breaks = append(rep.Breaks, Break{line, fmt.Sprintf("entry %d was added after the newest entry the supervisor wrote (%d)", e.Seq, want.Seq)})
+		}
+		if want != nil && e.Seq == want.Seq {
+			if e.Hash == want.Hash && !added {
+				matched = true
+			} else {
+				rewritten = true
+				rep.Breaks = append(rep.Breaks, Break{line, fmt.Sprintf("entry %d is not the one that was written (the log was rewritten)", e.Seq)})
+			}
+		}
 		rep.Entries++
 		last = e
 	}
 	if err := sc.Err(); err != nil {
 		rep.Breaks = append(rep.Breaks, Break{line + 1, "line too long or unreadable"})
 	}
-	if last.Seq == 0 {
-		last = Entry{}
+	if !matched && last.Seq < want.Seq {
+		rep.Breaks = append(rep.Breaks, Break{0, fmt.Sprintf("the log ends at entry %d, but %d entries were written (entries were removed from the end, or the newest was lost in a crash)", last.Seq, want.Seq)})
+	} else if !matched && !rewritten && !added {
+		rep.Breaks = append(rep.Breaks, Break{0, fmt.Sprintf("entry %d, the newest one written, is missing or was changed", want.Seq)})
 	}
-	return rep, last, nil
+	return rep, verifyResult{last: Anchor{Seq: last.Seq, Hash: last.Hash}, anchorMatched: matched}
 }
 
 // List returns up to limit entries with Seq greater than after, oldest first,

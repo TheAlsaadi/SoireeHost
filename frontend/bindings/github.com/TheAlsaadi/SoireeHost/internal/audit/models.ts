@@ -6,7 +6,8 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
- * Break is one place where the chain does not hold.
+ * Break is one place where the chain does not hold. Line 0 means the file as
+ * a whole (its end, or the file itself).
  */
 export class Break {
     "line": number;
@@ -34,7 +35,8 @@ export class Break {
 }
 
 /**
- * Entry is one audit record. Detail must never contain a secret value.
+ * Entry is one audit record. Actor is a SID and Action a name from the closed
+ * set of Action values; Append refuses detail keys that name secrets.
  */
 export class Entry {
     "seq": number;

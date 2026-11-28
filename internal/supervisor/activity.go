@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/TheAlsaadi/SoireeHost/internal/accesslog"
+	"github.com/TheAlsaadi/SoireeHost/internal/audit"
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/fwevent"
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
@@ -172,7 +173,7 @@ func (s *Supervisor) configImport(c winsec.Caller, p *ipc.ConfigImportParams) (a
 	}
 	detail := map[string]string{"sites": strconv.Itoa(len(next.Sites))}
 	var switchedOff []string
-	res, e := s.change(c, "config.import", detail, func(cfg *config.Config) *ipc.Error {
+	res, e := s.change(c, audit.ConfigImport, detail, func(cfg *config.Config) *ipc.Error {
 		imported := next
 		imported.Sites = slices.Clone(next.Sites)
 		imported.Tunnel = cfg.Tunnel

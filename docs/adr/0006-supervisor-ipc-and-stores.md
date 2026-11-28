@@ -88,7 +88,41 @@ No method takes a command line, and the only path any method accepts is a site f
 
   At a worker's reconnect (supervisor start, or a restart after a crash) a revision the web worker refuses, hangs on past the load timeout, or dies on at two connects in a row is replaced by the last good one and audited as `config.restored` with its cause (`refused`, `timed_out`, `stopped`); one death alone keeps the revision and reports it, because it may have another cause, and a slow first load gets the same 30 seconds as a change (owner's decision of 27 Nov 2026; `TestCrashAtConnectRestoresLastGood`, `TestHangAtConnectRestoresLastGood`, `TestOneCrashAtConnectKeepsSettings`). The supervisor may only start, stop and query the worker services (S-20), so a worker that stays stuck in a load runs until it is restarted (by Windows at the next boot, or by the owner); it then loads the restored revision. Written limit (same decision): the tunnel launcher has no last-good revision of its own, so a tunnel plan it does not take is kept with a warning (`config.Validate` already enforces everything the launcher checks). This affects whether the tunnel stays up, not what is exposed. History keeps the ten newest revisions, good or not, plus the last good one; a damaged `current.json` is set aside as `history\damaged-<time>.json`, which pruning does not remove.
 - **Secrets (S-40).** `secrets\<name>.bin` holds `CryptProtectData` output under the supervisor's account (not machine scope), with fixed per-purpose entropy and `CRYPTPROTECT_UI_FORBIDDEN`. `secrets\<name>.json` holds only the time it was set. The value never appears in config, logs, audit entries or errors.
-- **Audit (S-36).** `logs\audit\audit.log` is JSON lines: `{seq, time, actor, action, detail, prev, hash}`, where `hash` is the SHA-256 of the entry without `hash`, and `prev` is the previous entry's hash. The file is opened for append only. At start, and on every `audit.list`, the chain is verified; a break is reported, not repaired. `detail` never contains secret values.
+- **Audit (S-36).** `logs\audit\audit.log` is JSON lines: `{seq, time, actor, action, detail, prev, hash}`, where `hash` is the SHA-256 of the entry without `hash`, and `prev` is the previous entry's hash. The file is opened for append only. `actor` is always a SID and `action` a name from a closed set; `detail` keys that name a secret (`token`, `password`, `secret`, `key`, `credential` and the like) are refused, so a secret value cannot be filed under an obvious name (SE-15). Before every append the sequence number and hash of the entry being written (the anchor) are saved in the secrets store (SE-13, see *Audit anchor* below). At start, and on every `audit.list`, the chain is verified and checked against the anchor; a break is reported (at start through `audit_ok` and the Security page; the supervisor still starts), not repaired. What this detects is listed under *Audit anchor*.
+
+### Audit anchor (SE-13, SE-15; amendment proposed 28 Nov 2026)
+
+**Status of this section:** Proposed, for the owner to accept after rc.1. The rest of the record stays Accepted.
+
+The hash chain starts from a fixed genesis and uses no key, so on its own it shows edits, removals and reorderings *inside* the file, but not a file cut short, deleted, or rewritten with every hash recomputed: each of those still chains (review finding SE-13). The earlier wording, "a removal is reported", overstated it.
+
+The anchor closes that gap with what the design already has. Before each append the supervisor saves `{seq, hash}` of the entry it is about to write as the secret `audit_anchor` in the DPAPI store (`secrets\audit_anchor.bin`, under the supervisor's account). Verification then also checks that the entry the anchor names is in the file with that hash, and that no entry follows it. Saving the anchor first means an entry anyone else adds to the file is always past the anchor; if the anchor cannot be saved, nothing is written and the change is refused like any other audit failure (S-32). When it is not, the log chains its next entry from the anchor (sequence and hash), so the break stays in the file after later appends and restarts. `audit.Open` returns `audit.ErrBroken` with a usable log and the report; the supervisor records the break in `audit_ok` and keeps running, because refusing to start would let anyone who can damage the file stop the service.
+
+What is detected, by whom:
+
+| Change to the log | Detected? |
+| --- | --- |
+| An entry edited, removed, reordered, duplicated or added in the middle | Yes, by the chain (as before) |
+| Entries cut off the end | Yes: the anchor's entry is missing |
+| The file deleted or replaced by an empty one | Yes: the anchor says entries were written |
+| Every entry rewritten with hashes recomputed (with or without extra entries) | Yes: the anchor's entry has another hash, or entries follow it |
+| Correctly chained entries added at the end by someone other than the supervisor (to blame a change on a user, say) | Yes: they follow the anchor's entry |
+| The anchor deleted or damaged | Damaged or unreadable: a break at that start, and the supervisor anchors the log again with an `audit.anchored` entry (reason `unreadable`), so later starts are clean but the entry stays; a removal made at the same moment is then not reported again. Deleted with the log still there: not a break, but an `audit.anchored` entry with reason `missing` shows the gap |
+| Both the log and the anchor deleted | No: this looks like a new install |
+| Both rewritten so that they agree | No |
+| A crash or power loss after the anchor is saved but before the entry reaches the disk | Reported as a break (the anchor's entry is missing), and it stays in the file: the log cannot tell this from a removal |
+
+Who can do the undetected cases: the audit folder grants the supervisor append and read, Administrators read, and SYSTEM full control; the secrets folder admits only SYSTEM and the supervisor and is checked at every start (S-22). Rewriting the log needs SYSTEM or an administrator taking ownership of the file. Forging a matching anchor needs code running as the supervisor's account (DPAPI) or as SYSTEM; deleting the anchor needs SYSTEM, or an administrator who takes ownership of the secrets folder, which the next start's S-22 check refuses unless they also restore its owner and access list. So an administrator or SYSTEM who sets out to hide changes can still do it, with effort; the anchor stops a cut, a deletion or a rehash of the log file alone. This matches S-36's aim (a record of what the control panel and the supervisor did), not protection against a machine administrator, whom the plan's threat model does not defend against (docs/PLAN.md, "Not defended against").
+
+Upgrade: a log written before the anchor existed opens without a break. The first start writes an `audit.anchored` entry (reason `missing`, `from_seq` the last entry) and anchors the log from then on. Older entries stay as they are; their actor and action strings are unchanged, so nothing needs migrating.
+
+Options the owner may choose instead of, or on top of, the implemented one:
+
+1. **Anchor in the DPAPI secrets store (implemented).** No new mechanism, no dependency, no setup change. Limits as above.
+2. **Also write the anchor to the Windows Application event log on every append.** Clearing that log is itself logged (event 104), so an administrator could not erase the anchor's history silently, and the entries are readable without SoiréeHost. Costs: an event source must be registered by setup (an administrator step, done on CI and in the VM), the event log has its own retention limits, and every control change adds an event the owner may not want.
+3. **Key the chain (HMAC with a DPAPI-protected key) instead of a plain SHA-256.** Stops a rehash by anyone who cannot use the supervisor's DPAPI key, but on its own still misses a cut or a deletion, so it would come on top of option 1, not instead of it. Costs: a key to protect and to keep across reinstalls, or the old log stops verifying.
+
+Recommended: option 1 for 1.0.0; option 2 if the owner wants the anchor's history to survive an administrator.
 
 ### Worker self-limits (S-21, S-24)
 

@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TheAlsaadi/SoireeHost/internal/audit"
 	"github.com/TheAlsaadi/SoireeHost/internal/config"
 	"github.com/TheAlsaadi/SoireeHost/internal/ipc"
 	"github.com/TheAlsaadi/SoireeHost/internal/update"
@@ -183,9 +184,9 @@ func newTestUpdater(t *testing.T, f *fakeGitHub, running string) *updateRun {
 	r := &updateRun{dir: t.TempDir()}
 	r.on.Store(true)
 	var mu sync.Mutex
-	r.u = newUpdater(r.dir, running, f.opts, r.on.Load, func(action string, _ map[string]string) {
+	r.u = newUpdater(r.dir, running, f.opts, r.on.Load, func(action audit.Action, _ map[string]string) {
 		mu.Lock()
-		r.records = append(r.records, action)
+		r.records = append(r.records, action.String())
 		mu.Unlock()
 	})
 	return r
@@ -481,7 +482,7 @@ func TestUpdateRestore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	again := newUpdater(r.dir, "1.2.0", f.opts, func() bool { return true }, func(string, map[string]string) {})
+	again := newUpdater(r.dir, "1.2.0", f.opts, func() bool { return true }, func(audit.Action, map[string]string) {})
 	again.restore()
 	if st := again.status(); st.State != ipc.UpdateReady || st.Version != "1.3.0" {
 		t.Fatalf("after a restart: %+v", st)
@@ -490,7 +491,7 @@ func TestUpdateRestore(t *testing.T) {
 		t.Fatalf("leftovers kept: %v", fs)
 	}
 	// once 1.3.0 runs, its own staged copy goes
-	after := newUpdater(r.dir, "1.3.0", f.opts, func() bool { return true }, func(string, map[string]string) {})
+	after := newUpdater(r.dir, "1.3.0", f.opts, func() bool { return true }, func(audit.Action, map[string]string) {})
 	after.restore()
 	if fs := r.files(t); len(fs) != 0 {
 		t.Fatalf("the installed version's files were kept: %v", fs)
@@ -503,7 +504,7 @@ func TestUpdateRestore(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(r2.dir, stagedExe("1.3.0")), []byte("changed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	third := newUpdater(r2.dir, "1.2.0", f.opts, func() bool { return true }, func(string, map[string]string) {})
+	third := newUpdater(r2.dir, "1.2.0", f.opts, func() bool { return true }, func(audit.Action, map[string]string) {})
 	third.restore()
 	if st := third.status(); st.State == ipc.UpdateReady {
 		t.Fatal("a changed staged file was offered as ready")
