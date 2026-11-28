@@ -318,22 +318,41 @@ func githubRanges(t *testing.T) []netip.Prefix {
 	return out
 }
 
+// getList fetches a published address list. GitHub's API allows few
+// requests without authentication from a shared runner's address, so the
+// job's own read-only GITHUB_TOKEN is sent, to api.github.com only, when it
+// is set; a refused or failed request is tried twice more.
 func getList(t *testing.T, url string) string {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
-	if err != nil {
-		t.Fatal(err)
+	var last string
+	for attempt := range 3 {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 5 * time.Second)
+		}
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tok := os.Getenv("GITHUB_TOKEN"); tok != "" && strings.HasPrefix(url, "https://api.github.com/") {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			last = err.Error()
+			continue
+		}
+		b, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		_ = resp.Body.Close()
+		if err == nil && resp.StatusCode == http.StatusOK {
+			return string(b)
+		}
+		last = strconv.Itoa(resp.StatusCode)
+		if err != nil {
+			last += " " + err.Error()
+		}
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("%s: %v", url, err)
-	}
-	defer resp.Body.Close() //nolint:errcheck // read-only
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil || resp.StatusCode != http.StatusOK {
-		t.Fatalf("%s: %d %v", url, resp.StatusCode, err)
-	}
-	return string(b)
+	t.Fatalf("%s: %s, after 3 tries", url, last)
+	return ""
 }
 
 func inRanges(a netip.Addr, ranges []netip.Prefix) bool {

@@ -296,6 +296,9 @@ jobs:
           # address can still get quick tunnels from trycloudflare.com
           SOIREEHOST_S42_E2E: "1"
           SOIREEHOST_S42_TUNNEL: "1"
+          # read-only; the S-42 test sends it to api.github.com only, against
+          # the shared runner address's unauthenticated rate limit
+          GITHUB_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           $out = go test -tags e2e,no_fs_access -count=1 -v -timeout 60m ./internal/e2e/ 2>&1 | Out-String
@@ -432,6 +435,8 @@ jobs:
         # release-style test build installed above checks for updates; each
         # process may reach only what S-42 allows. The tunnel half ran with
         # the isolation tests.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           $env:SOIREEHOST_E2E = '1'
