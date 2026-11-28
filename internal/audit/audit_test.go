@@ -306,30 +306,83 @@ func TestUnreadableAnchor(t *testing.T) {
 // A failure to save the anchor fails the append, so callers treat the
 // entry as not written (S-32).
 func TestAnchorSaveFailureReported(t *testing.T) {
-	l, _, m := newLog(t)
+	l, p, m := newLog(t)
+	fill(t, l, 1)
 	m.saveErr = errors.New("disk full")
 	if _, err := l.Append(user, SitePut, nil); err == nil {
 		t.Fatal("append succeeded without saving the anchor")
 	}
+	// nothing was written: the entry cannot claim a change that was refused
+	if n := len(lines(t, p)); n != 1 {
+		t.Fatalf("%d lines after a refused append", n)
+	}
+	m.saveErr = nil
+	if rep, _ := l.Verify(); !rep.OK() {
+		t.Fatalf("report %+v", rep)
+	}
 }
 
-// A crash between writing an entry and saving the anchor leaves the file
-// one entry ahead; that is not tampering.
-func TestCrashBeforeAnchorSaved(t *testing.T) {
+// The anchor is saved before each write, so an entry that never reached the
+// file (a crash, a power loss) is reported, and stays reported.
+func TestEntryLostAfterAnchorSaved(t *testing.T) {
 	l, p, m := newLog(t)
 	fill(t, l, 3)
-	behind := m.a
-	fill(t, l, 1)
-	m.a = behind
-	l2, rep, err := Open(p, m)
-	if err != nil || !rep.OK() {
-		t.Fatalf("open: %v %+v", err, rep)
-	}
-	if e, err := l2.Append(System, SupervisorStop, nil); err != nil || e.Seq != 5 {
+	m.a = Anchor{Seq: 4, Hash: strings.Repeat("ab", 32)}
+	l2 := mustBreakAtOpen(t, p, m)
+	if e, err := l2.Append(System, SupervisorStart, nil); err != nil || e.Seq != 5 {
 		t.Fatalf("append: seq %d %v", e.Seq, err)
 	}
-	if rep, _ := l2.Verify(); !rep.OK() {
-		t.Fatalf("report %+v", rep)
+	mustBreakAtOpen(t, p, m)
+}
+
+// Review of SE-13: a correctly chained entry added to the file by someone
+// other than the supervisor is past the anchor and reported, and stays
+// reported after a restart and further appends.
+func TestEntriesAddedAfterAnchor(t *testing.T) {
+	for _, n := range []int{1, 3} {
+		l, p, m := newLog(t)
+		fill(t, l, 3)
+		ls := lines(t, p)
+		var last Entry
+		if err := json.Unmarshal(ls[len(ls)-1], &last); err != nil {
+			t.Fatal(err)
+		}
+		for i := range n {
+			e := Entry{Seq: last.Seq + 1, Time: last.Time.Add(time.Second), Actor: "S-1-5-21-9", Action: "site.remove",
+				Detail: map[string]string{"site": "forged", "i": string(rune('a' + i))}, Prev: last.Hash}
+			h, err := hashOf(e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.Hash = h
+			b, err := json.Marshal(e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ls = append(ls, b)
+			last = e
+		}
+		write(t, p, ls)
+		if rep := verifyChainOnly(t, p); !rep.OK() {
+			t.Fatalf("the forged entries should chain by themselves: %+v", rep)
+		}
+		if rep, _ := l.Verify(); rep.OK() {
+			t.Fatalf("%d added entries not detected", n)
+		}
+		l2 := mustBreakAtOpen(t, p, m)
+		if _, err := l2.Append(System, SupervisorStart, nil); err != nil {
+			t.Fatal(err)
+		}
+		mustBreakAtOpen(t, p, m)
+	}
+}
+
+// Open does not fail when it cannot save the first anchor: that is a break.
+func TestOpenWithoutSavableAnchor(t *testing.T) {
+	m := &memAnchor{saveErr: errors.New("disk full")}
+	l, rep, err := Open(filepath.Join(t.TempDir(), "audit.log"), m)
+	if !errors.Is(err, ErrBroken) || rep.OK() || l == nil {
+		t.Fatalf("open: %v %+v", err, rep)
 	}
 }
 
