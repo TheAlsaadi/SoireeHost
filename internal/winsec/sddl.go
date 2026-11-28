@@ -31,7 +31,7 @@ const PipeClientAccess = 0x12008b
 // (S-30): owned by the server; NETWORK denied; read and write for SYSTEM,
 // Administrators and each of users; full access for the server so it can
 // create more pipe instances.
-func ControlPipeSDDL(owner string, users ...string) string {
+func ControlPipeSDDL(owner SupervisorSID, users ...string) string {
 	sddl := fmt.Sprintf("O:%sD:P(D;;GA;;;%s)(A;;GA;;;%s)(A;;%s;;;%s)(A;;%s;;;%s)",
 		owner, SIDNetwork, owner, pipeClient, SIDSystem, pipeClient, SIDAdministrators)
 	for _, u := range users {
@@ -51,7 +51,7 @@ func ControlPipeSDDL(owner string, users ...string) string {
 // creation. The config folder admits no one else, but every account may
 // open a known path inside it because SeChangeNotifyPrivilege bypasses
 // traverse checks.
-func PipeNameFolderSDDL(supervisor string, readers ...string) string {
+func PipeNameFolderSDDL(supervisor SupervisorSID, readers ...string) string {
 	s := fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FA;;;%s)(A;OICI;%s;;;%s)", SIDSystem, SIDAdministrators, fileModify, supervisor)
 	for _, r := range readers {
 		s += "(A;OICI;FR;;;" + r + ")"
@@ -61,7 +61,7 @@ func PipeNameFolderSDDL(supervisor string, readers ...string) string {
 
 // WorkerPipeSDDL is the security descriptor of a worker pipe: only the
 // worker's service account may connect.
-func WorkerPipeSDDL(owner, worker string) string {
+func WorkerPipeSDDL[W WorkerSID](owner SupervisorSID, worker W) string {
 	return fmt.Sprintf("O:%sD:P(D;;GA;;;%s)(A;;GA;;;%s)(A;;%s;;;%s)",
 		owner, SIDNetwork, owner, pipeClient, worker)
 }
@@ -69,7 +69,7 @@ func WorkerPipeSDDL(owner, worker string) string {
 // WorkerServiceSDDL is the security descriptor of a worker service (S-20):
 // SYSTEM and Administrators have full control, the supervisor may query,
 // start, stop and interrogate it, and interactive users may only query.
-func WorkerServiceSDDL(supervisor string) string {
+func WorkerServiceSDDL(supervisor SupervisorSID) string {
 	return fmt.Sprintf("D:P(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;%s)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;%s)(A;;LCRPWPLO;;;%s)(A;;CCLCSWLORC;;;%s)",
 		SIDSystem, SIDAdministrators, supervisor, SIDInteractive)
 }
@@ -81,14 +81,14 @@ func WorkerServiceSDDL(supervisor string) string {
 
 // ConfigFolderSDDL is the config folder: SYSTEM and Administrators full,
 // supervisor modify.
-func ConfigFolderSDDL(supervisor string) string {
+func ConfigFolderSDDL(supervisor SupervisorSID) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FA;;;%s)(A;OICI;%s;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, SIDAdministrators, fileModify, supervisor, SIDOwnerRights)
 }
 
 // SecretsFolderSDDL is the secrets folder: SYSTEM full, supervisor modify,
 // nobody else.
-func SecretsFolderSDDL(supervisor string) string {
+func SecretsFolderSDDL(supervisor SupervisorSID) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;%s;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, fileModify, supervisor, SIDOwnerRights)
 }
@@ -96,35 +96,35 @@ func SecretsFolderSDDL(supervisor string) string {
 // LogsFolderSDDL is the parent logs folder: SYSTEM and Administrators full
 // (setup creates the log folders inside it), the supervisor read. Each log
 // folder inside has its own protected descriptor.
-func LogsFolderSDDL(supervisor string) string {
+func LogsFolderSDDL(supervisor SupervisorSID) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FA;;;%s)(A;OICI;FR;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, SIDAdministrators, supervisor, SIDOwnerRights)
 }
 
 // AuditFolderSDDL (S-36): the supervisor may create files in the folder and
 // append to them, never rewrite them.
-func AuditFolderSDDL(supervisor string) string {
+func AuditFolderSDDL(supervisor SupervisorSID) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FR;;;%s)(A;CI;%s;;;%s)(A;OIIO;%s;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, SIDAdministrators, dirReadAddFile, supervisor, fileReadAppend, supervisor, SIDOwnerRights)
 }
 
 // WorkerLogFolderSDDL is a worker's log folder: the worker modifies it; the
 // supervisor and Administrators read it.
-func WorkerLogFolderSDDL(supervisor, worker string) string {
+func WorkerLogFolderSDDL[W WorkerSID](supervisor SupervisorSID, worker W) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FR;;;%s)(A;OICI;FR;;;%s)(A;OICI;%s;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, SIDAdministrators, supervisor, fileModify, worker, SIDOwnerRights)
 }
 
 // UpdatesFolderSDDL is the updates folder: supervisor modify, Administrators
 // read (S-63).
-func UpdatesFolderSDDL(supervisor string) string {
+func UpdatesFolderSDDL(supervisor SupervisorSID) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FR;;;%s)(A;OICI;%s;;;%s)(A;OICI;RC;;;%s)",
 		SIDSystem, SIDAdministrators, fileModify, supervisor, SIDOwnerRights)
 }
 
 // DataRootSDDL is %ProgramData%\SoireeHost itself: SYSTEM and Administrators
 // full, every SoiréeHost service may list it to reach its own subfolder.
-func DataRootSDDL(supervisor, web, tunnel string) string {
+func DataRootSDDL(supervisor SupervisorSID, web WebSID, tunnel TunnelSID) string {
 	return fmt.Sprintf("D:P(A;OICI;FA;;;%s)(A;OICI;FA;;;%s)(A;;%s;;;%s)(A;;%s;;;%s)(A;;%s;;;%s)",
 		SIDSystem, SIDAdministrators, dirTraverse, supervisor, dirTraverse, web, dirTraverse, tunnel)
 }

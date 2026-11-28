@@ -23,7 +23,7 @@ type rawServer struct {
 func serveRaw(t *testing.T, reply func(conn int32, req Request) *Response) *rawServer {
 	t.Helper()
 	path := pipeName(t)
-	ln, err := Listen(path, winsec.ControlPipeSDDL(me(t), me(t)))
+	ln, err := Listen(path, winsec.ControlPipeSDDL(winsec.SupervisorSID(me(t)), me(t)))
 	if err != nil {
 		t.Fatal(err)
 	}

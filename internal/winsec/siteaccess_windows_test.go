@@ -26,7 +26,7 @@ func daclOf(t *testing.T, p string) string {
 // SE-07: a link or junction is refused before anything is checked or
 // changed, and so is a folder the check refuses.
 func TestGrantSiteAccessRefusesLinksAndCheckedFolders(t *testing.T) {
-	web, sup := ServiceSID(WebService), ServiceSID(SupervisorService)
+	web, sup := WebAccount(), SupervisorAccount()
 	base := testutil.SiteDir(t)
 	target := filepath.Join(base, "target")
 	if err := os.Mkdir(target, 0o700); err != nil {
@@ -39,14 +39,14 @@ func TestGrantSiteAccessRefusesLinksAndCheckedFolders(t *testing.T) {
 	if err == nil || called {
 		t.Fatalf("a junction was accepted (check called: %v): %v", called, err)
 	}
-	if strings.Contains(daclOf(t, target), web) {
+	if strings.Contains(daclOf(t, target), string(web)) {
 		t.Fatal("the junction's target was changed")
 	}
 	refuse := errors.New("refused by the path rules")
 	if _, err := GrantSiteAccess(target, web, sup, func(string) (string, error) { return "", refuse }); !errors.Is(err, refuse) {
 		t.Fatalf("a refused folder: %v", err)
 	}
-	if strings.Contains(daclOf(t, target), web) {
+	if strings.Contains(daclOf(t, target), string(web)) {
 		t.Fatal("a refused folder was changed")
 	}
 	// the check approving another folder than the one opened
@@ -62,7 +62,7 @@ func TestGrantSiteAccessRefusesLinksAndCheckedFolders(t *testing.T) {
 // SE-07: a second grant adds no duplicate entries, and the check sees the
 // handle's real path.
 func TestGrantSiteAccessIdempotent(t *testing.T) {
-	web, sup := ServiceSID(WebService), ServiceSID(SupervisorService)
+	web, sup := WebAccount(), SupervisorAccount()
 	dir := testutil.SiteDir(t)
 	var seen string
 	canon, err := GrantSiteAccess(dir, web, sup, func(p string) (string, error) { seen = p; return p, nil })
@@ -76,7 +76,7 @@ func TestGrantSiteAccessIdempotent(t *testing.T) {
 	if _, err := GrantSiteAccess(dir, web, sup, acceptAll); err != nil {
 		t.Fatal(err)
 	}
-	if again := daclOf(t, dir); again != first || strings.Count(again, web) != 1 || strings.Count(again, sup) != 1 {
+	if again := daclOf(t, dir); again != first || strings.Count(again, string(web)) != 1 || strings.Count(again, string(sup)) != 1 {
 		t.Fatalf("second grant changed the folder:\n%s\n%s", first, again)
 	}
 }
@@ -84,7 +84,7 @@ func TestGrantSiteAccessIdempotent(t *testing.T) {
 // SE-07: the inherited read entry reaches what is inside the folder, but
 // never what a junction inside it points to.
 func TestGrantSiteAccessStaysInside(t *testing.T) {
-	web, sup := ServiceSID(WebService), ServiceSID(SupervisorService)
+	web, sup := WebAccount(), SupervisorAccount()
 	base := testutil.SiteDir(t)
 	site := filepath.Join(base, "site")
 	outside := filepath.Join(base, "outside")
@@ -103,11 +103,11 @@ func TestGrantSiteAccessStaysInside(t *testing.T) {
 	if _, err := GrantSiteAccess(site, web, sup, acceptAll); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(daclOf(t, filepath.Join(site, "sub", "page.html")), web) {
+	if !strings.Contains(daclOf(t, filepath.Join(site, "sub", "page.html")), string(web)) {
 		t.Fatal("a file inside the folder did not inherit the read entry")
 	}
 	for _, p := range []string{outside, filepath.Join(outside, "secret.txt")} {
-		if strings.Contains(daclOf(t, p), web) {
+		if strings.Contains(daclOf(t, p), string(web)) {
 			t.Fatalf("the grant followed a junction to %s", p)
 		}
 	}

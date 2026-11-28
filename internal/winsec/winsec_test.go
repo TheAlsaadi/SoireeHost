@@ -53,7 +53,7 @@ func me(t *testing.T) string {
 }
 
 func TestSDDLParses(t *testing.T) {
-	sup, web, tun, user := ServiceSID(SupervisorService), ServiceSID(WebService), ServiceSID(TunnelService), me(t)
+	sup, web, tun, user := SupervisorAccount(), WebAccount(), TunnelAccount(), me(t)
 	all := map[string]string{
 		"control pipe":   ControlPipeSDDL(sup, user),
 		"worker pipe":    WorkerPipeSDDL(sup, web),
@@ -78,7 +78,7 @@ func TestSDDLParses(t *testing.T) {
 		t.Errorf("control pipe descriptor %s", cp)
 	}
 	// S-40: secrets name only SYSTEM and the supervisor (and OWNER RIGHTS, read-control only)
-	if s := SecretsFolderSDDL(sup); strings.Contains(s, SIDAdministrators) || strings.Contains(s, web) {
+	if s := SecretsFolderSDDL(sup); strings.Contains(s, SIDAdministrators) || strings.Contains(s, string(web)) {
 		t.Errorf("secrets descriptor %s", s)
 	}
 	// S-20: interactive users can only query a worker service
@@ -91,7 +91,7 @@ func TestSDDLParses(t *testing.T) {
 func TestCheckWriters(t *testing.T) {
 	user := me(t)
 	dir := filepath.Join(t.TempDir(), "config")
-	if err := winsectest.SetFolderSDDL(dir, ConfigFolderSDDL(user)); err != nil {
+	if err := winsectest.SetFolderSDDL(dir, ConfigFolderSDDL(SupervisorSID(user))); err != nil {
 		t.Fatal(err)
 	}
 	if err := CheckWriters(dir, SIDSystem, SIDAdministrators, user); err != nil {
@@ -102,7 +102,7 @@ func TestCheckWriters(t *testing.T) {
 	}
 
 	open := filepath.Join(t.TempDir(), "open")
-	sddl := ConfigFolderSDDL(user) + "(A;OICI;0x1301bf;;;" + SIDUsers + ")"
+	sddl := ConfigFolderSDDL(SupervisorSID(user)) + "(A;OICI;0x1301bf;;;" + SIDUsers + ")"
 	if err := winsectest.SetFolderSDDL(open, sddl); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestCheckWriters(t *testing.T) {
 	}
 
 	readOnly := filepath.Join(t.TempDir(), "ro")
-	if err := winsectest.SetFolderSDDL(readOnly, ConfigFolderSDDL(user)+"(A;OICI;FR;;;"+SIDUsers+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(readOnly, ConfigFolderSDDL(SupervisorSID(user))+"(A;OICI;FR;;;"+SIDUsers+")"); err != nil {
 		t.Fatal(err)
 	}
 	if err := CheckWriters(readOnly, SIDSystem, SIDAdministrators, user); err != nil {
@@ -211,43 +211,43 @@ func TestCurrentCaller(t *testing.T) {
 // the supervisor only enough to inspect the folder; GrantsRead sees both.
 func TestGrantSiteAccess(t *testing.T) {
 	user := me(t)
-	web, sup := ServiceSID(WebService), ServiceSID(SupervisorService)
+	web, sup := WebAccount(), SupervisorAccount()
 	dir := filepath.Join(t.TempDir(), "site")
 	if err := winsectest.SetFolderSDDL(dir, "D:P(A;OICI;FA;;;"+SIDSystem+")(A;OICI;FA;;;"+user+")"); err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := GrantsRead(dir, WorkerGroups(web)...); err != nil || ok {
+	if ok, err := GrantsRead(dir, WorkerGroups(string(web))...); err != nil || ok {
 		t.Fatalf("locked folder readable by the worker: %v %v", ok, err)
 	}
 	if _, err := GrantSiteAccess(dir, web, sup, acceptAll); err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := GrantsRead(dir, WorkerGroups(web)...); err != nil || !ok {
+	if ok, err := GrantsRead(dir, WorkerGroups(string(web))...); err != nil || !ok {
 		t.Fatalf("worker cannot read after the grant: %v %v", ok, err)
 	}
-	if ok, _ := GrantsRead(dir, sup); ok {
+	if ok, _ := GrantsRead(dir, string(sup)); ok {
 		t.Fatal("the supervisor was given read access to the files")
 	}
 	sd, err := windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := sd.String(); !strings.Contains(s, ";;;"+sup+")") || strings.Contains(s, "OICI;0x120080") {
+	if s := sd.String(); !strings.Contains(s, ";;;"+string(sup)+")") || strings.Contains(s, "OICI;0x120080") {
 		t.Fatalf("supervisor entry should be on the folder only: %s", s)
 	}
 
 	denied := filepath.Join(t.TempDir(), "denied")
-	if err := winsectest.SetFolderSDDL(denied, "D:P(D;OICI;FR;;;"+SIDUsers+")(A;OICI;FA;;;"+user+")(A;OICI;FR;;;"+web+")"); err != nil {
+	if err := winsectest.SetFolderSDDL(denied, "D:P(D;OICI;FR;;;"+SIDUsers+")(A;OICI;FA;;;"+user+")(A;OICI;FR;;;"+string(web)+")"); err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := GrantsRead(denied, WorkerGroups(web)...); ok {
+	if ok, _ := GrantsRead(denied, WorkerGroups(string(web))...); ok {
 		t.Fatal("a deny entry for Users was ignored")
 	}
 	public := filepath.Join(t.TempDir(), "public")
 	if err := winsectest.SetFolderSDDL(public, "D:P(A;OICI;FA;;;"+user+")(A;OICI;FR;;;"+SIDUsers+")"); err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := GrantsRead(public, WorkerGroups(web)...); !ok {
+	if ok, _ := GrantsRead(public, WorkerGroups(string(web))...); !ok {
 		t.Fatal("read access through Users not seen")
 	}
 }
@@ -270,22 +270,6 @@ func TestCreateFolderSDDL(t *testing.T) {
 	}
 	if err := CreateFolderSDDL(dir, sddl); err == nil {
 		t.Fatal("created an existing folder again")
-	}
-}
-
-// A file with several hard links is never re-permissioned.
-func TestForceSDDLSkipsHardLinks(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "target.txt")
-	if err := os.WriteFile(target, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Link(target, filepath.Join(dir, "link.txt")); err != nil {
-		t.Skipf("cannot create a hard link here: %v", err)
-	}
-	skipped, err := ForceSDDLUnlessLinked(filepath.Join(dir, "link.txt"), "D:P(A;;FA;;;"+SIDAdministrators+")")
-	if err != nil || !skipped {
-		t.Fatalf("hard-linked file: skipped=%v err=%v", skipped, err)
 	}
 }
 

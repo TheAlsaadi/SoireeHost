@@ -256,7 +256,7 @@ func replaceProgram(src, dst string) error {
 // makeFolders creates %ProgramData%\SoireeHost and its subfolders with the
 // ADR-0006 descriptors.
 func makeFolders(root, caller string) error {
-	sup, web, tun := winsec.ServiceSID(winsec.SupervisorService), winsec.ServiceSID(winsec.WebService), winsec.ServiceSID(winsec.TunnelService)
+	sup, web, tun := winsec.SupervisorAccount(), winsec.WebAccount(), winsec.TunnelAccount()
 	p := supervisor.Paths{Root: root}
 	// Every folder gets an explicit owner, so nothing created earlier by
 	// another account keeps an owner's rights. Secrets are owned by SYSTEM:
@@ -284,7 +284,7 @@ func makeFolders(root, caller string) error {
 		if err := winsec.ForceSDDL(root, steps[0].sddl); err != nil {
 			return fmt.Errorf("%s: %w", root, err)
 		}
-		if err := checkContents(root, caller, sup, web, tun); err != nil {
+		if err := checkContents(root, caller, string(sup), string(web), string(tun)); err != nil {
 			return err
 		}
 	} else {
@@ -499,7 +499,7 @@ func configureService(s *mgr.Service, spec serviceSpec) error {
 		}
 		return s.SetRecoveryActionsOnNonCrashFailures(true)
 	}
-	sd, err := windows.SecurityDescriptorFromString(winsec.WorkerServiceSDDL(winsec.ServiceSID(winsec.SupervisorService)))
+	sd, err := windows.SecurityDescriptorFromString(winsec.WorkerServiceSDDL(winsec.SupervisorAccount()))
 	if err != nil {
 		return err
 	}

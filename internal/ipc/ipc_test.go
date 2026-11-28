@@ -251,7 +251,7 @@ func serve(t *testing.T, auth Authorizer) *served {
 	t.Helper()
 	user := me(t)
 	path := pipeName(t)
-	ln, err := Listen(path, winsec.ControlPipeSDDL(user, user))
+	ln, err := Listen(path, winsec.ControlPipeSDDL(winsec.SupervisorSID(user), user))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestDialRefusesWrongOwner(t *testing.T) {
 // The first instance is exclusive: a second server cannot share the name.
 func TestListenExclusive(t *testing.T) {
 	s := serve(t, func(winsec.Caller) bool { return true })
-	if ln, err := Listen(s.path, winsec.ControlPipeSDDL(me(t), me(t))); err == nil {
+	if ln, err := Listen(s.path, winsec.ControlPipeSDDL(winsec.SupervisorSID(me(t)), me(t))); err == nil {
 		_ = ln.Close()
 		t.Fatal("second listener on the same name")
 	}
@@ -380,7 +380,7 @@ func TestMalformedRequestEndsConnection(t *testing.T) {
 func TestWorkerPipe(t *testing.T) {
 	user := me(t)
 	path := pipeName(t)
-	ln, err := Listen(path, winsec.WorkerPipeSDDL(user, user))
+	ln, err := Listen(path, winsec.WorkerPipeSDDL(winsec.SupervisorSID(user), winsec.WebSID(user)))
 	if err != nil {
 		t.Fatal(err)
 	}
