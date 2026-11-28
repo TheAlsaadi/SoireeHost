@@ -280,3 +280,37 @@ func TestEventFor(t *testing.T) {
 		}
 	}
 }
+
+// TestKeepStopped covers the CI flake of 28 Nov 2026 (run 46130645262): the
+// service manager restarted the old supervisor between the stop and the
+// swap, and the update was rolled back because it kept answering.
+func TestKeepStopped(t *testing.T) {
+	cases := []struct {
+		name      string
+		restarts  int // times the services are found running again
+		stopFails bool
+		want      bool
+		wantStops int
+	}{
+		{"still stopped", 0, false, true, 0},
+		{"restarted once", 1, false, true, 1},
+		{"restarted twice", 2, false, true, 2},
+		{"keeps restarting", 100, false, false, 3},
+		{"stop fails", 1, true, false, 1},
+	}
+	for _, c := range cases {
+		left, stops := c.restarts, 0
+		running := func() bool { return left > 0 }
+		stop := func() bool {
+			stops++
+			if c.stopFails {
+				return false
+			}
+			left--
+			return true
+		}
+		if got := keepStopped(running, stop); got != c.want || stops != c.wantStops {
+			t.Errorf("%s: got %v after %d stops, want %v after %d", c.name, got, stops, c.want, c.wantStops)
+		}
+	}
+}
